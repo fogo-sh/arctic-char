@@ -28,7 +28,8 @@ main :: proc() {
 		nil,
 	)
 
-	ok := sdl.Init({.VIDEO});assert(ok)
+	ok := sdl.Init({.VIDEO, .AUDIO});assert(ok)
+	defer sdl.Quit()
 
 	window := sdl.CreateWindow("arctic char*", 512, 512, {});assert(window != nil)
 
@@ -101,7 +102,6 @@ main :: proc() {
 	)
 	sdl.EndGPUCopyPass(copy_pass)
 	ok = sdl.SubmitGPUCommandBuffer(copy_command_buffer);assert(ok)
-
 
 	win_size: [2]i32
 	ok = sdl.GetWindowSize(window, &win_size.x, &win_size.y);assert(ok)
