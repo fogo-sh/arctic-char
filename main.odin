@@ -38,6 +38,22 @@ main :: proc() {
 
 	gpu := sdl.CreateGPUDevice({.MSL}, true, nil);assert(gpu != nil)
 
+	spec: sdl.AudioSpec
+	wav_data: [^]u8
+	wav_data_len: u32
+
+	ok = sdl.LoadWAV("./assets/sound.wav", &spec, &wav_data, &wav_data_len);assert(ok)
+
+	stream := sdl.OpenAudioDeviceStream(
+		sdl.AUDIO_DEVICE_DEFAULT_PLAYBACK,
+		&spec,
+		nil,
+		nil,
+	);assert(stream != nil)
+	defer sdl.CloseAudioDevice(sdl.AUDIO_DEVICE_DEFAULT_PLAYBACK)
+
+	ok = sdl.ResumeAudioStreamDevice(stream);assert(ok)
+
 	ok = sdl.ClaimWindowForGPUDevice(gpu, window);assert(ok)
 
 	vert_shader := load_shader(gpu, vert_shader_code, .VERTEX, 1)
@@ -142,6 +158,11 @@ main :: proc() {
 		}
 
 		// update game state
+
+		// audio
+		if sdl.GetAudioStreamAvailable(stream) < cast(i32)wav_data_len {
+			sdl.PutAudioStreamData(stream, wav_data, cast(i32)wav_data_len)
+		}
 
 		// render
 		cmd_buf := sdl.AcquireGPUCommandBuffer(gpu)
