@@ -4,18 +4,16 @@ build:
 run:
   ./arctic-char
 
-build-and-run:
-  just build
-  just run
+build-and-run: build run
 
-spv-to-msl:
-  shadercross shaders/spv/shader.spv.vert -o shaders/msl/shader.msl.vert
-  shadercross shaders/spv/shader.spv.frag -o shaders/msl/shader.msl.frag
+glsl-to-spv shader_name:
+  glslc shaders/glsl/{{shader_name}}.glsl.vert -o shaders/spv/{{shader_name}}.spv.vert
+  glslc shaders/glsl/{{shader_name}}.glsl.frag -o shaders/spv/{{shader_name}}.spv.frag
 
-glsl-to-spv:
-  glslc shaders/glsl/shader.glsl.vert -o shaders/spv/shader.spv.vert
-  glslc shaders/glsl/shader.glsl.frag -o shaders/spv/shader.spv.frag
+spv-to-msl shader_name:
+  shadercross shaders/spv/{{shader_name}}.spv.vert -o shaders/msl/{{shader_name}}.msl.vert
+  shadercross shaders/spv/{{shader_name}}.spv.frag -o shaders/msl/{{shader_name}}.msl.frag
 
-shaders:
-  just glsl-to-spv
-  just spv-to-msl
+shader shader_name: (glsl-to-spv shader_name) (spv-to-msl shader_name)
+
+shaders: (shader "shader") (shader "text_shader")
