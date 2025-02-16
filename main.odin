@@ -4,6 +4,7 @@ import "base:runtime"
 import "core:log"
 import "core:math/linalg"
 import sdl "vendor:sdl3"
+import "core:fmt"
 
 default_context: runtime.Context
 
@@ -52,7 +53,7 @@ main :: proc() {
 		slot               = 0,
 		pitch              = 16,
 		input_rate         = .VERTEX,
-		instance_step_rate = 1, // THIS IS IGNORED!!!! NEEDED FOR TYPING
+		instance_step_rate = 0, // THIS IS IGNORED!!!! NEEDED FOR TYPING
 	}
 	vertex_attribute_description := sdl.GPUVertexAttribute {
 		location    = 0,
@@ -86,9 +87,9 @@ main :: proc() {
 
 	transfer_buffer := sdl.CreateGPUTransferBuffer(gpu, {usage = .UPLOAD, size = 12000, props = 0})
 	tb_pointer := sdl.MapGPUTransferBuffer(gpu, transfer_buffer, false)
-	test := [12]f32{-0.5, -0.5, 0, 1, 0, 0.5, 0, 1, 0.5, -0.5, 0, 1}
+	(cast(^[12]f32)tb_pointer)^ = {-0.5, -0.5, 0, 1, -0.5, 0.5, 0, 1, 0.5, -0.5, 0, 1}
 
-	(cast(^[12]f32)tb_pointer)^ = test
+	sdl.UnmapGPUTransferBuffer(gpu, transfer_buffer)
 
 	vertex_buffer := sdl.CreateGPUBuffer(gpu, {usage = {.VERTEX, .INDEX}, size = 12000, props = 0})
 

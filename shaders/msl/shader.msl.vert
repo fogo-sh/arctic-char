@@ -18,10 +18,10 @@ struct main0_in
     float4 inPosition [[attribute(0)]];
 };
 
-vertex main0_out main0(main0_in in [[stage_in]], constant UBO& _19 [[buffer(0)]], uint gl_VertexIndex [[vertex_id]])
+vertex main0_out main0(main0_in in [[stage_in]], constant UBO& _19 [[buffer(0)]])
 {
     main0_out out = {};
-    out.gl_Position = _19.mvp * float4(in.inPosition[int(gl_VertexIndex)]);
+    out.gl_Position = _19.mvp * in.inPosition;
     return out;
 }
 
