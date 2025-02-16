@@ -1,10 +1,10 @@
 package main
 
 import "base:runtime"
+import "core:fmt"
 import "core:log"
 import "core:math/linalg"
 import sdl "vendor:sdl3"
-import "core:fmt"
 
 default_context: runtime.Context
 
@@ -14,6 +14,8 @@ vert_shader_code := #load("shaders/msl/shader.msl.vert")
 main :: proc() {
 	context.logger = log.create_console_logger()
 	default_context = context
+
+	ok := sdl.SetAppMetadata("arctic char*", "0.1.0", "sh.fogo.arctic-char");assert(ok)
 
 	sdl.SetLogPriorities(.VERBOSE)
 	sdl.SetLogOutputFunction(
@@ -29,7 +31,7 @@ main :: proc() {
 		nil,
 	)
 
-	ok := sdl.Init({.VIDEO, .AUDIO});assert(ok)
+	ok = sdl.Init({.VIDEO, .AUDIO});assert(ok)
 	defer sdl.Quit()
 
 	window := sdl.CreateWindow("arctic char*", 512, 512, {});assert(window != nil)
