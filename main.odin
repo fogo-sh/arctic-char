@@ -4,6 +4,7 @@ import "base:runtime"
 import "core:fmt"
 import "core:log"
 import "core:math/linalg"
+import "core:math/rand"
 import "core:mem"
 import sdl "vendor:sdl3"
 import "vendor:stb/easy_font"
@@ -245,6 +246,9 @@ main :: proc() {
 		{usage = .UPLOAD, size = 4096, props = 0},
 	)
 
+	text_color1: [4]f32 = [4]f32{1.0, 0.5, 0.0, 1.0}
+	text_color2: [4]f32 = [4]f32{0.0, 1.0, 1.0, 1.0}
+
 	main_loop: for {
 		new_ticks := sdl.GetTicks()
 		delta_time := f32(new_ticks - last_ticks) / 1000
@@ -257,7 +261,12 @@ main :: proc() {
 			case .QUIT:
 				break main_loop
 			case .KEY_DOWN:
-				if ev.key.scancode == .ESCAPE do break main_loop
+				if ev.key.scancode == .ESCAPE {
+					break main_loop
+				} else if ev.key.scancode == .SPACE {
+					text_color1 = generate_random_color()
+					text_color2 = generate_random_color()
+				}
 			}
 		}
 
@@ -315,7 +324,7 @@ main :: proc() {
 					"arctic char*",
 					f32(win_size.x) / 2 - 160,
 					f32(win_size.y) / 2 - 160,
-					[4]f32{1.0, 0.5, 0.0, 1.0},
+					text_color1,
 					5.0,
 					&text_vertices,
 					&vertex_offset,
@@ -327,7 +336,7 @@ main :: proc() {
 					"jack & natalie",
 					f32(win_size.x) / 2 - 115,
 					f32(win_size.y) / 2 + 130,
-					[4]f32{0.0, 1.0, 1.0, 1.0},
+					text_color2,
 					3.0,
 					&text_vertices,
 					&vertex_offset,
@@ -409,9 +418,16 @@ orthographic_matrix :: proc(left, right, bottom, top, near, far: f32) -> matrix[
 	ty := -(top + bottom) / (top - bottom)
 	tz := -(far + near) / (far - near)
 	return matrix[4, 4]f32{
-		a, 0, 0, tx,
-		0, b, 0, ty,
-		0, 0, c, tz,
-		0, 0, 0, 1,
+		a, 0, 0, tx, 
+		0, b, 0, ty, 
+		0, 0, c, tz, 
+		0, 0, 0, 1, 
 	}
+}
+
+generate_random_color :: proc() -> [4]f32 {
+	r := rand.float32()
+	g := rand.float32()
+	b := rand.float32()
+	return [4]f32{r, g, b, 1.0}
 }
