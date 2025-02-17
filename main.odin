@@ -67,26 +67,34 @@ main :: proc() {
 	vert_shader := load_shader(gpu, vert_shader_code, .VERTEX, 1)
 	frag_shader := load_shader(gpu, frag_shader_code, .FRAGMENT, 0)
 
-	/*
-	GPUVertexInputState :: struct {
-		vertex_buffer_descriptions: [^]GPUVertexBufferDescription `fmt:"v,num_vertex_buffers"`,    /**< A pointer to an array of vertex buffer descriptions. */
-		num_vertex_buffers:         Uint32,                                                        /**< The number of vertex buffer descriptions in the above array. */
-		vertex_attributes:          [^]GPUVertexAttribute         `fmt:"v,num_vertex_attributes"`, /**< A pointer to an array of vertex attribute descriptions. */
-		num_vertex_attributes:      Uint32,                                                        /**< The number of vertex attribute descriptions in the above array. */
-	}
-	*/
-	vertex_buffer_description := sdl.GPUVertexBufferDescription {
+	// For meshes: 3 floats per vertex (x, y, z)
+	mesh_vertex_buffer_description := sdl.GPUVertexBufferDescription {
 		slot               = 0,
-		pitch              = 12,
+		pitch              = 12, // 3 * 4 bytes
 		input_rate         = .VERTEX,
 		instance_step_rate = 0,
 	}
-	vertex_attribute_description := sdl.GPUVertexAttribute {
+	mesh_vertex_attribute_description := sdl.GPUVertexAttribute {
 		location    = 0,
 		buffer_slot = 0,
 		format      = .FLOAT3,
 		offset      = 0,
 	}
+
+	// For text: 4 floats per vertex (x, y, z, w)
+	text_vertex_buffer_description := sdl.GPUVertexBufferDescription {
+		slot               = 0,
+		pitch              = 16, // 4 * 4 bytes
+		input_rate         = .VERTEX,
+		instance_step_rate = 0,
+	}
+	text_vertex_attribute_description := sdl.GPUVertexAttribute {
+		location    = 0,
+		buffer_slot = 0,
+		format      = .FLOAT4,
+		offset      = 0,
+	}
+
 	pipeline := sdl.CreateGPUGraphicsPipeline(
 		gpu,
 		{
@@ -94,9 +102,9 @@ main :: proc() {
 			fragment_shader = frag_shader,
 			vertex_input_state = {
 				num_vertex_buffers = 1,
-				vertex_buffer_descriptions = &vertex_buffer_description,
+				vertex_buffer_descriptions = &mesh_vertex_buffer_description,
 				num_vertex_attributes = 1,
-				vertex_attributes = &vertex_attribute_description,
+				vertex_attributes = &mesh_vertex_attribute_description,
 			},
 			primitive_type = .TRIANGLELIST,
 			target_info = {
@@ -182,8 +190,8 @@ main :: proc() {
 	text_pipeline, text_gpu_vertex_buffer := setup_text_pipeline(
 		gpu,
 		window,
-		&vertex_buffer_description,
-		&vertex_attribute_description,
+		&text_vertex_buffer_description,
+		&text_vertex_attribute_description,
 	)
 
 	text_color1: [4]f32 = [4]f32{1.0, 0.5, 0.0, 1.0}
@@ -257,7 +265,6 @@ main :: proc() {
 			log.debugf("Pushed UBO data to GPU: %v", ubo.mvp)
 			sdl.DrawGPUPrimitives(render_pass, mesh_vertex_count, 1, 0, 0)
 
-			/*
 			{
 				text_vertices: [4096]f32
 				vertex_offset: u32 = 0
@@ -301,7 +308,6 @@ main :: proc() {
 					draw_count,
 				)
 			}
-			*/
 
 			sdl.EndGPURenderPass(render_pass)
 		}
