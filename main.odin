@@ -117,38 +117,9 @@ main :: proc() {
 	sdl.ReleaseGPUShader(gpu, vert_shader)
 	sdl.ReleaseGPUShader(gpu, frag_shader)
 
-	{
-		model_path: cstring = "./assets/suzanne.glb"
-		options: cgltf.options
-		data, result := cgltf.parse_file(options, model_path)
-		assert(result == .success)
-
-		result = cgltf.load_buffers(options, data, model_path)
-		assert(result == .success)
-
-		for node in data.scene.nodes {
-			mesh := node.mesh
-			primitive := mesh.primitives[0]
-
-			fmt.printf("primitive type: %v\n", primitive.type)
-			fmt.printf("primitive indices: %v\n", primitive.indices)
-			fmt.printf("primitive attributes count: %v\n", len(primitive.attributes))
-			for attr in primitive.attributes {
-				fmt.printf("  attribute type: %v, accessor type: %v\n", attr.type, attr.data.type)
-			}
-		}
-
-		defer cgltf.free(data)
-	}
-
 	mesh_vertex_buffer, mesh_vertex_count, vertex_stride := load_mesh_primitive(
 		gpu,
 		"./assets/suzanne.glb",
-	)
-	log.debugf(
-		"Mesh loaded: vertex_count = %d, vertex_stride = %d",
-		mesh_vertex_count,
-		vertex_stride,
 	)
 
 	transfer_buffer := sdl.CreateGPUTransferBuffer(gpu, {usage = .UPLOAD, size = 12000, props = 0})
@@ -199,7 +170,6 @@ main :: proc() {
 		new_ticks := sdl.GetTicks()
 		delta_time := f32(new_ticks - last_ticks) / 1000
 		last_ticks = new_ticks
-		log.debugf("Frame start - new_ticks: %d, delta_time: %f", new_ticks, delta_time)
 
 		// process events
 		ev: sdl.Event
@@ -219,7 +189,6 @@ main :: proc() {
 
 		// update game state
 		rotation += ROTATION_SPEED * delta_time
-		log.debugf("Updated rotation value: %f", rotation)
 
 		model_mat :=
 			linalg.matrix4_translate_f32({0, 0, -5}) *
@@ -227,7 +196,6 @@ main :: proc() {
 		ubo := UBO {
 			mvp = proj_mat * model_mat,
 		}
-		log.debugf("Computed MVP matrix: %v", ubo.mvp)
 
 		// audio
 		if sdl.GetAudioStreamAvailable(stream) < cast(i32)wav_data_len {
@@ -260,7 +228,6 @@ main :: proc() {
 			}
 			sdl.BindGPUVertexBuffers(render_pass, 0, &vertex_buffer_binding, 1)
 			sdl.PushGPUVertexUniformData(cmd_buf, 0, &ubo, size_of(ubo))
-			log.debugf("Pushed UBO data to GPU: %v", ubo.mvp)
 			sdl.DrawGPUPrimitives(render_pass, mesh_vertex_count, 1, 0, 0)
 
 			{
@@ -405,12 +372,10 @@ load_mesh_primitive :: proc(
 
 	if index_count > 0 {
 		sample_count := 5
-		log.debugf("First %d expanded vertices:", sample_count)
 		for i := uint(0); int(i) < sample_count; i += 1 {
 			v0 := expanded_slice[i * num_components + 0]
 			v1 := expanded_slice[i * num_components + 1]
 			v2 := expanded_slice[i * num_components + 2]
-			log.debugf("  Vertex %d: (%f, %f, %f)", i, v0, v1, v2)
 		}
 	}
 
