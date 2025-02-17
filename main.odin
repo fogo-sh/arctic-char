@@ -115,10 +115,7 @@ main :: proc() {
 				vertex_attributes = &mesh_vertex_attributes[0],
 			},
 			primitive_type = .TRIANGLELIST,
-			rasterizer_state = sdl.GPURasterizerState {
-				cull_mode = .BACK,
-				front_face = .COUNTER_CLOCKWISE,
-			},
+			rasterizer_state = sdl.GPURasterizerState{cull_mode = .BACK, front_face = .CLOCKWISE},
 			target_info = {
 				num_color_targets = 1,
 				color_target_descriptions = &(sdl.GPUColorTargetDescription {
@@ -390,16 +387,37 @@ load_mesh_primitive :: proc(
 		int(index_count * (num_pos_components + num_col_components)),
 	)
 
-	for i := uint(0); i < index_count; i += 1 {
-		idx := cgltf.accessor_read_index(idx_accessor, i)
+	for i := uint(0); i < index_count; i += 3 {
+		// Read the indices for the current triangle.
+		idx0 := cgltf.accessor_read_index(idx_accessor, i)
+		idx1 := cgltf.accessor_read_index(idx_accessor, i + 1)
+		idx2 := cgltf.accessor_read_index(idx_accessor, i + 2)
 
+		// Write the first vertex (unchanged).
+		base := i * (num_pos_components + num_col_components)
 		for j := uint(0); j < num_pos_components; j += 1 {
-			out_slice[i * (num_pos_components + num_col_components) + j] =
-				pos_slice[idx * num_pos_components + j]
+			out_slice[base + j] = pos_slice[idx0 * num_pos_components + j]
 		}
 		for j := uint(0); j < num_col_components; j += 1 {
-			out_slice[i * (num_pos_components + num_col_components) + num_pos_components + j] =
-				col_slice[idx * num_col_components + j]
+			out_slice[base + num_pos_components + j] = col_slice[idx0 * num_col_components + j]
+		}
+
+		// Write the second vertex: use idx2 instead of idx1 to flip the winding.
+		base = (i + 1) * (num_pos_components + num_col_components)
+		for j := uint(0); j < num_pos_components; j += 1 {
+			out_slice[base + j] = pos_slice[idx2 * num_pos_components + j]
+		}
+		for j := uint(0); j < num_col_components; j += 1 {
+			out_slice[base + num_pos_components + j] = col_slice[idx2 * num_col_components + j]
+		}
+
+		// Write the third vertex: use idx1 instead of idx2.
+		base = (i + 2) * (num_pos_components + num_col_components)
+		for j := uint(0); j < num_pos_components; j += 1 {
+			out_slice[base + j] = pos_slice[idx1 * num_pos_components + j]
+		}
+		for j := uint(0); j < num_col_components; j += 1 {
+			out_slice[base + num_pos_components + j] = col_slice[idx1 * num_col_components + j]
 		}
 	}
 
