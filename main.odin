@@ -69,15 +69,25 @@ main :: proc() {
 
 	mesh_vertex_buffer_description := sdl.GPUVertexBufferDescription {
 		slot               = 0,
-		pitch              = 12,
+		pitch              = 28,
 		input_rate         = .VERTEX,
 		instance_step_rate = 0,
 	}
-	mesh_vertex_attribute_description := sdl.GPUVertexAttribute {
+	mesh_vertex_attribute_position := sdl.GPUVertexAttribute {
 		location    = 0,
 		buffer_slot = 0,
 		format      = .FLOAT3,
 		offset      = 0,
+	}
+	mesh_vertex_attribute_color := sdl.GPUVertexAttribute {
+		location    = 1,
+		buffer_slot = 0,
+		format      = .FLOAT4,
+		offset      = 12,
+	}
+	mesh_vertex_attributes := [2]sdl.GPUVertexAttribute {
+		mesh_vertex_attribute_position,
+		mesh_vertex_attribute_color,
 	}
 
 	text_vertex_buffer_description := sdl.GPUVertexBufferDescription {
@@ -101,10 +111,14 @@ main :: proc() {
 			vertex_input_state = {
 				num_vertex_buffers = 1,
 				vertex_buffer_descriptions = &mesh_vertex_buffer_description,
-				num_vertex_attributes = 1,
-				vertex_attributes = &mesh_vertex_attribute_description,
+				num_vertex_attributes = 2,
+				vertex_attributes = &mesh_vertex_attributes[0],
 			},
 			primitive_type = .TRIANGLELIST,
+			rasterizer_state = sdl.GPURasterizerState {
+				cull_mode = .BACK,
+				front_face = .COUNTER_CLOCKWISE,
+			},
 			target_info = {
 				num_color_targets = 1,
 				color_target_descriptions = &(sdl.GPUColorTargetDescription {
@@ -325,85 +339,101 @@ load_mesh_primitive :: proc(
 	primitive := mesh.primitives[0]
 
 	pos_attr: ^cgltf.attribute = nil
+	col_attr: ^cgltf.attribute = nil
 	for &attr in primitive.attributes {
-		if attr.type == cgltf.attribute_type.position {
+		#partial switch attr.type {
+		case cgltf.attribute_type.position:
 			pos_attr = &attr
-			break
+		case cgltf.attribute_type.color:
+			col_attr = &attr
 		}
 	}
 	assert(pos_attr != nil)
+
 	pos_accessor := pos_attr.data
+	col_accessor := col_attr.data
 
-	vertex_count: u32 = u32(pos_accessor^.count)
-	num_components := cgltf.num_components(pos_accessor^.type)
-	vertex_stride := num_components * size_of(f32)
-	data_size := vertex_count * u32(vertex_stride)
-
-	cpu_vertex_data: rawptr = nil
+	vertex_count := pos_accessor^.count
+	num_pos_components := cgltf.num_components(pos_accessor^.type)
+	num_col_components := cgltf.num_components(col_accessor^.type)
+	vertex_stride := (num_pos_components + num_col_components) * size_of(f32)
 
 	idx_accessor := primitive.indices
 	index_count := idx_accessor^.count
-	expanded_size := index_count * vertex_stride
 
+	expanded_size := u32(index_count * vertex_stride)
 	expanded_data, err := mem.alloc(int(expanded_size))
 	assert(err == nil)
-	orig_buffer, other_err := mem.alloc(int(data_size))
-	assert(other_err == nil)
+
+	pos_data_size := vertex_count * num_pos_components * size_of(f32)
+	pos_buffer, err2 := mem.alloc(int(pos_data_size))
+	assert(err2 == nil)
+	pos_slice := mem.slice_ptr(cast(^f32)pos_buffer, int(vertex_count * num_pos_components))
 	_ = cgltf.accessor_unpack_floats(
 		pos_accessor,
-		cast([^]f32)orig_buffer,
-		uint(vertex_count) * num_components,
+		raw_data(pos_slice),
+		uint(vertex_count) * num_pos_components,
 	)
-	orig := cast(^f32)orig_buffer
-	expanded := cast(^f32)expanded_data
 
-	expanded_slice := mem.slice_ptr(expanded, int(index_count * num_components))
-	orig_slice := mem.slice_ptr(orig, int(uint(vertex_count) * num_components))
+	col_data_size := vertex_count * num_col_components * size_of(f32)
+	col_buffer, err3 := mem.alloc(int(col_data_size))
+	col_slice := mem.slice_ptr(cast(^f32)col_buffer, int(vertex_count * num_col_components))
+	assert(err3 == nil)
+	_ = cgltf.accessor_unpack_floats(
+		col_accessor,
+		raw_data(col_slice),
+		uint(vertex_count) * num_col_components,
+	)
+
+	out_slice := mem.slice_ptr(
+		cast(^f32)expanded_data,
+		int(index_count * (num_pos_components + num_col_components)),
+	)
+
 	for i := uint(0); i < index_count; i += 1 {
 		idx := cgltf.accessor_read_index(idx_accessor, i)
-		for j := uint(0); j < num_components; j += 1 {
-			expanded_slice[i * num_components + j] = orig_slice[idx * num_components + j]
-		}
-	}
-	mem.free(orig_buffer)
-	cpu_vertex_data = expanded_data
-	vertex_count = u32(index_count)
-	data_size = u32(expanded_size)
 
-	if index_count > 0 {
-		sample_count := 5
-		for i := uint(0); int(i) < sample_count; i += 1 {
-			v0 := expanded_slice[i * num_components + 0]
-			v1 := expanded_slice[i * num_components + 1]
-			v2 := expanded_slice[i * num_components + 2]
+		for j := uint(0); j < num_pos_components; j += 1 {
+			out_slice[i * (num_pos_components + num_col_components) + j] =
+				pos_slice[idx * num_pos_components + j]
+		}
+		for j := uint(0); j < num_col_components; j += 1 {
+			out_slice[i * (num_pos_components + num_col_components) + num_pos_components + j] =
+				col_slice[idx * num_col_components + j]
 		}
 	}
+
+	mem.free(pos_buffer)
+	mem.free(col_buffer)
 
 	transfer_buffer := sdl.CreateGPUTransferBuffer(
 		gpu,
-		{usage = .UPLOAD, size = data_size, props = 0},
+		{usage = .UPLOAD, size = expanded_size, props = 0},
 	)
 	tb_ptr := sdl.MapGPUTransferBuffer(gpu, transfer_buffer, false)
-	mem.copy(tb_ptr, cpu_vertex_data, int(data_size))
+	mem.copy(tb_ptr, expanded_data, int(expanded_size))
 	sdl.UnmapGPUTransferBuffer(gpu, transfer_buffer)
 
 	vertex_buffer := sdl.CreateGPUBuffer(
 		gpu,
-		{usage = {.VERTEX, .INDEX}, size = data_size, props = 0},
+		{usage = {.VERTEX, .INDEX}, size = expanded_size, props = 0},
 	)
+
 	copy_command_buffer := sdl.AcquireGPUCommandBuffer(gpu)
 	copy_pass := sdl.BeginGPUCopyPass(copy_command_buffer)
+
 	sdl.UploadToGPUBuffer(
 		copy_pass,
 		{transfer_buffer = transfer_buffer, offset = 0},
-		{buffer = vertex_buffer, offset = 0, size = data_size},
+		{buffer = vertex_buffer, offset = 0, size = expanded_size},
 		false,
 	)
 	sdl.EndGPUCopyPass(copy_pass)
-	ok := sdl.SubmitGPUCommandBuffer(copy_command_buffer);assert(ok)
+	ok := sdl.SubmitGPUCommandBuffer(copy_command_buffer)
+	assert(ok)
 
-	mem.free(cpu_vertex_data)
+	mem.free(expanded_data)
 	defer cgltf.free(data)
 
-	return vertex_buffer, u32(vertex_count), u32(vertex_stride)
+	return vertex_buffer, u32(index_count), u32(vertex_stride)
 }

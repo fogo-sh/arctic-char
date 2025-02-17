@@ -8,11 +8,15 @@ struct main0_out
     float4 color [[color(0)]];
 };
 
-fragment main0_out main0(float4 gl_FragCoord [[position]])
+struct main0_in
+{
+    float4 vColor [[user(locn0)]];
+};
+
+fragment main0_out main0(main0_in in [[stage_in]])
 {
     main0_out out = {};
-    float2 uv = gl_FragCoord.xy / float2(512.0);
-    out.color = float4(uv.x, uv.y, 0.5, 1.0);
+    out.color = in.vColor;
     return out;
 }
 

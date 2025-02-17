@@ -10,18 +10,21 @@ struct UBO
 
 struct main0_out
 {
+    float4 vColor [[user(locn0)]];
     float4 gl_Position [[position]];
 };
 
 struct main0_in
 {
     float3 inPosition [[attribute(0)]];
+    float4 inColor [[attribute(1)]];
 };
 
 vertex main0_out main0(main0_in in [[stage_in]], constant UBO& _19 [[buffer(0)]])
 {
     main0_out out = {};
     out.gl_Position = _19.mvp * float4(in.inPosition, 1.0);
+    out.vColor = in.inColor;
     return out;
 }
 

@@ -1,0 +1,39 @@
+---
+description: Ensuring proper Odin Syntax
+globs: *.odin
+---
+Remember, Odin is not C, here is how certain things work in it:
+
+Variables:
+
+```odin
+x: int // declares `x` to have type `int`
+y, z: int // declares `y` and `z` to have type `int`
+```
+
+```odin
+x: int = 123 // declares a new variable `x` with type `int` and assigns a value to it
+x = 637 // assigns a new value to `x`
+```
+
+Pointers:
+
+> Odin has pointers. A pointer is a memory address of a value. The type ^T is a pointer to a T value. Its zero value is nil.
+
+```odin
+p: ^int
+```
+
+> The & operator takes the address of its operand (if possible):
+
+```odin
+i := 123
+p := &i
+```
+
+> The ^ operator dereferences the pointer’s underlying value:
+
+```odin
+fmt.println(p^) // read `i` through the pointer `p`
+p^ = 1337       // write `i` through the pointer `p`
+```
