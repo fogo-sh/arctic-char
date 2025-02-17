@@ -8,10 +8,11 @@ struct main0_out
     float4 color [[color(0)]];
 };
 
-fragment main0_out main0()
+fragment main0_out main0(float4 gl_FragCoord [[position]])
 {
     main0_out out = {};
-    out.color = float4(1.0, 0.0, 0.0, 1.0);
+    float2 uv = gl_FragCoord.xy / float2(512.0);
+    out.color = float4(uv.x, uv.y, 0.5, 1.0);
     return out;
 }
 

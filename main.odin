@@ -67,10 +67,9 @@ main :: proc() {
 	vert_shader := load_shader(gpu, vert_shader_code, .VERTEX, 1)
 	frag_shader := load_shader(gpu, frag_shader_code, .FRAGMENT, 0)
 
-	// For meshes: 3 floats per vertex (x, y, z)
 	mesh_vertex_buffer_description := sdl.GPUVertexBufferDescription {
 		slot               = 0,
-		pitch              = 12, // 3 * 4 bytes
+		pitch              = 12,
 		input_rate         = .VERTEX,
 		instance_step_rate = 0,
 	}
@@ -81,10 +80,9 @@ main :: proc() {
 		offset      = 0,
 	}
 
-	// For text: 4 floats per vertex (x, y, z, w)
 	text_vertex_buffer_description := sdl.GPUVertexBufferDescription {
 		slot               = 0,
-		pitch              = 16, // 4 * 4 bytes
+		pitch              = 16,
 		input_rate         = .VERTEX,
 		instance_step_rate = 0,
 	}
@@ -350,18 +348,15 @@ load_mesh_primitive :: proc(
 	u32,
 	u32,
 ) {
-	// Returns: (vertex_buffer, vertex_count, vertex_stride)
-	options: cgltf.options // using default options
+	options: cgltf.options
 	data, result := cgltf.parse_file(options, model_path)
 	assert(result == .success)
 	result = cgltf.load_buffers(options, data, model_path)
 	assert(result == .success)
 
-	// For simplicity, choose the first node's first mesh primitive.
 	mesh := data.scene.nodes[0].mesh
 	primitive := mesh.primitives[0]
 
-	// Find the "position" attribute.
 	pos_attr: ^cgltf.attribute = nil
 	for &attr in primitive.attributes {
 		if attr.type == cgltf.attribute_type.position {
@@ -372,16 +367,13 @@ load_mesh_primitive :: proc(
 	assert(pos_attr != nil)
 	pos_accessor := pos_attr.data
 
-	// Get the base vertex count and compute our stride (in bytes).
 	vertex_count: u32 = u32(pos_accessor^.count)
-	num_components := cgltf.num_components(pos_accessor^.type) // should be 3 for vec3
+	num_components := cgltf.num_components(pos_accessor^.type)
 	vertex_stride := num_components * size_of(f32)
 	data_size := vertex_count * u32(vertex_stride)
 
-	// We will fill our CPU buffer with the (potentially expanded) vertex data.
 	cpu_vertex_data: rawptr = nil
 
-	// If indices exist, expand the data by looking up every index.
 	idx_accessor := primitive.indices
 	index_count := idx_accessor^.count
 	expanded_size := index_count * vertex_stride
@@ -398,7 +390,6 @@ load_mesh_primitive :: proc(
 	orig := cast(^f32)orig_buffer
 	expanded := cast(^f32)expanded_data
 
-	// Compute the slices only once.
 	expanded_slice := mem.slice_ptr(expanded, int(index_count * num_components))
 	orig_slice := mem.slice_ptr(orig, int(uint(vertex_count) * num_components))
 	for i := uint(0); i < index_count; i += 1 {
@@ -409,10 +400,9 @@ load_mesh_primitive :: proc(
 	}
 	mem.free(orig_buffer)
 	cpu_vertex_data = expanded_data
-	vertex_count = u32(index_count) // update vertex count based on indices
+	vertex_count = u32(index_count)
 	data_size = u32(expanded_size)
 
-	// After the expansion loop:
 	if index_count > 0 {
 		sample_count := 5
 		log.debugf("First %d expanded vertices:", sample_count)
@@ -424,7 +414,6 @@ load_mesh_primitive :: proc(
 		}
 	}
 
-	// Create the GPU transfer buffer and upload the vertex data.
 	transfer_buffer := sdl.CreateGPUTransferBuffer(
 		gpu,
 		{usage = .UPLOAD, size = data_size, props = 0},
@@ -449,7 +438,7 @@ load_mesh_primitive :: proc(
 	ok := sdl.SubmitGPUCommandBuffer(copy_command_buffer);assert(ok)
 
 	mem.free(cpu_vertex_data)
-	defer cgltf.free(data) // ensures cgltf data is freed
+	defer cgltf.free(data)
 
 	return vertex_buffer, u32(vertex_count), u32(vertex_stride)
 }
