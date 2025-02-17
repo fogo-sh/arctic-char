@@ -6,6 +6,8 @@ import "core:log"
 import "core:math/linalg"
 import "core:math/rand"
 import "core:mem"
+import "core:os"
+import "vendor:cgltf"
 import sdl "vendor:sdl3"
 
 default_context: runtime.Context
@@ -108,6 +110,30 @@ main :: proc() {
 
 	sdl.ReleaseGPUShader(gpu, vert_shader)
 	sdl.ReleaseGPUShader(gpu, frag_shader)
+
+	{
+		model_path: cstring = "./assets/suzanne.glb"
+		options: cgltf.options
+		data, result := cgltf.parse_file(options, model_path)
+		assert(result == .success)
+
+		result = cgltf.load_buffers(options, data, model_path)
+		assert(result == .success)
+
+		for node in data.scene.nodes {
+			mesh := node.mesh
+			primitive := mesh.primitives[0]
+
+			fmt.printf("primitive type: %v\n", primitive.type)
+			fmt.printf("primitive indices: %v\n", primitive.indices)
+			fmt.printf("primitive attributes count: %v\n", len(primitive.attributes))
+			for attr in primitive.attributes {
+				fmt.printf("  attribute type: %v, accessor type: %v\n", attr.type, attr.data.type)
+			}
+		}
+
+		defer cgltf.free(data)
+	}
 
 	transfer_buffer := sdl.CreateGPUTransferBuffer(gpu, {usage = .UPLOAD, size = 12000, props = 0})
 	tb_pointer := sdl.MapGPUTransferBuffer(gpu, transfer_buffer, false)
