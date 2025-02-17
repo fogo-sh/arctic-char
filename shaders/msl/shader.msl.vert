@@ -15,13 +15,13 @@ struct main0_out
 
 struct main0_in
 {
-    float4 inPosition [[attribute(0)]];
+    float3 inPosition [[attribute(0)]];
 };
 
 vertex main0_out main0(main0_in in [[stage_in]], constant UBO& _19 [[buffer(0)]])
 {
     main0_out out = {};
-    out.gl_Position = _19.mvp * in.inPosition;
+    out.gl_Position = _19.mvp * float4(in.inPosition, 1.0);
     return out;
 }
 

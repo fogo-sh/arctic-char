@@ -77,14 +77,14 @@ main :: proc() {
 	*/
 	vertex_buffer_description := sdl.GPUVertexBufferDescription {
 		slot               = 0,
-		pitch              = 16,
+		pitch              = 12,
 		input_rate         = .VERTEX,
-		instance_step_rate = 0, // THIS IS IGNORED!!!! NEEDED FOR TYPING
+		instance_step_rate = 0,
 	}
 	vertex_attribute_description := sdl.GPUVertexAttribute {
 		location    = 0,
 		buffer_slot = 0,
-		format      = .FLOAT4,
+		format      = .FLOAT3,
 		offset      = 0,
 	}
 	pipeline := sdl.CreateGPUGraphicsPipeline(
@@ -135,6 +135,16 @@ main :: proc() {
 		defer cgltf.free(data)
 	}
 
+	mesh_vertex_buffer, mesh_vertex_count, vertex_stride := load_mesh_primitive(
+		gpu,
+		"./assets/suzanne.glb",
+	)
+	log.debugf(
+		"Mesh loaded: vertex_count = %d, vertex_stride = %d",
+		mesh_vertex_count,
+		vertex_stride,
+	)
+
 	transfer_buffer := sdl.CreateGPUTransferBuffer(gpu, {usage = .UPLOAD, size = 12000, props = 0})
 	tb_pointer := sdl.MapGPUTransferBuffer(gpu, transfer_buffer, false)
 	(cast(^[12]f32)tb_pointer)^ = {-0.5, -0.5, 0, 1, -0.5, 0.5, 0, 1, 0.5, -0.5, 0, 1}
@@ -183,6 +193,7 @@ main :: proc() {
 		new_ticks := sdl.GetTicks()
 		delta_time := f32(new_ticks - last_ticks) / 1000
 		last_ticks = new_ticks
+		log.debugf("Frame start - new_ticks: %d, delta_time: %f", new_ticks, delta_time)
 
 		// process events
 		ev: sdl.Event
@@ -201,6 +212,16 @@ main :: proc() {
 		}
 
 		// update game state
+		rotation += ROTATION_SPEED * delta_time
+		log.debugf("Updated rotation value: %f", rotation)
+
+		model_mat :=
+			linalg.matrix4_translate_f32({0, 0, -5}) *
+			linalg.matrix4_rotate_f32(rotation, {0, 1, 0})
+		ubo := UBO {
+			mvp = proj_mat * model_mat,
+		}
+		log.debugf("Computed MVP matrix: %v", ubo.mvp)
 
 		// audio
 		if sdl.GetAudioStreamAvailable(stream) < cast(i32)wav_data_len {
@@ -218,15 +239,6 @@ main :: proc() {
 			nil,
 		);assert(ok)
 
-		rotation += ROTATION_SPEED * delta_time
-		model_mat :=
-			linalg.matrix4_translate_f32({0, 0, -5}) *
-			linalg.matrix4_rotate_f32(rotation, {0, 1, 0})
-
-		ubo := UBO {
-			mvp = proj_mat * model_mat,
-		}
-
 		if swapchain_tex != nil {
 			color_target := sdl.GPUColorTargetInfo {
 				texture     = swapchain_tex,
@@ -237,13 +249,15 @@ main :: proc() {
 			render_pass := sdl.BeginGPURenderPass(cmd_buf, &color_target, 1, nil)
 			sdl.BindGPUGraphicsPipeline(render_pass, pipeline)
 			vertex_buffer_binding := sdl.GPUBufferBinding {
-				buffer = vertex_buffer,
+				buffer = mesh_vertex_buffer,
 				offset = 0,
 			}
 			sdl.BindGPUVertexBuffers(render_pass, 0, &vertex_buffer_binding, 1)
 			sdl.PushGPUVertexUniformData(cmd_buf, 0, &ubo, size_of(ubo))
-			sdl.DrawGPUPrimitives(render_pass, 3, 1, 0, 0)
+			log.debugf("Pushed UBO data to GPU: %v", ubo.mvp)
+			sdl.DrawGPUPrimitives(render_pass, mesh_vertex_count, 1, 0, 0)
 
+			/*
 			{
 				text_vertices: [4096]f32
 				vertex_offset: u32 = 0
@@ -287,6 +301,7 @@ main :: proc() {
 					draw_count,
 				)
 			}
+			*/
 
 			sdl.EndGPURenderPass(render_pass)
 		}
@@ -319,4 +334,116 @@ generate_random_color :: proc() -> [4]f32 {
 	g := rand.float32()
 	b := rand.float32()
 	return [4]f32{r, g, b, 1.0}
+}
+
+load_mesh_primitive :: proc(
+	gpu: ^sdl.GPUDevice,
+	model_path: cstring,
+) -> (
+	^sdl.GPUBuffer,
+	u32,
+	u32,
+) {
+	// Returns: (vertex_buffer, vertex_count, vertex_stride)
+	options: cgltf.options // using default options
+	data, result := cgltf.parse_file(options, model_path)
+	assert(result == .success)
+	result = cgltf.load_buffers(options, data, model_path)
+	assert(result == .success)
+
+	// For simplicity, choose the first node's first mesh primitive.
+	mesh := data.scene.nodes[0].mesh
+	primitive := mesh.primitives[0]
+
+	// Find the "position" attribute.
+	pos_attr: ^cgltf.attribute = nil
+	for &attr in primitive.attributes {
+		if attr.type == cgltf.attribute_type.position {
+			pos_attr = &attr
+			break
+		}
+	}
+	assert(pos_attr != nil)
+	pos_accessor := pos_attr.data
+
+	// Get the base vertex count and compute our stride (in bytes).
+	vertex_count: u32 = u32(pos_accessor^.count)
+	num_components := cgltf.num_components(pos_accessor^.type) // should be 3 for vec3
+	vertex_stride := num_components * size_of(f32)
+	data_size := vertex_count * u32(vertex_stride)
+
+	// We will fill our CPU buffer with the (potentially expanded) vertex data.
+	cpu_vertex_data: rawptr = nil
+
+	// If indices exist, expand the data by looking up every index.
+	idx_accessor := primitive.indices
+	index_count := idx_accessor^.count
+	expanded_size := index_count * vertex_stride
+
+	expanded_data, err := mem.alloc(int(expanded_size))
+	assert(err == nil)
+	orig_buffer, other_err := mem.alloc(int(data_size))
+	assert(other_err == nil)
+	_ = cgltf.accessor_unpack_floats(
+		pos_accessor,
+		cast([^]f32)orig_buffer,
+		uint(vertex_count) * num_components,
+	)
+	orig := cast(^f32)orig_buffer
+	expanded := cast(^f32)expanded_data
+
+	// Compute the slices only once.
+	expanded_slice := mem.slice_ptr(expanded, int(index_count * num_components))
+	orig_slice := mem.slice_ptr(orig, int(uint(vertex_count) * num_components))
+	for i := uint(0); i < index_count; i += 1 {
+		idx := cgltf.accessor_read_index(idx_accessor, i)
+		for j := uint(0); j < num_components; j += 1 {
+			expanded_slice[i * num_components + j] = orig_slice[idx * num_components + j]
+		}
+	}
+	mem.free(orig_buffer)
+	cpu_vertex_data = expanded_data
+	vertex_count = u32(index_count) // update vertex count based on indices
+	data_size = u32(expanded_size)
+
+	// After the expansion loop:
+	if index_count > 0 {
+		sample_count := 5
+		log.debugf("First %d expanded vertices:", sample_count)
+		for i := uint(0); int(i) < sample_count; i += 1 {
+			v0 := expanded_slice[i * num_components + 0]
+			v1 := expanded_slice[i * num_components + 1]
+			v2 := expanded_slice[i * num_components + 2]
+			log.debugf("  Vertex %d: (%f, %f, %f)", i, v0, v1, v2)
+		}
+	}
+
+	// Create the GPU transfer buffer and upload the vertex data.
+	transfer_buffer := sdl.CreateGPUTransferBuffer(
+		gpu,
+		{usage = .UPLOAD, size = data_size, props = 0},
+	)
+	tb_ptr := sdl.MapGPUTransferBuffer(gpu, transfer_buffer, false)
+	mem.copy(tb_ptr, cpu_vertex_data, int(data_size))
+	sdl.UnmapGPUTransferBuffer(gpu, transfer_buffer)
+
+	vertex_buffer := sdl.CreateGPUBuffer(
+		gpu,
+		{usage = {.VERTEX, .INDEX}, size = data_size, props = 0},
+	)
+	copy_command_buffer := sdl.AcquireGPUCommandBuffer(gpu)
+	copy_pass := sdl.BeginGPUCopyPass(copy_command_buffer)
+	sdl.UploadToGPUBuffer(
+		copy_pass,
+		{transfer_buffer = transfer_buffer, offset = 0},
+		{buffer = vertex_buffer, offset = 0, size = data_size},
+		false,
+	)
+	sdl.EndGPUCopyPass(copy_pass)
+	ok := sdl.SubmitGPUCommandBuffer(copy_command_buffer);assert(ok)
+
+	mem.free(cpu_vertex_data)
+	defer cgltf.free(data) // ensures cgltf data is freed
+
+	return vertex_buffer, u32(vertex_count), u32(vertex_stride)
 }
