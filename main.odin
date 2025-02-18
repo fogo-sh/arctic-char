@@ -15,8 +15,10 @@ default_context: runtime.Context
 frag_shader_code := #load("shaders/msl/shader.msl.frag")
 vert_shader_code := #load("shaders/msl/shader.msl.vert")
 
+INSTANCES :: 1000
+
 UBO :: struct {
-	mvp: matrix[4, 4]f32,
+	mvp: [INSTANCES]matrix[4, 4]f32,
 }
 
 main :: proc() {
@@ -248,11 +250,28 @@ main :: proc() {
 		// update game state
 		rotation += ROTATION_SPEED * delta_time
 
-		model_mat :=
-			linalg.matrix4_translate_f32({0, 0, -5}) *
-			linalg.matrix4_rotate_f32(rotation, {0, 1, 0})
-		ubo := UBO {
-			mvp = proj_mat * model_mat,
+		// Prepare per-instance transforms:
+		ubo: UBO
+		gridWidth := 32 // 32 x 32 = 1024 positions (only first 1000 used)
+		gridHeight := 32
+		spacing := f32(2.5)
+
+		idx: int = 0
+		for i := 0; i < gridHeight; i += 1 {
+			for j := 0; j < gridWidth; j += 1 {
+				if idx >= INSTANCES {
+					break
+				}
+				// Center the grid around (0,0)
+				offset_x := (f32(j) - f32(gridWidth) / 2.0) * spacing
+				offset_y := (f32(i) - f32(gridHeight) / 2.0) * spacing
+				model_mat :=
+					linalg.matrix4_translate_f32({offset_x, offset_y, -5}) *
+					linalg.matrix4_rotate_f32(rotation, {0, 1, 0})
+				// Compute final MVP matrix for this instance
+				ubo.mvp[idx] = proj_mat * model_mat
+				idx += 1
+			}
 		}
 
 		// audio
@@ -295,8 +314,9 @@ main :: proc() {
 				offset = 0,
 			}
 			sdl.BindGPUVertexBuffers(render_pass, 0, &vertex_buffer_binding, 1)
+
 			sdl.PushGPUVertexUniformData(cmd_buf, 0, &ubo, size_of(ubo))
-			sdl.DrawGPUPrimitives(render_pass, mesh_vertex_count, 1, 0, 0)
+			sdl.DrawGPUPrimitives(render_pass, mesh_vertex_count, INSTANCES, 0, 0)
 
 			{
 				text_vertices: [4096]f32
