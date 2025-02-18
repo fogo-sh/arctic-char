@@ -216,6 +216,16 @@ main :: proc() {
 
 	last_ticks := sdl.GetTicks()
 
+	// --- New camera-related variables ---
+	camera_pos: [3]f32 = [3]f32{0.0, -21.0, 60.0}
+	move_forward: bool = false
+	move_backward: bool = false
+	move_left: bool = false
+	move_right: bool = false
+	move_up: bool = false
+	move_down: bool = false
+	shift_down: bool = false
+
 	text_pipeline, text_gpu_vertex_buffer := setup_text_pipeline(
 		gpu,
 		window,
@@ -231,7 +241,7 @@ main :: proc() {
 		delta_time := f32(new_ticks - last_ticks) / 1000
 		last_ticks = new_ticks
 
-		// process events
+		// Process events, updating our key-state booleans:
 		ev: sdl.Event
 		for sdl.PollEvent(&ev) {
 			#partial switch ev.type {
@@ -243,9 +253,75 @@ main :: proc() {
 				} else if ev.key.scancode == .SPACE {
 					text_color1 = generate_random_color()
 					text_color2 = generate_random_color()
+				} else if ev.key.scancode == .W {
+					move_forward = true
+				} else if ev.key.scancode == .S {
+					move_backward = true
+				} else if ev.key.scancode == .A {
+					move_left = true
+				} else if ev.key.scancode == .D {
+					move_right = true
+				} else if ev.key.scancode == .UP {
+					move_up = true
+				} else if ev.key.scancode == .DOWN {
+					move_down = true
+				} else if ev.key.scancode == .LSHIFT || ev.key.scancode == .RSHIFT {
+					shift_down = true
+				}
+			case .KEY_UP:
+				if ev.key.scancode == .W {
+					move_forward = false
+				} else if ev.key.scancode == .S {
+					move_backward = false
+				} else if ev.key.scancode == .A {
+					move_left = false
+				} else if ev.key.scancode == .D {
+					move_right = false
+				} else if ev.key.scancode == .UP {
+					move_up = false
+				} else if ev.key.scancode == .DOWN {
+					move_down = false
+				} else if ev.key.scancode == .LSHIFT || ev.key.scancode == .RSHIFT {
+					shift_down = false
 				}
 			}
 		}
+
+		// Update camera position based on key input
+		move_speed := f32(5.0)
+		if shift_down {
+			move_speed = f32(20.0)
+		}
+		dt_move := move_speed * delta_time
+		if move_forward {
+			camera_pos[2] -= dt_move
+		}
+		if move_backward {
+			camera_pos[2] += dt_move
+		}
+		if move_left {
+			camera_pos[0] -= dt_move
+		}
+		if move_right {
+			camera_pos[0] += dt_move
+		}
+		if move_up {
+			camera_pos[1] += dt_move
+		}
+		if move_down {
+			camera_pos[1] -= dt_move
+		}
+
+		// Print current camera position so you can see its location
+		fmt.printf(
+			"Camera Position: x=%.2f, y=%.2f, z=%.2f\n",
+			camera_pos[0],
+			camera_pos[1],
+			camera_pos[2],
+		)
+
+		// Create a view matrix that translates the scene opposite to the camera's position.
+		view_mat := linalg.matrix4_translate_f32({-camera_pos[0], -camera_pos[1], -camera_pos[2]})
 
 		// update game state
 		rotation += ROTATION_SPEED * delta_time
@@ -268,8 +344,8 @@ main :: proc() {
 				model_mat :=
 					linalg.matrix4_translate_f32({offset_x, offset_y, -5}) *
 					linalg.matrix4_rotate_f32(rotation, {0, 1, 0})
-				// Compute final MVP matrix for this instance
-				ubo.mvp[idx] = proj_mat * model_mat
+				// Compute final MVP matrix (projection * view * model)
+				ubo.mvp[idx] = proj_mat * view_mat * model_mat
 				idx += 1
 			}
 		}
