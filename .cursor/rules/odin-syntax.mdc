@@ -37,3 +37,13 @@ p := &i
 fmt.println(p^) // read `i` through the pointer `p`
 p^ = 1337       // write `i` through the pointer `p`
 ```
+
+Cast operator:
+
+> The cast operator can also be used to do the same thing:
+
+```odin
+i := 123
+f := cast(f64)i
+u := cast(u32)f
+```

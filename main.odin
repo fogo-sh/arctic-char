@@ -64,6 +64,26 @@ main :: proc() {
 
 	ok = sdl.ClaimWindowForGPUDevice(gpu, window);assert(ok)
 
+	win_size: [2]i32
+	ok = sdl.GetWindowSize(window, &win_size.x, &win_size.y);assert(ok)
+
+	depth_info := sdl.GPUTextureCreateInfo {
+		type                 = sdl.GPUTextureType.D2,
+		format               = sdl.GPUTextureFormat.D32_FLOAT,
+		usage                = sdl.GPUTextureUsageFlags {
+			sdl.GPUTextureUsageFlag.DEPTH_STENCIL_TARGET,
+		},
+		width                = cast(u32)win_size.x,
+		height               = cast(u32)win_size.y,
+		layer_count_or_depth = 1,
+		num_levels           = 1,
+		sample_count         = sdl.GPUSampleCount._1,
+		props                = 0,
+	}
+	depth_texture := sdl.CreateGPUTexture(gpu, depth_info)
+	assert(depth_texture != nil)
+	defer sdl.ReleaseGPUTexture(gpu, depth_texture)
+
 	vert_shader := load_shader(gpu, vert_shader_code, .VERTEX, 1)
 	frag_shader := load_shader(gpu, frag_shader_code, .FRAGMENT, 0)
 
@@ -103,6 +123,37 @@ main :: proc() {
 		offset      = 0,
 	}
 
+	depth_state := sdl.GPUDepthStencilState {
+		compare_op = sdl.GPUCompareOp.LESS,
+		back_stencil_state = sdl.GPUStencilOpState {
+			fail_op = sdl.GPUStencilOp.KEEP,
+			pass_op = sdl.GPUStencilOp.KEEP,
+			depth_fail_op = sdl.GPUStencilOp.KEEP,
+			compare_op = sdl.GPUCompareOp.ALWAYS,
+		},
+		front_stencil_state = sdl.GPUStencilOpState {
+			fail_op = sdl.GPUStencilOp.KEEP,
+			pass_op = sdl.GPUStencilOp.KEEP,
+			depth_fail_op = sdl.GPUStencilOp.KEEP,
+			compare_op = sdl.GPUCompareOp.ALWAYS,
+		},
+		compare_mask = 0xff,
+		write_mask = 0xff,
+		enable_depth_test = true,
+		enable_depth_write = true,
+		enable_stencil_test = false,
+	}
+
+	target_info: sdl.GPUGraphicsPipelineTargetInfo = sdl.GPUGraphicsPipelineTargetInfo {
+		num_color_targets         = 1,
+		color_target_descriptions = &(sdl.GPUColorTargetDescription {
+				format = sdl.GetGPUSwapchainTextureFormat(gpu, window),
+				blend_state = sdl.GPUColorTargetBlendState{},
+			}),
+		depth_stencil_format      = sdl.GPUTextureFormat.D32_FLOAT,
+		has_depth_stencil_target  = true,
+	}
+
 	pipeline := sdl.CreateGPUGraphicsPipeline(
 		gpu,
 		{
@@ -115,13 +166,12 @@ main :: proc() {
 				vertex_attributes = &mesh_vertex_attributes[0],
 			},
 			primitive_type = .TRIANGLELIST,
-			rasterizer_state = sdl.GPURasterizerState{cull_mode = .BACK, front_face = .CLOCKWISE},
-			target_info = {
-				num_color_targets = 1,
-				color_target_descriptions = &(sdl.GPUColorTargetDescription {
-						format = sdl.GetGPUSwapchainTextureFormat(gpu, window),
-					}),
+			rasterizer_state = sdl.GPURasterizerState {
+				cull_mode = .BACK,
+				front_face = .COUNTER_CLOCKWISE,
 			},
+			depth_stencil_state = depth_state,
+			target_info = target_info,
 		},
 	)
 
@@ -152,16 +202,13 @@ main :: proc() {
 	sdl.EndGPUCopyPass(copy_pass)
 	ok = sdl.SubmitGPUCommandBuffer(copy_command_buffer);assert(ok)
 
-	win_size: [2]i32
-	ok = sdl.GetWindowSize(window, &win_size.x, &win_size.y);assert(ok)
-
 	ROTATION_SPEED := linalg.to_radians(f32(90))
 	rotation := f32(0)
 
 	proj_mat := linalg.matrix4_perspective_f32(
 		linalg.to_radians(f32(70)),
 		f32(win_size.x) / f32(win_size.y),
-		0.0001,
+		0.1,
 		1000,
 	)
 
@@ -231,7 +278,17 @@ main :: proc() {
 				clear_color = {0.2, 0.4, 0.8, 1},
 				store_op    = .STORE,
 			}
-			render_pass := sdl.BeginGPURenderPass(cmd_buf, &color_target, 1, nil)
+			depth_target: sdl.GPUDepthStencilTargetInfo = sdl.GPUDepthStencilTargetInfo {
+				texture          = depth_texture,
+				clear_depth      = 1.0,
+				load_op          = .CLEAR,
+				store_op         = .STORE,
+				stencil_load_op  = .DONT_CARE,
+				stencil_store_op = .DONT_CARE,
+				cycle            = false,
+				clear_stencil    = 0,
+			}
+			render_pass := sdl.BeginGPURenderPass(cmd_buf, &color_target, 1, &depth_target)
 			sdl.BindGPUGraphicsPipeline(render_pass, pipeline)
 			vertex_buffer_binding := sdl.GPUBufferBinding {
 				buffer = mesh_vertex_buffer,
@@ -388,12 +445,10 @@ load_mesh_primitive :: proc(
 	)
 
 	for i := uint(0); i < index_count; i += 3 {
-		// Read the indices for the current triangle.
 		idx0 := cgltf.accessor_read_index(idx_accessor, i)
 		idx1 := cgltf.accessor_read_index(idx_accessor, i + 1)
 		idx2 := cgltf.accessor_read_index(idx_accessor, i + 2)
 
-		// Write the first vertex (unchanged).
 		base := i * (num_pos_components + num_col_components)
 		for j := uint(0); j < num_pos_components; j += 1 {
 			out_slice[base + j] = pos_slice[idx0 * num_pos_components + j]
@@ -402,22 +457,20 @@ load_mesh_primitive :: proc(
 			out_slice[base + num_pos_components + j] = col_slice[idx0 * num_col_components + j]
 		}
 
-		// Write the second vertex: use idx2 instead of idx1 to flip the winding.
 		base = (i + 1) * (num_pos_components + num_col_components)
-		for j := uint(0); j < num_pos_components; j += 1 {
-			out_slice[base + j] = pos_slice[idx2 * num_pos_components + j]
-		}
-		for j := uint(0); j < num_col_components; j += 1 {
-			out_slice[base + num_pos_components + j] = col_slice[idx2 * num_col_components + j]
-		}
-
-		// Write the third vertex: use idx1 instead of idx2.
-		base = (i + 2) * (num_pos_components + num_col_components)
 		for j := uint(0); j < num_pos_components; j += 1 {
 			out_slice[base + j] = pos_slice[idx1 * num_pos_components + j]
 		}
 		for j := uint(0); j < num_col_components; j += 1 {
 			out_slice[base + num_pos_components + j] = col_slice[idx1 * num_col_components + j]
+		}
+
+		base = (i + 2) * (num_pos_components + num_col_components)
+		for j := uint(0); j < num_pos_components; j += 1 {
+			out_slice[base + j] = pos_slice[idx2 * num_pos_components + j]
+		}
+		for j := uint(0); j < num_col_components; j += 1 {
+			out_slice[base + num_pos_components + j] = col_slice[idx2 * num_col_components + j]
 		}
 	}
 
