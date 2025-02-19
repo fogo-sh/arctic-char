@@ -4,14 +4,14 @@ import "core:mem"
 import "vendor:cgltf"
 import sdl "vendor:sdl3"
 
-load_mesh_primitive :: proc(
-	gpu: ^sdl.GPUDevice,
-	model_path: cstring,
-) -> (
-	^sdl.GPUBuffer,
-	u32,
-	u32,
-) {
+ModelDataInfo :: struct {
+	data_ptr:      ^u8,
+	size:          u32,
+	vertex_count:  u32,
+	vertex_stride: u32,
+}
+
+load_mesh_data :: proc(model_path: cstring) -> ModelDataInfo {
 	options: cgltf.options
 	data, result := cgltf.parse_file(options, model_path)
 	assert(result == .success)
@@ -60,8 +60,8 @@ load_mesh_primitive :: proc(
 
 	col_data_size := vertex_count * num_col_components * size_of(f32)
 	col_buffer, err3 := mem.alloc(int(col_data_size))
-	col_slice := mem.slice_ptr(cast(^f32)col_buffer, int(vertex_count * num_col_components))
 	assert(err3 == nil)
+	col_slice := mem.slice_ptr(cast(^f32)col_buffer, int(vertex_count * num_col_components))
 	_ = cgltf.accessor_unpack_floats(
 		col_accessor,
 		raw_data(col_slice),
@@ -105,35 +105,12 @@ load_mesh_primitive :: proc(
 
 	mem.free(pos_buffer)
 	mem.free(col_buffer)
-
-	transfer_buffer := sdl.CreateGPUTransferBuffer(
-		gpu,
-		{usage = .UPLOAD, size = expanded_size, props = 0},
-	)
-	tb_ptr := sdl.MapGPUTransferBuffer(gpu, transfer_buffer, false)
-	mem.copy(tb_ptr, expanded_data, int(expanded_size))
-	sdl.UnmapGPUTransferBuffer(gpu, transfer_buffer)
-
-	vertex_buffer := sdl.CreateGPUBuffer(
-		gpu,
-		{usage = {.VERTEX, .INDEX}, size = expanded_size, props = 0},
-	)
-
-	copy_command_buffer := sdl.AcquireGPUCommandBuffer(gpu)
-	copy_pass := sdl.BeginGPUCopyPass(copy_command_buffer)
-
-	sdl.UploadToGPUBuffer(
-		copy_pass,
-		{transfer_buffer = transfer_buffer, offset = 0},
-		{buffer = vertex_buffer, offset = 0, size = expanded_size},
-		false,
-	)
-	sdl.EndGPUCopyPass(copy_pass)
-	ok := sdl.SubmitGPUCommandBuffer(copy_command_buffer)
-	assert(ok)
-
-	mem.free(expanded_data)
 	defer cgltf.free(data)
 
-	return vertex_buffer, u32(index_count), u32(vertex_stride)
+	return ModelDataInfo {
+		data_ptr = cast(^u8)expanded_data,
+		size = expanded_size,
+		vertex_count = u32(index_count),
+		vertex_stride = u32(vertex_stride),
+	}
 }

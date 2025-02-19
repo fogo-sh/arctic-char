@@ -5,6 +5,7 @@ import "core:fmt"
 import "core:log"
 import "core:math/linalg"
 import "core:math/rand"
+import "core:mem"
 import "core:os"
 import "core:strings"
 import sdl "vendor:sdl3"
@@ -45,6 +46,12 @@ INSTANCES :: 16
 
 UBO :: struct {
 	mvp: [INSTANCES]matrix[4, 4]f32,
+}
+
+ModelInfo :: struct {
+	offset:        u32, // first vertex index in the global buffer
+	vertex_count:  u32, // vertex count for this model
+	vertex_stride: u32, // size in bytes per vertex
 }
 
 main :: proc() {
@@ -226,29 +233,55 @@ main :: proc() {
 	sdl.ReleaseGPUShader(gpu, vert_shader)
 	sdl.ReleaseGPUShader(gpu, frag_shader)
 
-	mesh_vertex_buffer, mesh_vertex_count, vertex_stride := load_mesh_primitive(
+	suzanne_data := load_mesh_data("./assets/suzanne.glb")
+	sphere_data := load_mesh_data("./assets/sphere.glb")
+
+	total_size := suzanne_data.size + sphere_data.size
+	combined_data, err := mem.alloc(int(total_size));assert(err == nil)
+
+	mem.copy(combined_data, suzanne_data.data_ptr, int(suzanne_data.size))
+
+	sphere_dest_ptr := cast(^u8)(uintptr(combined_data) + uintptr(suzanne_data.size))
+	mem.copy(sphere_dest_ptr, sphere_data.data_ptr, int(sphere_data.size))
+
+	suzanne_info: ModelInfo = ModelInfo {
+		offset        = 0,
+		vertex_count  = suzanne_data.vertex_count,
+		vertex_stride = suzanne_data.vertex_stride,
+	}
+	sphere_info: ModelInfo = ModelInfo {
+		offset        = suzanne_data.vertex_count,
+		vertex_count  = sphere_data.vertex_count,
+		vertex_stride = sphere_data.vertex_stride,
+	}
+
+	transfer_buffer := sdl.CreateGPUTransferBuffer(
 		gpu,
-		"./assets/suzanne.glb",
+		{usage = .UPLOAD, size = total_size, props = 0},
 	)
-
-	log.debug("Loaded Suzanne.glb")
-
-	transfer_buffer := sdl.CreateGPUTransferBuffer(gpu, {usage = .UPLOAD, size = 12000, props = 0})
-
+	tb_ptr := sdl.MapGPUTransferBuffer(gpu, transfer_buffer, false)
+	mem.copy(tb_ptr, combined_data, int(total_size))
 	sdl.UnmapGPUTransferBuffer(gpu, transfer_buffer)
 
-	vertex_buffer := sdl.CreateGPUBuffer(gpu, {usage = {.VERTEX, .INDEX}, size = 12000, props = 0})
+	global_vertex_buffer := sdl.CreateGPUBuffer(
+		gpu,
+		{usage = {.VERTEX, .INDEX}, size = total_size, props = 0},
+	)
 
 	copy_command_buffer := sdl.AcquireGPUCommandBuffer(gpu)
 	copy_pass := sdl.BeginGPUCopyPass(copy_command_buffer)
 	sdl.UploadToGPUBuffer(
 		copy_pass,
 		{transfer_buffer = transfer_buffer, offset = 0},
-		{buffer = vertex_buffer, offset = 0, size = size_of([12]f32)},
+		{buffer = global_vertex_buffer, offset = 0, size = total_size},
 		false,
 	)
 	sdl.EndGPUCopyPass(copy_pass)
 	ok = sdl.SubmitGPUCommandBuffer(copy_command_buffer);assert(ok)
+
+	mem.free(combined_data)
+	mem.free(suzanne_data.data_ptr)
+	mem.free(sphere_data.data_ptr)
 
 	ROTATION_SPEED := linalg.to_radians(f32(90))
 	rotation := f32(0)
@@ -424,13 +457,45 @@ main :: proc() {
 			render_pass := sdl.BeginGPURenderPass(cmd_buf, &color_target, 1, &depth_target)
 			sdl.BindGPUGraphicsPipeline(render_pass, pipeline)
 			vertex_buffer_binding := sdl.GPUBufferBinding {
-				buffer = mesh_vertex_buffer,
+				buffer = global_vertex_buffer,
 				offset = 0,
 			}
 			sdl.BindGPUVertexBuffers(render_pass, 0, &vertex_buffer_binding, 1)
 
 			sdl.PushGPUVertexUniformData(cmd_buf, 0, &ubo, size_of(ubo))
-			sdl.DrawGPUPrimitives(render_pass, mesh_vertex_count, INSTANCES, 0, 0)
+			sdl.DrawGPUPrimitives(
+				render_pass,
+				suzanne_info.vertex_count,
+				INSTANCES,
+				suzanne_info.offset,
+				0,
+			)
+
+			// Place multiple spheres into the scene.
+			sphere_positions: [][3]f32 = {
+				[3]f32{10, 0, 0},
+				[3]f32{-10, 0, 0},
+				[3]f32{0, 10, 0},
+				[3]f32{0, -10, 0},
+				[3]f32{10, 10, 0},
+				[3]f32{-10, -10, 0},
+			}
+			for pos in sphere_positions {
+				sphere_transform := linalg.matrix4_translate_f32(pos)
+				sdl.PushGPUVertexUniformData(
+					cmd_buf,
+					0,
+					&sphere_transform,
+					size_of(sphere_transform),
+				)
+				sdl.DrawGPUPrimitives(
+					render_pass,
+					sphere_info.vertex_count,
+					1,
+					sphere_info.offset,
+					0,
+				)
+			}
 
 			/*
 			{
