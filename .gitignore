@@ -1,4 +1,8 @@
+*.swp
+
+*.exe
+*.pdb
 *.dSYM
 arctic-char
-*.swp
+
 *.blend1

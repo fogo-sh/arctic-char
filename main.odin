@@ -12,8 +12,31 @@ import sdl "vendor:sdl3"
 
 default_context: runtime.Context
 
-frag_shader_code := #load("shaders/msl/shader.msl.frag")
-vert_shader_code := #load("shaders/msl/shader.msl.vert")
+when ODIN_OS == .Darwin {
+	shader_format := sdl.GPUShaderFormat{.MSL}
+
+	frag_shader_code := #load("shaders/msl/shader.msl.frag")
+	vert_shader_code := #load("shaders/msl/shader.msl.vert")
+
+	text_vert_shader_code := #load("shaders/msl/text_shader.msl.vert")
+	text_frag_shader_code := #load("shaders/msl/text_shader.msl.frag")
+} else when ODIN_OS == .Windows {
+	shader_format := sdl.GPUShaderFormat{.DXIL}
+
+	frag_shader_code := #load("shaders/dxil/shader.dxil.frag")
+	vert_shader_code := #load("shaders/dxil/shader.dxil.vert")
+
+	text_vert_shader_code := #load("shaders/dxil/text_shader.dxil.vert")
+	text_frag_shader_code := #load("shaders/dxil/text_shader.dxil.frag")
+} else {
+	shader_format := sdl.GPUShaderFormat{.SPIRV}
+
+	frag_shader_code := #load("shaders/spv/shader.spv.frag")
+	vert_shader_code := #load("shaders/spv/shader.spv.vert")
+
+	text_vert_shader_code := #load("shaders/spv/text_shader.spv.vert")
+	text_frag_shader_code := #load("shaders/spv/text_shader.spv.frag")
+}
 
 INSTANCES :: 1000
 
@@ -46,7 +69,13 @@ main :: proc() {
 
 	window := sdl.CreateWindow("arctic char*", 512, 512, {});assert(window != nil)
 
-	gpu := sdl.CreateGPUDevice({.MSL}, true, nil);assert(gpu != nil)
+	when ODIN_DEBUG {
+		gpu_debug := true
+	} else {
+		gpu_debug := false
+	}
+
+	gpu := sdl.CreateGPUDevice(shader_format, gpu_debug, nil);assert(gpu != nil)
 
 	spec: sdl.AudioSpec
 	wav_data: [^]u8
@@ -146,15 +175,39 @@ main :: proc() {
 		enable_stencil_test = false,
 	}
 
+	blend := sdl.GPUColorTargetBlendState {
+		enable_blend            = false,
+		src_color_blendfactor   = sdl.GPUBlendFactor.ONE,
+		dst_color_blendfactor   = sdl.GPUBlendFactor.ZERO,
+		color_blend_op          = sdl.GPUBlendOp.ADD,
+		src_alpha_blendfactor   = sdl.GPUBlendFactor.ONE,
+		dst_alpha_blendfactor   = sdl.GPUBlendFactor.ZERO,
+		alpha_blend_op          = sdl.GPUBlendOp.ADD,
+		color_write_mask        = sdl.GPUColorComponentFlags {
+			sdl.GPUColorComponentFlag.R,
+			sdl.GPUColorComponentFlag.G,
+			sdl.GPUColorComponentFlag.B,
+			sdl.GPUColorComponentFlag.A,
+		},
+		enable_color_write_mask = true,
+	}
+
 	target_info: sdl.GPUGraphicsPipelineTargetInfo = sdl.GPUGraphicsPipelineTargetInfo {
 		num_color_targets         = 1,
-		color_target_descriptions = &(sdl.GPUColorTargetDescription {
-				format = sdl.GetGPUSwapchainTextureFormat(gpu, window),
-				blend_state = sdl.GPUColorTargetBlendState{},
-			}),
+		color_target_descriptions = &sdl.GPUColorTargetDescription {
+			format = sdl.GetGPUSwapchainTextureFormat(gpu, window),
+			blend_state = blend,
+		},
 		depth_stencil_format      = sdl.GPUTextureFormat.D32_FLOAT,
 		has_depth_stencil_target  = true,
 	}
+
+	log.debug("Swapchain texture format: {}", sdl.GetGPUSwapchainTextureFormat(gpu, window))
+	log.debug(
+		"Target info: {num_color_targets: {}, depth_stencil_format: {}}",
+		target_info.num_color_targets,
+		target_info.depth_stencil_format,
+	)
 
 	pipeline := sdl.CreateGPUGraphicsPipeline(
 		gpu,
@@ -167,13 +220,24 @@ main :: proc() {
 				num_vertex_attributes = 2,
 				vertex_attributes = &mesh_vertex_attributes[0],
 			},
-			primitive_type = .TRIANGLELIST,
+			primitive_type = sdl.GPUPrimitiveType.TRIANGLELIST,
 			rasterizer_state = sdl.GPURasterizerState {
-				cull_mode = .BACK,
-				front_face = .COUNTER_CLOCKWISE,
+				cull_mode = sdl.GPUCullMode.BACK,
+				front_face = sdl.GPUFrontFace.COUNTER_CLOCKWISE,
+				depth_bias_constant_factor = 0.0,
+				depth_bias_clamp = 0.0,
+				depth_bias_slope_factor = 0.0,
+				enable_depth_bias = false,
+				enable_depth_clip = true,
+			},
+			multisample_state = sdl.GPUMultisampleState {
+				sample_count = sdl.GPUSampleCount._1,
+				sample_mask = 0xFFFFFFFF,
+				enable_mask = false,
 			},
 			depth_stencil_state = depth_state,
 			target_info = target_info,
+			props = 0,
 		},
 	)
 
@@ -443,7 +507,7 @@ load_shader :: proc(
 			code_size = len(code),
 			code = raw_data(code),
 			entrypoint = "main0",
-			format = {.MSL},
+			format = shader_format,
 			stage = stage,
 			num_uniform_buffers = num_uniform_buffers,
 		},
