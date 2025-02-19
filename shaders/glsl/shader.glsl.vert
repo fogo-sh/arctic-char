@@ -1,7 +1,7 @@
 #version 460
 
 layout(set=1, binding=0) uniform UBO {
-	mat4 mvp[1000];  // Array size matches INSTANCES constant in Odin
+	mat4 mvp[16];  // Array size matches INSTANCES constant in Odin
 };
 
 layout(location = 0) in vec3 inPosition;

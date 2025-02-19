@@ -1,4 +1,5 @@
 *.swp
+.vs
 
 *.exe
 *.pdb
