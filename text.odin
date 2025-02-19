@@ -4,9 +4,6 @@ import "core:mem"
 import sdl "vendor:sdl3"
 import "vendor:stb/easy_font"
 
-text_vert_shader_code := #load("shaders/msl/text_shader.msl.vert")
-text_frag_shader_code := #load("shaders/msl/text_shader.msl.frag")
-
 TextUBO :: struct {
 	ortho: matrix[4, 4]f32,
 }
