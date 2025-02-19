@@ -1,6 +1,7 @@
 package main
 
 import "base:runtime"
+import "core:strings"
 import "core:fmt"
 import "core:log"
 import "core:math/linalg"
@@ -11,6 +12,7 @@ import sdl "vendor:sdl3"
 default_context: runtime.Context
 
 when ODIN_OS == .Darwin {
+	shader_entrypoint := "main0"
 	shader_format := sdl.GPUShaderFormat{.MSL}
 
 	frag_shader_code := #load("shaders/msl/shader.msl.frag")
@@ -19,6 +21,7 @@ when ODIN_OS == .Darwin {
 	text_vert_shader_code := #load("shaders/msl/text_shader.msl.vert")
 	text_frag_shader_code := #load("shaders/msl/text_shader.msl.frag")
 } else when ODIN_OS == .Windows {
+	shader_entrypoint := "main0"
 	shader_format := sdl.GPUShaderFormat{.DXIL}
 
 	frag_shader_code := #load("shaders/dxil/shader.dxil.frag")
@@ -27,6 +30,8 @@ when ODIN_OS == .Darwin {
 	text_vert_shader_code := #load("shaders/dxil/text_shader.dxil.vert")
 	text_frag_shader_code := #load("shaders/dxil/text_shader.dxil.frag")
 } else {
+	shader_entrypoint := "main"
+
 	shader_format := sdl.GPUShaderFormat{.SPIRV}
 
 	frag_shader_code := #load("shaders/spv/shader.spv.frag")
@@ -518,7 +523,7 @@ load_shader :: proc(
 		{
 			code_size = len(code),
 			code = raw_data(code),
-			entrypoint = "main0",
+			entrypoint = strings.clone_to_cstring(shader_entrypoint), // TODO this needs to be free'd
 			format = shader_format,
 			stage = stage,
 			num_uniform_buffers = num_uniform_buffers,
