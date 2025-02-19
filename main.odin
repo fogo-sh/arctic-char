@@ -1,12 +1,12 @@
 package main
 
 import "base:runtime"
-import "core:strings"
 import "core:fmt"
 import "core:log"
 import "core:math/linalg"
 import "core:math/rand"
 import "core:os"
+import "core:strings"
 import sdl "vendor:sdl3"
 
 default_context: runtime.Context
@@ -183,23 +183,11 @@ main :: proc() {
 		enable_stencil_test = false,
 	}
 
-	blend := sdl.GPUColorTargetBlendState {
-		enable_blend            = false,
-		src_color_blendfactor   = sdl.GPUBlendFactor.ONE,
-		dst_color_blendfactor   = sdl.GPUBlendFactor.ZERO,
-		color_blend_op          = sdl.GPUBlendOp.ADD,
-		src_alpha_blendfactor   = sdl.GPUBlendFactor.ONE,
-		dst_alpha_blendfactor   = sdl.GPUBlendFactor.ZERO,
-		alpha_blend_op          = sdl.GPUBlendOp.ADD,
-		color_write_mask        = sdl.GPUColorComponentFlags{},
-		enable_color_write_mask = true,
-	}
-
 	target_info: sdl.GPUGraphicsPipelineTargetInfo = sdl.GPUGraphicsPipelineTargetInfo {
 		num_color_targets         = 1,
 		color_target_descriptions = &sdl.GPUColorTargetDescription {
 			format = sdl.GetGPUSwapchainTextureFormat(gpu, window),
-			blend_state = blend,
+			blend_state = sdl.GPUColorTargetBlendState{},
 		},
 		depth_stencil_format      = sdl.GPUTextureFormat.D32_FLOAT,
 		has_depth_stencil_target  = true,
@@ -223,24 +211,13 @@ main :: proc() {
 				num_vertex_attributes = 2,
 				vertex_attributes = &mesh_vertex_attributes[0],
 			},
-			primitive_type = sdl.GPUPrimitiveType.TRIANGLELIST,
+			primitive_type = .TRIANGLELIST,
 			rasterizer_state = sdl.GPURasterizerState {
-				cull_mode = sdl.GPUCullMode.BACK,
-				front_face = sdl.GPUFrontFace.COUNTER_CLOCKWISE,
-				depth_bias_constant_factor = 0.0,
-				depth_bias_clamp = 0.0,
-				depth_bias_slope_factor = 0.0,
-				enable_depth_bias = false,
-				enable_depth_clip = true,
-			},
-			multisample_state = sdl.GPUMultisampleState {
-				sample_count = sdl.GPUSampleCount._1,
-				sample_mask = 0xFFFFFFFF,
-				enable_mask = false,
+				cull_mode = .BACK,
+				front_face = .COUNTER_CLOCKWISE,
 			},
 			depth_stencil_state = depth_state,
 			target_info = target_info,
-			props = 0,
 		},
 	)
 
@@ -257,8 +234,6 @@ main :: proc() {
 	log.debug("Loaded Suzanne.glb")
 
 	transfer_buffer := sdl.CreateGPUTransferBuffer(gpu, {usage = .UPLOAD, size = 12000, props = 0})
-	tb_pointer := sdl.MapGPUTransferBuffer(gpu, transfer_buffer, false)
-	(cast(^[12]f32)tb_pointer)^ = {-0.5, -0.5, 0, 1, -0.5, 0.5, 0, 1, 0.5, -0.5, 0, 1}
 
 	sdl.UnmapGPUTransferBuffer(gpu, transfer_buffer)
 
@@ -287,7 +262,7 @@ main :: proc() {
 
 	last_ticks := sdl.GetTicks()
 
-	camera_pos: [3]f32 = [3]f32{0.0, -21.0, 60.0}
+	camera_pos: [3]f32 = [3]f32{-21.3, -40.0, 25.0}
 	move_forward: bool = false
 	move_backward: bool = false
 	move_left: bool = false
@@ -521,11 +496,11 @@ load_shader :: proc(
 	return sdl.CreateGPUShader(
 		device,
 		{
-			code_size = len(code),
-			code = raw_data(code),
-			entrypoint = strings.clone_to_cstring(shader_entrypoint), // TODO this needs to be free'd
-			format = shader_format,
-			stage = stage,
+			code_size           = len(code),
+			code                = raw_data(code),
+			entrypoint          = strings.clone_to_cstring(shader_entrypoint), // TODO this needs to be free'd
+			format              = shader_format,
+			stage               = stage,
 			num_uniform_buffers = num_uniform_buffers,
 		},
 	)
