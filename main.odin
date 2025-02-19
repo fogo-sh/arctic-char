@@ -216,7 +216,6 @@ main :: proc() {
 
 	last_ticks := sdl.GetTicks()
 
-	// --- New camera-related variables ---
 	camera_pos: [3]f32 = [3]f32{0.0, -21.0, 60.0}
 	move_forward: bool = false
 	move_backward: bool = false
@@ -241,7 +240,7 @@ main :: proc() {
 		delta_time := f32(new_ticks - last_ticks) / 1000
 		last_ticks = new_ticks
 
-		// Process events, updating our key-state booleans:
+		// events
 		ev: sdl.Event
 		for sdl.PollEvent(&ev) {
 			#partial switch ev.type {
@@ -287,7 +286,6 @@ main :: proc() {
 			}
 		}
 
-		// Update camera position based on key input
 		move_speed := f32(5.0)
 		if shift_down {
 			move_speed = f32(20.0)
@@ -312,23 +310,13 @@ main :: proc() {
 			camera_pos[1] -= dt_move
 		}
 
-		// Print current camera position so you can see its location
-		fmt.printf(
-			"Camera Position: x=%.2f, y=%.2f, z=%.2f\n",
-			camera_pos[0],
-			camera_pos[1],
-			camera_pos[2],
-		)
-
-		// Create a view matrix that translates the scene opposite to the camera's position.
 		view_mat := linalg.matrix4_translate_f32({-camera_pos[0], -camera_pos[1], -camera_pos[2]})
 
 		// update game state
 		rotation += ROTATION_SPEED * delta_time
 
-		// Prepare per-instance transforms:
 		ubo: UBO
-		gridWidth := 32 // 32 x 32 = 1024 positions (only first 1000 used)
+		gridWidth := 32
 		gridHeight := 32
 		spacing := f32(2.5)
 
@@ -338,13 +326,11 @@ main :: proc() {
 				if idx >= INSTANCES {
 					break
 				}
-				// Center the grid around (0,0)
 				offset_x := (f32(j) - f32(gridWidth) / 2.0) * spacing
 				offset_y := (f32(i) - f32(gridHeight) / 2.0) * spacing
 				model_mat :=
 					linalg.matrix4_translate_f32({offset_x, offset_y, -5}) *
 					linalg.matrix4_rotate_f32(rotation, {0, 1, 0})
-				// Compute final MVP matrix (projection * view * model)
 				ubo.mvp[idx] = proj_mat * view_mat * model_mat
 				idx += 1
 			}
