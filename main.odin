@@ -73,6 +73,11 @@ ModelDataInfo :: struct {
 	vertex_stride: u32,
 }
 
+SceneObject :: struct {
+	vertex_offset: u32,
+	vertex_count:  u32,
+	local_model:   matrix[4, 4]f32,
+}
 
 main :: proc() {
 	context.logger = log.create_console_logger()
@@ -340,6 +345,19 @@ main :: proc() {
 
 	log.debug("Ready for main loop")
 
+	scene_objects: [2]SceneObject = {
+		SceneObject {
+			vertex_offset = 0,
+			vertex_count = suzanne_info.vertex_count,
+			local_model = linalg.matrix4_translate_f32({-2.0, 0.0, 0.0}),
+		},
+		SceneObject {
+			vertex_offset = suzanne_info.vertex_count,
+			vertex_count = sphere_info.vertex_count,
+			local_model = linalg.matrix4_translate_f32({2.0, 0.0, 0.0}),
+		},
+	}
+
 	main_loop: for {
 		new_ticks := sdl.GetTicks()
 		delta_time := f32(new_ticks - last_ticks) / 1000
@@ -417,13 +435,8 @@ main :: proc() {
 
 		view_mat := linalg.matrix4_translate_f32({-camera_pos[0], -camera_pos[1], -camera_pos[2]})
 
-		// update game state
 		rotation += ROTATION_SPEED * delta_time
-
-		global_model := linalg.matrix4_rotate_f32(rotation, {0, 1, 0})
-		global_mvp := proj_mat * view_mat * global_model
-
-		total_vertex_count := suzanne_info.vertex_count + sphere_info.vertex_count
+		global_spin := linalg.matrix4_rotate_f32(rotation, {0, 1, 0})
 
 		// audio
 		if sdl.GetAudioStreamAvailable(stream) < cast(i32)wav_data_len {
@@ -440,8 +453,6 @@ main :: proc() {
 			nil,
 			nil,
 		);assert(ok)
-
-		sdl.PushGPUVertexUniformData(cmd_buf, 0, &global_mvp, size_of(global_mvp))
 
 		if swapchain_tex != nil {
 			color_target := sdl.GPUColorTargetInfo {
@@ -462,13 +473,20 @@ main :: proc() {
 			}
 			render_pass := sdl.BeginGPURenderPass(cmd_buf, &color_target, 1, &depth_target)
 			sdl.BindGPUGraphicsPipeline(render_pass, pipeline)
+
 			vertex_buffer_binding := sdl.GPUBufferBinding {
 				buffer = global_vertex_buffer,
 				offset = 0,
 			}
 			sdl.BindGPUVertexBuffers(render_pass, 0, &vertex_buffer_binding, 1)
 
-			sdl.DrawGPUPrimitives(render_pass, total_vertex_count, 1, 0, 0)
+			for obj in scene_objects {
+				object_model := global_spin * obj.local_model
+				mvp := proj_mat * view_mat * object_model
+
+				sdl.PushGPUVertexUniformData(cmd_buf, 0, &mvp, size_of(mvp))
+				sdl.DrawGPUPrimitives(render_pass, obj.vertex_count, 1, obj.vertex_offset, 0)
+			}
 
 			sdl.EndGPURenderPass(render_pass)
 		}
