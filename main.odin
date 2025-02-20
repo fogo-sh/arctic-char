@@ -320,7 +320,7 @@ main :: proc() {
 
 	last_ticks := sdl.GetTicks()
 
-	camera_pos: [3]f32 = [3]f32{0.0, 0.0, 5.0}
+	camera_pos: [3]f32 = [3]f32{0.0, 0.0, 10.0}
 	move_forward: bool = false
 	move_backward: bool = false
 	move_left: bool = false
@@ -345,17 +345,23 @@ main :: proc() {
 
 	log.debug("Ready for main loop")
 
-	scene_objects: [2]SceneObject = {
-		SceneObject {
-			vertex_offset = 0,
-			vertex_count = suzanne_info.vertex_count,
-			local_model = linalg.matrix4_translate_f32({-2.0, 0.0, 0.0}),
-		},
-		SceneObject {
-			vertex_offset = suzanne_info.vertex_count,
-			vertex_count = sphere_info.vertex_count,
-			local_model = linalg.matrix4_translate_f32({2.0, 0.0, 0.0}),
-		},
+	make_scene_object :: proc(model_type: ModelInfo, position: [3]f32) -> SceneObject {
+		return SceneObject {
+			vertex_offset = model_type.offset,
+			vertex_count = model_type.vertex_count,
+			local_model = linalg.matrix4_translate_f32(position),
+		}
+	}
+
+	scene_objects: [8]SceneObject = {
+		make_scene_object(suzanne_info, {-4.0, 1.5, 0.0}),
+		make_scene_object(sphere_info, {-2.0, 1.5, 0.0}),
+		make_scene_object(suzanne_info, {2.0, 1.5, 0.0}),
+		make_scene_object(sphere_info, {4.0, 1.5, 0.0}),
+		make_scene_object(sphere_info, {-4.0, -1.5, 0.0}),
+		make_scene_object(suzanne_info, {-2.0, -1.5, 0.0}),
+		make_scene_object(sphere_info, {2.0, -1.5, 0.0}),
+		make_scene_object(suzanne_info, {4.0, -1.5, 0.0}),
 	}
 
 	main_loop: for {
@@ -436,7 +442,6 @@ main :: proc() {
 		view_mat := linalg.matrix4_translate_f32({-camera_pos[0], -camera_pos[1], -camera_pos[2]})
 
 		rotation += ROTATION_SPEED * delta_time
-		global_spin := linalg.matrix4_rotate_f32(rotation, {0, 1, 0})
 
 		// audio
 		if sdl.GetAudioStreamAvailable(stream) < cast(i32)wav_data_len {
@@ -481,7 +486,8 @@ main :: proc() {
 			sdl.BindGPUVertexBuffers(render_pass, 0, &vertex_buffer_binding, 1)
 
 			for obj in scene_objects {
-				object_model := global_spin * obj.local_model
+				local_spin := linalg.matrix4_rotate_f32(rotation, {0, 1, 0})
+				object_model := obj.local_model * local_spin
 				mvp := proj_mat * view_mat * object_model
 
 				sdl.PushGPUVertexUniformData(cmd_buf, 0, &mvp, size_of(mvp))
