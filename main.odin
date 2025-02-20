@@ -315,7 +315,7 @@ main :: proc() {
 
 	last_ticks := sdl.GetTicks()
 
-	camera_pos: [3]f32 = [3]f32{-21.3, -40.0, 25.0}
+	camera_pos: [3]f32 = [3]f32{0.0, 0.0, 5.0}
 	move_forward: bool = false
 	move_backward: bool = false
 	move_left: bool = false
@@ -420,26 +420,10 @@ main :: proc() {
 		// update game state
 		rotation += ROTATION_SPEED * delta_time
 
-		ubo: UBO
-		gridWidth := 32
-		gridHeight := 32
-		spacing := f32(2.5)
+		global_model := linalg.matrix4_rotate_f32(rotation, {0, 1, 0})
+		global_mvp := proj_mat * view_mat * global_model
 
-		idx: int = 0
-		for i := 0; i < gridHeight; i += 1 {
-			for j := 0; j < gridWidth; j += 1 {
-				if idx >= INSTANCES {
-					break
-				}
-				offset_x := (f32(j) - f32(gridWidth) / 2.0) * spacing
-				offset_y := (f32(i) - f32(gridHeight) / 2.0) * spacing
-				model_mat :=
-					linalg.matrix4_translate_f32({offset_x, offset_y, -5}) *
-					linalg.matrix4_rotate_f32(rotation, {0, 1, 0})
-				ubo.mvp[idx] = proj_mat * view_mat * model_mat
-				idx += 1
-			}
-		}
+		total_vertex_count := suzanne_info.vertex_count + sphere_info.vertex_count
 
 		// audio
 		if sdl.GetAudioStreamAvailable(stream) < cast(i32)wav_data_len {
@@ -456,6 +440,8 @@ main :: proc() {
 			nil,
 			nil,
 		);assert(ok)
+
+		sdl.PushGPUVertexUniformData(cmd_buf, 0, &global_mvp, size_of(global_mvp))
 
 		if swapchain_tex != nil {
 			color_target := sdl.GPUColorTargetInfo {
@@ -482,86 +468,7 @@ main :: proc() {
 			}
 			sdl.BindGPUVertexBuffers(render_pass, 0, &vertex_buffer_binding, 1)
 
-			sdl.PushGPUVertexUniformData(cmd_buf, 0, &ubo, size_of(ubo))
-			sdl.DrawGPUPrimitives(
-				render_pass,
-				suzanne_info.vertex_count,
-				INSTANCES,
-				suzanne_info.offset,
-				0,
-			)
-
-			// Place multiple spheres into the scene.
-			sphere_positions: [][3]f32 = {
-				[3]f32{10, 0, 0},
-				[3]f32{-10, 0, 0},
-				[3]f32{0, 10, 0},
-				[3]f32{0, -10, 0},
-				[3]f32{10, 10, 0},
-				[3]f32{-10, -10, 0},
-			}
-			for pos in sphere_positions {
-				sphere_transform := linalg.matrix4_translate_f32(pos)
-				sdl.PushGPUVertexUniformData(
-					cmd_buf,
-					0,
-					&sphere_transform,
-					size_of(sphere_transform),
-				)
-				sdl.DrawGPUPrimitives(
-					render_pass,
-					sphere_info.vertex_count,
-					1,
-					sphere_info.offset,
-					0,
-				)
-			}
-
-			/*
-			{
-				text_vertices: [4096]f32
-				vertex_offset: u32 = 0
-				draw_commands: [16]TextDrawCommand
-				draw_count: u32 = 0
-
-				accumulate_text(
-					"arctic char*",
-					f32(win_size.x) / 2 - 160,
-					f32(win_size.y) / 2 - 160,
-					text_color1,
-					5.0,
-					&text_vertices,
-					&vertex_offset,
-					&draw_commands,
-					&draw_count,
-				)
-
-				accumulate_text(
-					"jack & natalie",
-					f32(win_size.x) / 2 - 115,
-					f32(win_size.y) / 2 + 130,
-					text_color2,
-					3.0,
-					&text_vertices,
-					&vertex_offset,
-					&draw_commands,
-					&draw_count,
-				)
-
-				render_text(
-					gpu,
-					cmd_buf,
-					render_pass,
-					text_pipeline,
-					text_gpu_vertex_buffer,
-					win_size,
-					&text_vertices,
-					vertex_offset,
-					&draw_commands,
-					draw_count,
-				)
-			}
-			*/
+			sdl.DrawGPUPrimitives(render_pass, total_vertex_count, 1, 0, 0)
 
 			sdl.EndGPURenderPass(render_pass)
 		}
