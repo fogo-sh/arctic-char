@@ -60,22 +60,27 @@ TextDrawCommand :: struct {
 	color:  [4]f32,
 }
 
-ModelInfo :: struct {
-	offset:        u32,
-	vertex_count:  u32,
-	vertex_stride: u32,
+Vec3 :: [3]f32
+
+VertexData :: struct {
+	pos:   Vec3,
+	color: sdl.FColor,
+	uv:    [2]f32,
 }
 
-ModelDataInfo :: struct {
-	data_ptr:      ^u8,
-	size:          u32,
-	vertex_count:  u32,
-	vertex_stride: u32,
+ModelData :: struct {
+	vertices: []VertexData,
+	indices:  []u16,
+}
+
+ModelInfo :: struct {
+	offset:      int,
+	index_count: int,
 }
 
 SceneObject :: struct {
-	vertex_offset: u32,
-	vertex_count:  u32,
+	vertex_offset: int,
+	vertex_count:  int,
 	local_model:   matrix[4, 4]f32,
 }
 
@@ -225,13 +230,6 @@ main :: proc() {
 		has_depth_stencil_target  = true,
 	}
 
-	log.debug("Swapchain texture format: {}", sdl.GetGPUSwapchainTextureFormat(gpu, window))
-	log.debug(
-		"Target info: {num_color_targets: {}, depth_stencil_format: {}}",
-		target_info.num_color_targets,
-		target_info.depth_stencil_format,
-	)
-
 	pipeline := sdl.CreateGPUGraphicsPipeline(
 		gpu,
 		{
@@ -261,36 +259,61 @@ main :: proc() {
 	suzanne_data := load_mesh_data("./assets/suzanne.glb")
 	sphere_data := load_mesh_data("./assets/sphere.glb")
 
-	total_size := suzanne_data.size + sphere_data.size
-	combined_data, err := mem.alloc(int(total_size));assert(err == nil)
+	combined_vertex_data: []VertexData
+	combined_index_data: []u16
 
-	mem.copy(combined_data, suzanne_data.data_ptr, int(suzanne_data.size))
+	combined_vertex_data = make(
+		[]VertexData,
+		len(suzanne_data.vertices) + len(sphere_data.vertices),
+	)
+	combined_index_data = make([]u16, len(suzanne_data.indices) + len(sphere_data.indices))
 
-	sphere_dest_ptr := cast(^u8)(uintptr(combined_data) + uintptr(suzanne_data.size))
-	mem.copy(sphere_dest_ptr, sphere_data.data_ptr, int(sphere_data.size))
+	copy(combined_vertex_data[:len(suzanne_data.vertices)], suzanne_data.vertices)
+	copy(combined_index_data[:len(suzanne_data.indices)], suzanne_data.indices)
+
+	copy(combined_vertex_data[len(suzanne_data.vertices):], sphere_data.vertices)
+	copy(combined_index_data[len(suzanne_data.indices):], sphere_data.indices)
+
+	combined_vertex_data_size := len(combined_vertex_data) * size_of(VertexData)
+	combined_index_data_size := len(combined_index_data) * size_of(u16)
+	total_size := combined_vertex_data_size + combined_index_data_size
 
 	suzanne_info: ModelInfo = ModelInfo {
-		offset        = 0,
-		vertex_count  = suzanne_data.vertex_count,
-		vertex_stride = suzanne_data.vertex_stride,
+		offset      = 0,
+		index_count = len(suzanne_data.indices),
 	}
 	sphere_info: ModelInfo = ModelInfo {
-		offset        = suzanne_data.vertex_count,
-		vertex_count  = sphere_data.vertex_count,
-		vertex_stride = sphere_data.vertex_stride,
+		offset      = suzanne_info.index_count,
+		index_count = len(sphere_data.indices),
 	}
 
 	transfer_buffer := sdl.CreateGPUTransferBuffer(
 		gpu,
-		{usage = .UPLOAD, size = total_size, props = 0},
+		{usage = .UPLOAD, size = u32(total_size), props = 0},
 	)
-	tb_ptr := sdl.MapGPUTransferBuffer(gpu, transfer_buffer, false)
-	mem.copy(tb_ptr, combined_data, int(total_size))
+	transfer_buffer_ptr := transmute([^]byte)sdl.MapGPUTransferBuffer(gpu, transfer_buffer, false)
+
+	mem.copy(
+		transfer_buffer_ptr,
+		raw_data(combined_vertex_data),
+		len(combined_vertex_data) * size_of(VertexData),
+	)
+	mem.copy(
+		transfer_buffer_ptr[combined_vertex_data_size:],
+		raw_data(combined_index_data),
+		len(combined_index_data) * size_of(u16),
+	)
+
 	sdl.UnmapGPUTransferBuffer(gpu, transfer_buffer)
 
-	global_vertex_buffer := sdl.CreateGPUBuffer(
+	vertex_buffer := sdl.CreateGPUBuffer(
 		gpu,
-		{usage = {.VERTEX, .INDEX}, size = total_size, props = 0},
+		{usage = {.VERTEX}, size = u32(combined_vertex_data_size), props = 0},
+	)
+
+	index_buffer := sdl.CreateGPUBuffer(
+		gpu,
+		{usage = {.INDEX}, size = u32(combined_index_data_size), props = 0},
 	)
 
 	copy_command_buffer := sdl.AcquireGPUCommandBuffer(gpu)
@@ -298,17 +321,24 @@ main :: proc() {
 	sdl.UploadToGPUBuffer(
 		copy_pass,
 		{transfer_buffer = transfer_buffer, offset = 0},
-		{buffer = global_vertex_buffer, offset = 0, size = total_size},
+		{buffer = vertex_buffer, offset = 0, size = u32(combined_vertex_data_size)},
+		false,
+	)
+	sdl.UploadToGPUBuffer(
+		copy_pass,
+		{transfer_buffer = transfer_buffer, offset = u32(combined_vertex_data_size)},
+		{buffer = index_buffer, offset = 0, size = u32(combined_index_data_size)},
 		false,
 	)
 	sdl.EndGPUCopyPass(copy_pass)
 	ok = sdl.SubmitGPUCommandBuffer(copy_command_buffer);assert(ok)
 
-	mem.free(combined_data)
-	mem.free(suzanne_data.data_ptr)
-	mem.free(sphere_data.data_ptr)
+	sdl.ReleaseGPUTransferBuffer(gpu, transfer_buffer)
 
-	ROTATION_SPEED := linalg.to_radians(f32(90))
+	// TODO we're done with holding the model data in memory
+	// we should release the memory now
+
+	ROTATION_SPEED := linalg.to_radians(f32(90 * 10))
 	rotation := f32(0)
 
 	proj_mat := linalg.matrix4_perspective_f32(
@@ -348,7 +378,7 @@ main :: proc() {
 	make_scene_object :: proc(model_type: ModelInfo, position: [3]f32) -> SceneObject {
 		return SceneObject {
 			vertex_offset = model_type.offset,
-			vertex_count = model_type.vertex_count,
+			vertex_count = model_type.index_count,
 			local_model = linalg.matrix4_translate_f32(position),
 		}
 	}
@@ -480,10 +510,15 @@ main :: proc() {
 			sdl.BindGPUGraphicsPipeline(render_pass, pipeline)
 
 			vertex_buffer_binding := sdl.GPUBufferBinding {
-				buffer = global_vertex_buffer,
+				buffer = vertex_buffer,
+				offset = 0,
+			}
+			index_buffer_binding := sdl.GPUBufferBinding {
+				buffer = index_buffer,
 				offset = 0,
 			}
 			sdl.BindGPUVertexBuffers(render_pass, 0, &vertex_buffer_binding, 1)
+			sdl.BindGPUIndexBuffer(render_pass, index_buffer_binding, ._16BIT)
 
 			for obj in scene_objects {
 				local_spin := linalg.matrix4_rotate_f32(rotation, {0, 1, 0})
@@ -491,7 +526,14 @@ main :: proc() {
 				mvp := proj_mat * view_mat * object_model
 
 				sdl.PushGPUVertexUniformData(cmd_buf, 0, &mvp, size_of(mvp))
-				sdl.DrawGPUPrimitives(render_pass, obj.vertex_count, 1, obj.vertex_offset, 0)
+				sdl.DrawGPUIndexedPrimitives(
+					render_pass,
+					u32(obj.vertex_offset),
+					u32(obj.vertex_count),
+					0,
+					0,
+					0,
+				)
 			}
 
 			sdl.EndGPURenderPass(render_pass)
@@ -678,12 +720,13 @@ render_text :: proc(
 	}
 }
 
-load_mesh_data :: proc(model_path: cstring) -> ModelDataInfo {
+load_mesh_data :: proc(model_path: cstring) -> ModelData {
 	options: cgltf.options
 	data, result := cgltf.parse_file(options, model_path)
 	assert(result == .success)
 	result = cgltf.load_buffers(options, data, model_path)
 	assert(result == .success)
+	defer cgltf.free(data)
 
 	mesh := data.scene.nodes[0].mesh
 	primitive := mesh.primitives[0]
@@ -702,86 +745,46 @@ load_mesh_data :: proc(model_path: cstring) -> ModelDataInfo {
 
 	pos_accessor := pos_attr.data
 	col_accessor := col_attr.data
-
-	vertex_count := pos_accessor^.count
-	num_pos_components := cgltf.num_components(pos_accessor^.type)
-	num_col_components := cgltf.num_components(col_accessor^.type)
-	vertex_stride := (num_pos_components + num_col_components) * size_of(f32)
-
 	idx_accessor := primitive.indices
-	index_count := idx_accessor^.count
 
-	expanded_size := u32(index_count * vertex_stride)
-	expanded_data, err := mem.alloc(int(expanded_size))
-	assert(err == nil)
+	vertex_count := pos_accessor.count
+	index_count := idx_accessor.count
+	num_pos_components := cgltf.num_components(pos_accessor.type)
+	num_col_components := cgltf.num_components(col_accessor.type)
 
-	pos_data_size := vertex_count * num_pos_components * size_of(f32)
-	pos_buffer, err2 := mem.alloc(int(pos_data_size))
-	assert(err2 == nil)
-	pos_slice := mem.slice_ptr(cast(^f32)pos_buffer, int(vertex_count * num_pos_components))
+	positions := make([]f32, vertex_count * num_pos_components)
 	_ = cgltf.accessor_unpack_floats(
 		pos_accessor,
-		raw_data(pos_slice),
-		uint(vertex_count) * num_pos_components,
+		raw_data(positions),
+		uint(vertex_count * num_pos_components),
 	)
 
-	col_data_size := vertex_count * num_col_components * size_of(f32)
-	col_buffer, err3 := mem.alloc(int(col_data_size))
-	assert(err3 == nil)
-	col_slice := mem.slice_ptr(cast(^f32)col_buffer, int(vertex_count * num_col_components))
+	colors := make([]f32, vertex_count * num_col_components)
 	_ = cgltf.accessor_unpack_floats(
 		col_accessor,
-		raw_data(col_slice),
-		uint(vertex_count) * num_col_components,
+		raw_data(colors),
+		uint(vertex_count * num_col_components),
 	)
 
-	out_slice := mem.slice_ptr(
-		cast(^f32)expanded_data,
-		int(index_count * (num_pos_components + num_col_components)),
-	)
+	vertices := make([]VertexData, vertex_count)
+	for i := 0; i < int(vertex_count); i += 1 {
+		pos_idx := i * int(num_pos_components)
+		col_idx := i * int(num_col_components)
 
-	for i := uint(0); i < index_count; i += 3 {
-		idx0 := cgltf.accessor_read_index(idx_accessor, i)
-		idx1 := cgltf.accessor_read_index(idx_accessor, i + 1)
-		idx2 := cgltf.accessor_read_index(idx_accessor, i + 2)
-
-		base := i * (num_pos_components + num_col_components)
-		for j := uint(0); j < num_pos_components; j += 1 {
-			out_slice[base + j] = pos_slice[idx0 * num_pos_components + j]
-		}
-		for j := uint(0); j < num_col_components; j += 1 {
-			out_slice[base + num_pos_components + j] = col_slice[idx0 * num_col_components + j]
-		}
-
-		base = (i + 1) * (num_pos_components + num_col_components)
-		for j := uint(0); j < num_pos_components; j += 1 {
-			out_slice[base + j] = pos_slice[idx1 * num_pos_components + j]
-		}
-		for j := uint(0); j < num_col_components; j += 1 {
-			out_slice[base + num_pos_components + j] = col_slice[idx1 * num_col_components + j]
-		}
-
-		base = (i + 2) * (num_pos_components + num_col_components)
-		for j := uint(0); j < num_pos_components; j += 1 {
-			out_slice[base + j] = pos_slice[idx2 * num_pos_components + j]
-		}
-		for j := uint(0); j < num_col_components; j += 1 {
-			out_slice[base + num_pos_components + j] = col_slice[idx2 * num_col_components + j]
+		vertices[i] = VertexData {
+			pos   = Vec3{positions[pos_idx + 0], positions[pos_idx + 1], positions[pos_idx + 2]},
+			color = sdl.FColor{colors[col_idx + 0], colors[col_idx + 1], colors[col_idx + 2], 1.0},
+			uv    = [2]f32{0, 0},
 		}
 	}
 
-	mem.free(pos_buffer)
-	mem.free(col_buffer)
-	defer cgltf.free(data)
-
-	return ModelDataInfo {
-		data_ptr = cast(^u8)expanded_data,
-		size = expanded_size,
-		vertex_count = u32(index_count),
-		vertex_stride = u32(vertex_stride),
+	indices := make([]u16, index_count)
+	for i := 0; i < int(index_count); i += 1 {
+		indices[i] = u16(cgltf.accessor_read_index(idx_accessor, uint(i)))
 	}
+
+	return ModelData{indices = indices, vertices = vertices}
 }
-
 
 orthographic_matrix :: proc(left, right, bottom, top, near, far: f32) -> matrix[4, 4]f32 {
 	a := 2 / (right - left)
@@ -797,7 +800,6 @@ orthographic_matrix :: proc(left, right, bottom, top, near, far: f32) -> matrix[
 		0, 0, 0, 1, 
 	}
 }
-
 
 generate_random_color :: proc() -> [4]f32 {
 	r := rand.float32()
