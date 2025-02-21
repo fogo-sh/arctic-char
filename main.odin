@@ -7,10 +7,10 @@ import "core:math/linalg"
 import "core:math/rand"
 import "core:mem"
 import "core:os"
+import "core:reflect"
 import "core:strings"
 import "vendor:cgltf"
 import sdl "vendor:sdl3"
-import "vendor:stb/easy_font"
 
 default_context: runtime.Context
 
@@ -46,20 +46,6 @@ when ODIN_OS == .Darwin {
 
 INSTANCES :: 16
 
-UBO :: struct {
-	mvp: [INSTANCES]matrix[4, 4]f32,
-}
-
-TextUBO :: struct {
-	ortho: matrix[4, 4]f32,
-}
-
-TextDrawCommand :: struct {
-	offset: u32,
-	count:  u32,
-	color:  [4]f32,
-}
-
 Vec3 :: [3]f32
 
 VertexData :: struct {
@@ -78,10 +64,25 @@ ModelInfo :: struct {
 	index_count: int,
 }
 
+Model :: enum {
+	Suzanne,
+	Sphere,
+}
+
 SceneObject :: struct {
 	vertex_offset: int,
 	vertex_count:  int,
 	local_model:   matrix[4, 4]f32,
+}
+
+Movement :: struct {
+	forward:  bool,
+	backward: bool,
+	left:     bool,
+	right:    bool,
+	up:       bool,
+	down:     bool,
+	shift:    bool,
 }
 
 main :: proc() {
@@ -89,6 +90,8 @@ main :: proc() {
 	default_context = context
 
 	ok := sdl.SetAppMetadata("arctic char*", "0.1.0", "sh.fogo.arctic-char");assert(ok)
+
+	// -- initial setup --
 
 	sdl.SetLogPriorities(.VERBOSE)
 	sdl.SetLogOutputFunction(
@@ -115,12 +118,12 @@ main :: proc() {
 		gpu_debug := false
 	}
 
+	// -- end initial setup --
+
+	// -- audio setup --
+
 	ok = sdl.Init({.VIDEO, .AUDIO});assert(ok)
 	defer sdl.Quit()
-
-	window := sdl.CreateWindow("arctic char*", 512, 512, {});assert(window != nil)
-
-	gpu := sdl.CreateGPUDevice(shader_format, gpu_debug, nil);assert(gpu != nil)
 
 	spec: sdl.AudioSpec
 	wav_data: [^]u8
@@ -137,6 +140,14 @@ main :: proc() {
 	defer sdl.CloseAudioDevice(sdl.AUDIO_DEVICE_DEFAULT_PLAYBACK)
 
 	ok = sdl.ResumeAudioStreamDevice(stream);assert(ok)
+
+	// -- end audio setup --
+
+	// -- window and gpu setup --
+
+	window := sdl.CreateWindow("arctic char*", 512, 512, {});assert(window != nil)
+
+	gpu := sdl.CreateGPUDevice(shader_format, gpu_debug, nil);assert(gpu != nil)
 
 	ok = sdl.ClaimWindowForGPUDevice(gpu, window);assert(ok)
 
@@ -165,7 +176,7 @@ main :: proc() {
 
 	mesh_vertex_buffer_description := sdl.GPUVertexBufferDescription {
 		slot               = 0,
-		pitch              = 28,
+		pitch              = size_of(f32) * (3 + 4 + 2), // float3 pos + float4 color + float2 uv
 		input_rate         = .VERTEX,
 		instance_step_rate = 0,
 	}
@@ -181,9 +192,16 @@ main :: proc() {
 		format      = .FLOAT4,
 		offset      = 12,
 	}
-	mesh_vertex_attributes := [2]sdl.GPUVertexAttribute {
+	mesh_vertex_attribute_uv := sdl.GPUVertexAttribute {
+		location    = 2,
+		buffer_slot = 0,
+		format      = .FLOAT2,
+		offset      = 28,
+	}
+	mesh_vertex_attributes := [3]sdl.GPUVertexAttribute {
 		mesh_vertex_attribute_position,
 		mesh_vertex_attribute_color,
+		mesh_vertex_attribute_uv,
 	}
 
 	text_vertex_buffer_description := sdl.GPUVertexBufferDescription {
@@ -238,7 +256,7 @@ main :: proc() {
 			vertex_input_state = {
 				num_vertex_buffers = 1,
 				vertex_buffer_descriptions = &mesh_vertex_buffer_description,
-				num_vertex_attributes = 2,
+				num_vertex_attributes = 3,
 				vertex_attributes = &mesh_vertex_attributes[0],
 			},
 			primitive_type = .TRIANGLELIST,
@@ -335,6 +353,10 @@ main :: proc() {
 
 	sdl.ReleaseGPUTransferBuffer(gpu, transfer_buffer)
 
+	// -- end window and gpu setup --
+
+	// -- main loop setup --
+
 	// TODO we're done with holding the model data in memory
 	// we should release the memory now
 
@@ -351,24 +373,8 @@ main :: proc() {
 	last_ticks := sdl.GetTicks()
 
 	camera_pos: [3]f32 = [3]f32{0.0, 0.0, 10.0}
-	move_forward: bool = false
-	move_backward: bool = false
-	move_left: bool = false
-	move_right: bool = false
-	move_up: bool = false
-	move_down: bool = false
-	shift_down: bool = false
 
-	/*
-	text_pipeline, text_gpu_vertex_buffer := setup_text_pipeline(
-		gpu,
-		window,
-		&text_vertex_buffer_description,
-		&text_vertex_attribute_description,
-	)
-
-	log.debug("Created Text Pipeline")
-	*/
+	movement := Movement{}
 
 	text_color1: [4]f32 = [4]f32{1.0, 0.5, 0.0, 1.0}
 	text_color2: [4]f32 = [4]f32{0.0, 1.0, 1.0, 1.0}
@@ -399,7 +405,7 @@ main :: proc() {
 		delta_time := f32(new_ticks - last_ticks) / 1000
 		last_ticks = new_ticks
 
-		// events
+		// -- events --
 		ev: sdl.Event
 		for sdl.PollEvent(&ev) {
 			#partial switch ev.type {
@@ -408,64 +414,61 @@ main :: proc() {
 			case .KEY_DOWN:
 				if ev.key.scancode == .ESCAPE {
 					break main_loop
-				} else if ev.key.scancode == .SPACE {
-					text_color1 = generate_random_color()
-					text_color2 = generate_random_color()
 				} else if ev.key.scancode == .W {
-					move_forward = true
+					movement.forward = true
 				} else if ev.key.scancode == .S {
-					move_backward = true
+					movement.backward = true
 				} else if ev.key.scancode == .A {
-					move_left = true
+					movement.left = true
 				} else if ev.key.scancode == .D {
-					move_right = true
+					movement.right = true
 				} else if ev.key.scancode == .UP {
-					move_up = true
+					movement.up = true
 				} else if ev.key.scancode == .DOWN {
-					move_down = true
+					movement.down = true
 				} else if ev.key.scancode == .LSHIFT || ev.key.scancode == .RSHIFT {
-					shift_down = true
+					movement.shift = true
 				}
 			case .KEY_UP:
 				if ev.key.scancode == .W {
-					move_forward = false
+					movement.forward = false
 				} else if ev.key.scancode == .S {
-					move_backward = false
+					movement.backward = false
 				} else if ev.key.scancode == .A {
-					move_left = false
+					movement.left = false
 				} else if ev.key.scancode == .D {
-					move_right = false
+					movement.right = false
 				} else if ev.key.scancode == .UP {
-					move_up = false
+					movement.up = false
 				} else if ev.key.scancode == .DOWN {
-					move_down = false
+					movement.down = false
 				} else if ev.key.scancode == .LSHIFT || ev.key.scancode == .RSHIFT {
-					shift_down = false
+					movement.shift = false
 				}
 			}
 		}
 
 		move_speed := f32(5.0)
-		if shift_down {
+		if movement.shift {
 			move_speed = f32(20.0)
 		}
 		dt_move := move_speed * delta_time
-		if move_forward {
+		if movement.forward {
 			camera_pos[2] -= dt_move
 		}
-		if move_backward {
+		if movement.backward {
 			camera_pos[2] += dt_move
 		}
-		if move_left {
+		if movement.left {
 			camera_pos[0] -= dt_move
 		}
-		if move_right {
+		if movement.right {
 			camera_pos[0] += dt_move
 		}
-		if move_up {
+		if movement.up {
 			camera_pos[1] += dt_move
 		}
-		if move_down {
+		if movement.down {
 			camera_pos[1] -= dt_move
 		}
 
@@ -473,12 +476,12 @@ main :: proc() {
 
 		rotation += ROTATION_SPEED * delta_time
 
-		// audio
+		// -- audio --
 		if sdl.GetAudioStreamAvailable(stream) < cast(i32)wav_data_len {
 			sdl.PutAudioStreamData(stream, wav_data, cast(i32)wav_data_len)
 		}
 
-		// render
+		// -- render --
 		cmd_buf := sdl.AcquireGPUCommandBuffer(gpu)
 		swapchain_tex: ^sdl.GPUTexture
 		ok = sdl.WaitAndAcquireGPUSwapchainTexture(
@@ -564,162 +567,6 @@ load_shader :: proc(
 	)
 }
 
-accumulate_text :: proc(
-	text: string,
-	x, y: f32,
-	color: [4]f32,
-	scale: f32,
-	vertices: ^[4096]f32,
-	vertex_offset: ^u32,
-	draw_commands: ^[16]TextDrawCommand,
-	draw_count: ^u32,
-) {
-	quads: [200]easy_font.Quad
-	num_quads := easy_font.print(x, y, text, 0, quads[:], scale)
-	base_offset := vertex_offset^
-
-	for i in 0 ..< num_quads {
-		q := quads[i]
-
-		(vertices^)[base_offset + 0] = q.tl.v.x
-		(vertices^)[base_offset + 1] = q.tl.v.y
-		(vertices^)[base_offset + 2] = 0
-		(vertices^)[base_offset + 3] = 1
-
-		(vertices^)[base_offset + 4] = q.tr.v.x
-		(vertices^)[base_offset + 5] = q.tr.v.y
-		(vertices^)[base_offset + 6] = 0
-		(vertices^)[base_offset + 7] = 1
-
-		(vertices^)[base_offset + 8] = q.br.v.x
-		(vertices^)[base_offset + 9] = q.br.v.y
-		(vertices^)[base_offset + 10] = 0
-		(vertices^)[base_offset + 11] = 1
-
-		(vertices^)[base_offset + 12] = q.tl.v.x
-		(vertices^)[base_offset + 13] = q.tl.v.y
-		(vertices^)[base_offset + 14] = 0
-		(vertices^)[base_offset + 15] = 1
-
-		(vertices^)[base_offset + 16] = q.br.v.x
-		(vertices^)[base_offset + 17] = q.br.v.y
-		(vertices^)[base_offset + 18] = 0
-		(vertices^)[base_offset + 19] = 1
-
-		(vertices^)[base_offset + 20] = q.bl.v.x
-		(vertices^)[base_offset + 21] = q.bl.v.y
-		(vertices^)[base_offset + 22] = 0
-		(vertices^)[base_offset + 23] = 1
-
-		base_offset += 24
-	}
-
-	draw_commands[draw_count^] = TextDrawCommand {
-		offset = vertex_offset^,
-		count  = u32(num_quads * 6),
-		color  = color,
-	}
-	draw_count^ += 1
-	vertex_offset^ = base_offset
-}
-
-setup_text_pipeline :: proc(
-	gpu: ^sdl.GPUDevice,
-	window: ^sdl.Window,
-	vertex_buffer_description: ^sdl.GPUVertexBufferDescription,
-	vertex_attribute_description: ^sdl.GPUVertexAttribute,
-) -> (
-	pipeline: ^sdl.GPUGraphicsPipeline,
-	vertex_buffer: ^sdl.GPUBuffer,
-) {
-	text_vert_shader := load_shader(gpu, text_vert_shader_code, .VERTEX, 1)
-	text_frag_shader := load_shader(gpu, text_frag_shader_code, .FRAGMENT, 1)
-
-	text_pipeline := sdl.CreateGPUGraphicsPipeline(
-		gpu,
-		{
-			vertex_shader = text_vert_shader,
-			fragment_shader = text_frag_shader,
-			vertex_input_state = {
-				num_vertex_buffers = 1,
-				vertex_buffer_descriptions = vertex_buffer_description,
-				num_vertex_attributes = 1,
-				vertex_attributes = vertex_attribute_description,
-			},
-			primitive_type = .TRIANGLELIST,
-			target_info = {
-				num_color_targets = 1,
-				color_target_descriptions = &(sdl.GPUColorTargetDescription {
-						format = sdl.GetGPUSwapchainTextureFormat(gpu, window),
-					}),
-			},
-		},
-	)
-
-	sdl.ReleaseGPUShader(gpu, text_vert_shader)
-	sdl.ReleaseGPUShader(gpu, text_frag_shader)
-
-	text_gpu_vertex_buffer := sdl.CreateGPUBuffer(gpu, {usage = {.VERTEX}, size = 4096, props = 0})
-	text_transfer_buffer := sdl.CreateGPUTransferBuffer(
-		gpu,
-		{usage = .UPLOAD, size = 4096, props = 0},
-	)
-
-	return text_pipeline, text_gpu_vertex_buffer
-}
-
-render_text :: proc(
-	gpu: ^sdl.GPUDevice,
-	cmd_buf: ^sdl.GPUCommandBuffer,
-	render_pass: ^sdl.GPURenderPass,
-	text_pipeline: ^sdl.GPUGraphicsPipeline,
-	text_gpu_vertex_buffer: ^sdl.GPUBuffer,
-	win_size: [2]i32,
-	text_vertices: ^[4096]f32,
-	vertex_offset: u32,
-	draw_commands: ^[16]TextDrawCommand,
-	draw_count: u32,
-) {
-	ortho_mat := orthographic_matrix(0, f32(win_size.x), f32(win_size.y), 0, -1, 1)
-	text_ubo := TextUBO {
-		ortho = ortho_mat,
-	}
-	sdl.PushGPUVertexUniformData(cmd_buf, 0, &text_ubo, size_of(text_ubo))
-
-	size_to_copy := vertex_offset * size_of(f32)
-	transfer_buffer := sdl.CreateGPUTransferBuffer(
-		gpu,
-		{usage = .UPLOAD, size = size_to_copy, props = 0},
-	)
-	tb_ptr := sdl.MapGPUTransferBuffer(gpu, transfer_buffer, false)
-	mem.copy(tb_ptr, &text_vertices[0], int(size_to_copy))
-	sdl.UnmapGPUTransferBuffer(gpu, transfer_buffer)
-
-	copy_cmd_buf := sdl.AcquireGPUCommandBuffer(gpu)
-	text_copy_pass := sdl.BeginGPUCopyPass(copy_cmd_buf)
-	sdl.UploadToGPUBuffer(
-		text_copy_pass,
-		{transfer_buffer = transfer_buffer, offset = 0},
-		{buffer = text_gpu_vertex_buffer, offset = 0, size = u32(size_to_copy)},
-		false,
-	)
-	sdl.EndGPUCopyPass(text_copy_pass)
-	ok := sdl.SubmitGPUCommandBuffer(copy_cmd_buf)
-	assert(ok)
-
-	sdl.BindGPUGraphicsPipeline(render_pass, text_pipeline)
-	for i in 0 ..< draw_count {
-		cmd := draw_commands[i]
-		sdl.PushGPUFragmentUniformData(cmd_buf, 0, &cmd.color, size_of(cmd.color))
-		binding := sdl.GPUBufferBinding {
-			buffer = text_gpu_vertex_buffer,
-			offset = cmd.offset * size_of(f32),
-		}
-		sdl.BindGPUVertexBuffers(render_pass, 0, &binding, 1)
-		sdl.DrawGPUPrimitives(render_pass, cmd.count, 1, 0, 0)
-	}
-}
-
 load_mesh_data :: proc(model_path: cstring) -> ModelData {
 	options: cgltf.options
 	data, result := cgltf.parse_file(options, model_path)
@@ -784,26 +631,4 @@ load_mesh_data :: proc(model_path: cstring) -> ModelData {
 	}
 
 	return ModelData{indices = indices, vertices = vertices}
-}
-
-orthographic_matrix :: proc(left, right, bottom, top, near, far: f32) -> matrix[4, 4]f32 {
-	a := 2 / (right - left)
-	b := 2 / (top - bottom)
-	c := -2 / (far - near)
-	tx := -(right + left) / (right - left)
-	ty := -(top + bottom) / (top - bottom)
-	tz := -(far + near) / (far - near)
-	return matrix[4, 4]f32{
-		a, 0, 0, tx, 
-		0, b, 0, ty, 
-		0, 0, c, tz, 
-		0, 0, 0, 1, 
-	}
-}
-
-generate_random_color :: proc() -> [4]f32 {
-	r := rand.float32()
-	g := rand.float32()
-	b := rand.float32()
-	return [4]f32{r, g, b, 1.0}
 }
