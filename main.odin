@@ -44,8 +44,6 @@ when ODIN_OS == .Darwin {
 	text_frag_shader_code := #load("shaders/spv/text_shader.spv.frag")
 }
 
-INSTANCES :: 16
-
 Vec3 :: [3]f32
 
 VertexData :: struct {
@@ -64,10 +62,14 @@ ModelInfo :: struct {
 	index_count: int,
 }
 
+model_info_lookup: map[Model]ModelInfo
+
 Model :: enum {
 	Suzanne,
 	Sphere,
 }
+
+MODEL_COUNT :: 2
 
 SceneObject :: struct {
 	vertex_offset: int,
@@ -274,35 +276,47 @@ main :: proc() {
 	sdl.ReleaseGPUShader(gpu, vert_shader)
 	sdl.ReleaseGPUShader(gpu, frag_shader)
 
-	suzanne_data := load_mesh_data("./assets/suzanne.glb")
-	sphere_data := load_mesh_data("./assets/sphere.glb")
+	model_names := reflect.enum_field_names(Model)
 
-	combined_vertex_data: []VertexData
-	combined_index_data: []u16
+	vertex_datas: [MODEL_COUNT][]VertexData
+	index_datas: [MODEL_COUNT][]u16
 
-	combined_vertex_data = make(
-		[]VertexData,
-		len(suzanne_data.vertices) + len(sphere_data.vertices),
-	)
-	combined_index_data = make([]u16, len(suzanne_data.indices) + len(sphere_data.indices))
+	combined_vertex_data_size: int
+	combined_index_data_size: int
 
-	copy(combined_vertex_data[:len(suzanne_data.vertices)], suzanne_data.vertices)
-	copy(combined_index_data[:len(suzanne_data.indices)], suzanne_data.indices)
+	for i := 0; i < len(model_names); i += 1 {
+		model_name := model_names[i]
+		model_path := fmt.tprintf("./assets/%s.glb", model_name)
 
-	copy(combined_vertex_data[len(suzanne_data.vertices):], sphere_data.vertices)
-	copy(combined_index_data[len(suzanne_data.indices):], sphere_data.indices)
+		vertex_data, index_data := load_mesh_data(model_path)
 
-	combined_vertex_data_size := len(combined_vertex_data) * size_of(VertexData)
-	combined_index_data_size := len(combined_index_data) * size_of(u16)
+		vertex_datas[i] = vertex_data
+		index_datas[i] = index_data
+
+		model_enum, ok := reflect.enum_from_name(Model, model_name);assert(ok)
+
+		model_info_lookup[model_enum] = ModelInfo {
+			offset      = len(vertex_data),
+			index_count = len(index_data),
+		}
+
+		combined_vertex_data_size += len(vertex_data) * size_of(VertexData)
+		combined_index_data_size += len(index_data) * size_of(u16)
+	}
+
 	total_size := combined_vertex_data_size + combined_index_data_size
 
-	suzanne_info: ModelInfo = ModelInfo {
-		offset      = 0,
-		index_count = len(suzanne_data.indices),
-	}
-	sphere_info: ModelInfo = ModelInfo {
-		offset      = suzanne_info.index_count,
-		index_count = len(sphere_data.indices),
+	combined_vertex_data := make([]VertexData, combined_vertex_data_size)
+	combined_index_data := make([]u16, combined_index_data_size)
+
+	vertex_data_offset := 0
+	index_data_offset := 0
+	for i in 0 ..< len(vertex_datas) {
+		copy(combined_vertex_data[vertex_data_offset:], vertex_datas[i])
+		copy(combined_index_data[index_data_offset:], index_datas[i])
+
+		vertex_data_offset += len(vertex_datas[i])
+		index_data_offset += len(index_datas[i])
 	}
 
 	transfer_buffer := sdl.CreateGPUTransferBuffer(
@@ -381,7 +395,8 @@ main :: proc() {
 
 	log.debug("Ready for main loop")
 
-	make_scene_object :: proc(model_type: ModelInfo, position: [3]f32) -> SceneObject {
+	make_scene_object :: proc(model: Model, position: [3]f32) -> SceneObject {
+		model_type := model_info_lookup[model]
 		return SceneObject {
 			vertex_offset = model_type.offset,
 			vertex_count = model_type.index_count,
@@ -390,14 +405,14 @@ main :: proc() {
 	}
 
 	scene_objects: [8]SceneObject = {
-		make_scene_object(suzanne_info, {-4.0, 1.5, 0.0}),
-		make_scene_object(sphere_info, {-2.0, 1.5, 0.0}),
-		make_scene_object(suzanne_info, {2.0, 1.5, 0.0}),
-		make_scene_object(sphere_info, {4.0, 1.5, 0.0}),
-		make_scene_object(sphere_info, {-4.0, -1.5, 0.0}),
-		make_scene_object(suzanne_info, {-2.0, -1.5, 0.0}),
-		make_scene_object(sphere_info, {2.0, -1.5, 0.0}),
-		make_scene_object(suzanne_info, {4.0, -1.5, 0.0}),
+		make_scene_object(Model.Suzanne, {-4.0, 1.5, 0.0}),
+		make_scene_object(Model.Sphere, {-2.0, 1.5, 0.0}),
+		make_scene_object(Model.Suzanne, {2.0, 1.5, 0.0}),
+		make_scene_object(Model.Sphere, {4.0, 1.5, 0.0}),
+		make_scene_object(Model.Sphere, {-4.0, -1.5, 0.0}),
+		make_scene_object(Model.Suzanne, {-2.0, -1.5, 0.0}),
+		make_scene_object(Model.Sphere, {2.0, -1.5, 0.0}),
+		make_scene_object(Model.Suzanne, {4.0, -1.5, 0.0}),
 	}
 
 	main_loop: for {
@@ -567,11 +582,14 @@ load_shader :: proc(
 	)
 }
 
-load_mesh_data :: proc(model_path: cstring) -> ModelData {
+load_mesh_data :: proc(model_path: string) -> (vertices: []VertexData, indices: []u16) {
+	model_path_cstr := strings.clone_to_cstring(model_path)
+	defer delete(model_path_cstr)
+
 	options: cgltf.options
-	data, result := cgltf.parse_file(options, model_path)
+	data, result := cgltf.parse_file(options, model_path_cstr)
 	assert(result == .success)
-	result = cgltf.load_buffers(options, data, model_path)
+	result = cgltf.load_buffers(options, data, model_path_cstr)
 	assert(result == .success)
 	defer cgltf.free(data)
 
@@ -613,7 +631,7 @@ load_mesh_data :: proc(model_path: cstring) -> ModelData {
 		uint(vertex_count * num_col_components),
 	)
 
-	vertices := make([]VertexData, vertex_count)
+	vertices = make([]VertexData, vertex_count)
 	for i := 0; i < int(vertex_count); i += 1 {
 		pos_idx := i * int(num_pos_components)
 		col_idx := i * int(num_col_components)
@@ -625,10 +643,10 @@ load_mesh_data :: proc(model_path: cstring) -> ModelData {
 		}
 	}
 
-	indices := make([]u16, index_count)
+	indices = make([]u16, index_count)
 	for i := 0; i < int(index_count); i += 1 {
 		indices[i] = u16(cgltf.accessor_read_index(idx_accessor, uint(i)))
 	}
 
-	return ModelData{indices = indices, vertices = vertices}
+	return vertices, indices
 }
