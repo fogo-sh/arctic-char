@@ -532,9 +532,10 @@ main :: proc() {
 				break main_loop
 
 			case .WINDOW_RESIZED:
-				log.debug("Window resize")
 				ok = sdl.GetWindowSize(window, &win_size.x, &win_size.y)
 				assert(ok)
+
+				log.debugf("Window resize: {}x{}", win_size.x, win_size.y)
 
 				sdl.ReleaseGPUTexture(gpu, msaa_color_texture)
 				sdl.ReleaseGPUTexture(gpu, msaa_depth_texture)
