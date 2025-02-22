@@ -3,6 +3,7 @@ package main
 import "base:runtime"
 import "core:fmt"
 import "core:log"
+import "core:math"
 import "core:math/linalg"
 import "core:math/rand"
 import "core:mem"
@@ -84,7 +85,8 @@ main :: proc() {
 	context.logger = log.create_console_logger()
 	default_context = context
 
-	ok := sdl.SetAppMetadata("arctic char*", "0.1.0", "sh.fogo.arctic-char");assert(ok)
+	ok := sdl.SetAppMetadata("arctic char*", "0.1.0", "sh.fogo.arctic-char")
+	assert(ok)
 
 	// -- initial setup --
 
@@ -117,37 +119,40 @@ main :: proc() {
 
 	// -- audio setup --
 
-	ok = sdl.Init({.VIDEO, .AUDIO});assert(ok)
+	ok = sdl.Init({.VIDEO, .AUDIO})
+	assert(ok)
 	defer sdl.Quit()
 
 	spec: sdl.AudioSpec
 	wav_data: [^]u8
 	wav_data_len: u32
 
-	ok = sdl.LoadWAV("./assets/sound.wav", &spec, &wav_data, &wav_data_len);assert(ok)
+	ok = sdl.LoadWAV("./assets/sound.wav", &spec, &wav_data, &wav_data_len)
+	assert(ok)
 
-	stream := sdl.OpenAudioDeviceStream(
-		sdl.AUDIO_DEVICE_DEFAULT_PLAYBACK,
-		&spec,
-		nil,
-		nil,
-	);assert(stream != nil)
+	stream := sdl.OpenAudioDeviceStream(sdl.AUDIO_DEVICE_DEFAULT_PLAYBACK, &spec, nil, nil)
+	assert(stream != nil)
 	defer sdl.CloseAudioDevice(sdl.AUDIO_DEVICE_DEFAULT_PLAYBACK)
 
-	ok = sdl.ResumeAudioStreamDevice(stream);assert(ok)
+	ok = sdl.ResumeAudioStreamDevice(stream)
+	assert(ok)
 
 	// -- end audio setup --
 
 	// -- window and gpu setup --
 
-	window := sdl.CreateWindow("arctic char*", 512, 512, {});assert(window != nil)
+	window := sdl.CreateWindow("arctic char*", 512, 512, {})
+	assert(window != nil)
 
-	gpu := sdl.CreateGPUDevice(shader_format, gpu_debug, nil);assert(gpu != nil)
+	gpu := sdl.CreateGPUDevice(shader_format, gpu_debug, nil)
+	assert(gpu != nil)
 
-	ok = sdl.ClaimWindowForGPUDevice(gpu, window);assert(ok)
+	ok = sdl.ClaimWindowForGPUDevice(gpu, window)
+	assert(ok)
 
 	win_size: [2]i32
-	ok = sdl.GetWindowSize(window, &win_size.x, &win_size.y);assert(ok)
+	ok = sdl.GetWindowSize(window, &win_size.x, &win_size.y)
+	assert(ok)
 
 	msaa_color_texture := sdl.CreateGPUTexture(
 		gpu,
@@ -197,13 +202,8 @@ main :: proc() {
 	)
 
 	img_size: [2]i32
-	pixels := stbi.load(
-		"./assets/test_albedo.png",
-		&img_size.x,
-		&img_size.y,
-		nil,
-		4,
-	);assert(pixels != nil)
+	pixels := stbi.load("./assets/test_albedo.png", &img_size.x, &img_size.y, nil, 4)
+	assert(pixels != nil)
 	pixels_byte_size := int(img_size.x * img_size.y * 4)
 
 	texture := sdl.CreateGPUTexture(
@@ -333,7 +333,8 @@ main :: proc() {
 		vertex_datas[i] = vertex_data
 		index_datas[i] = index_data
 
-		model_enum, ok := reflect.enum_from_name(Model, model_name);assert(ok)
+		model_enum, ok := reflect.enum_from_name(Model, model_name)
+		assert(ok)
 
 		model_info_lookup[model_enum] = ModelInfo {
 			offset      = combined_index_count,
@@ -431,7 +432,8 @@ main :: proc() {
 	)
 
 	sdl.EndGPUCopyPass(copy_pass)
-	ok = sdl.SubmitGPUCommandBuffer(copy_command_buffer);assert(ok)
+	ok = sdl.SubmitGPUCommandBuffer(copy_command_buffer)
+	assert(ok)
 
 	sdl.ReleaseGPUTransferBuffer(gpu, transfer_buffer)
 
@@ -454,7 +456,12 @@ main :: proc() {
 
 	last_ticks := sdl.GetTicks()
 
+	// Camera position and mouse-look angles
 	camera_pos: [3]f32 = [3]f32{0.0, 0.0, 10.0}
+	camera_yaw: f32 = 0.0
+	camera_pitch: f32 = 0.0
+	mouse_locked := false
+	mouse_sensitivity := 0.003 // tweak as desired
 
 	movement := Movement{}
 
@@ -488,9 +495,22 @@ main :: proc() {
 			#partial switch ev.type {
 			case .QUIT:
 				break main_loop
+
+			case .MOUSE_BUTTON_DOWN:
+				fmt.println(ev.button.button)
+				if ev.button.button == 1 {
+					ok = sdl.SetWindowRelativeMouseMode(window, true)
+					assert(ok)
+					mouse_locked = true
+				}
+
 			case .KEY_DOWN:
-				if ev.key.scancode == .ESCAPE {
+				if ev.key.scancode == .Q {
 					break main_loop
+				} else if ev.key.scancode == .ESCAPE {
+					ok = sdl.SetWindowRelativeMouseMode(window, false)
+					assert(ok)
+					mouse_locked = false
 				} else if ev.key.scancode == .W {
 					movement.forward = true
 				} else if ev.key.scancode == .S {
@@ -506,6 +526,7 @@ main :: proc() {
 				} else if ev.key.scancode == .LSHIFT || ev.key.scancode == .RSHIFT {
 					movement.shift = true
 				}
+
 			case .KEY_UP:
 				if ev.key.scancode == .W {
 					movement.forward = false
@@ -522,25 +543,54 @@ main :: proc() {
 				} else if ev.key.scancode == .LSHIFT || ev.key.scancode == .RSHIFT {
 					movement.shift = false
 				}
+
+			case .MOUSE_MOTION:
+				if mouse_locked {
+					camera_yaw -= ev.motion.xrel * f32(mouse_sensitivity)
+					camera_pitch -= ev.motion.yrel * f32(mouse_sensitivity)
+
+					if camera_pitch > linalg.to_radians(f32(89)) {
+						camera_pitch = linalg.to_radians(f32(89))
+					} else if camera_pitch < linalg.to_radians(f32(-89)) {
+						camera_pitch = linalg.to_radians(f32(-89))
+					}
+				}
 			}
 		}
+
+		sin_y := math.sin(camera_yaw)
+		cos_y := math.cos(camera_yaw)
+		sin_p := math.sin(camera_pitch)
+		cos_p := math.cos(camera_pitch)
+
+		forward_vec := Vec3{-sin_y * cos_p, sin_p, -cos_y * cos_p}
+		right_vec := Vec3{cos_y, 0.0, -sin_y}
 
 		move_speed := f32(5.0)
 		if movement.shift {
 			move_speed = f32(20.0)
 		}
 		dt_move := move_speed * delta_time
+
 		if movement.forward {
-			camera_pos[2] -= dt_move
+			camera_pos[0] += forward_vec[0] * dt_move
+			camera_pos[1] += forward_vec[1] * dt_move
+			camera_pos[2] += forward_vec[2] * dt_move
 		}
 		if movement.backward {
-			camera_pos[2] += dt_move
+			camera_pos[0] -= forward_vec[0] * dt_move
+			camera_pos[1] -= forward_vec[1] * dt_move
+			camera_pos[2] -= forward_vec[2] * dt_move
 		}
 		if movement.left {
-			camera_pos[0] -= dt_move
+			camera_pos[0] -= right_vec[0] * dt_move
+			camera_pos[1] -= right_vec[1] * dt_move
+			camera_pos[2] -= right_vec[2] * dt_move
 		}
 		if movement.right {
-			camera_pos[0] += dt_move
+			camera_pos[0] += right_vec[0] * dt_move
+			camera_pos[1] += right_vec[1] * dt_move
+			camera_pos[2] += right_vec[2] * dt_move
 		}
 		if movement.up {
 			camera_pos[1] += dt_move
@@ -549,8 +599,6 @@ main :: proc() {
 			camera_pos[1] -= dt_move
 		}
 
-		view_mat := linalg.matrix4_translate_f32({-camera_pos[0], -camera_pos[1], -camera_pos[2]})
-
 		rotation += ROTATION_SPEED * delta_time
 
 		// -- audio --
@@ -558,22 +606,28 @@ main :: proc() {
 			sdl.PutAudioStreamData(stream, wav_data, cast(i32)wav_data_len)
 		}
 
+		// Now build view matrix from position, yaw, pitch
+		// Start with identity
+		view_mat := linalg.MATRIX4F32_IDENTITY
+		// rotate by pitch around X, then yaw around Y (note: negative angles to rotate the world opposite the camera)
+		view_mat = linalg.matrix4_rotate_f32(-camera_pitch, {1, 0, 0}) * view_mat
+		view_mat = linalg.matrix4_rotate_f32(-camera_yaw, {0, 1, 0}) * view_mat
+		// translate the world by the negative of camera position
+		view_mat =
+			view_mat *
+			linalg.matrix4_translate_f32({-camera_pos[0], -camera_pos[1], -camera_pos[2]})
+
 		// -- render --
 		cmd_buf := sdl.AcquireGPUCommandBuffer(gpu)
 		swapchain_tex: ^sdl.GPUTexture
-		ok = sdl.WaitAndAcquireGPUSwapchainTexture(
-			cmd_buf,
-			window,
-			&swapchain_tex,
-			nil,
-			nil,
-		);assert(ok)
+		ok = sdl.WaitAndAcquireGPUSwapchainTexture(cmd_buf, window, &swapchain_tex, nil, nil)
+		assert(ok)
 
 		if swapchain_tex != nil {
 			color_target := sdl.GPUColorTargetInfo {
 				texture           = msaa_color_texture,
 				load_op           = .CLEAR,
-				clear_color       = {0.2, 0.4, 0.8, 1},
+				clear_color       = {0.2, 0.4, 0.8, 1.0},
 				store_op          = .RESOLVE,
 				resolve_texture   = swapchain_tex,
 				resolve_mip_level = 0,
