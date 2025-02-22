@@ -7,16 +7,10 @@ just build
 
 mkdir -p $BUILD_DIR
 
-set SDL_PATH (ldconfig -p | grep libSDL3.so.0 | awk '{print $NF}' | head -n 1)
-
-if test -z "$SDL_PATH" -o ! -e "$SDL_PATH"
-    echo "Error: libSDL3.so.0 not found!" >&2
-    exit 1
-end
-
-echo "Found libSDL3 at: $SDL_PATH"
-
-cp $BINARY_NAME $BUILD_DIR/
+# NOTE this sucks, we should be using ldd / etc. to find this, there must be a better way
+# but also, this is just meant to be a build step, maybe we create a docker environment
+# where this can be built?
+set SDL_PATH "/usr/local/lib/libSDL3.so.0"
 cp $SDL_PATH $BUILD_DIR/
 
 patchelf --set-rpath '$ORIGIN' --force-rpath $BUILD_DIR/$BINARY_NAME

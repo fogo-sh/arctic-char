@@ -4,7 +4,7 @@
 *.exe
 *.pdb
 *.dSYM
-arctic-char
+build
 
 *.blend1
 screenshot.png
