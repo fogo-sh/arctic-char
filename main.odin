@@ -61,9 +61,10 @@ Model :: enum {
 	Suzanne,
 	Sphere,
 	Plane,
+	Reference,
 }
 
-MODEL_COUNT :: 3
+MODEL_COUNT :: 4
 
 SceneObject :: struct {
 	vertex_offset: int,
@@ -476,13 +477,7 @@ main :: proc() {
 		}
 	}
 
-	scene_objects: []SceneObject = {
-		make_scene_object(Model.Plane, {0.0, 0.0, 0.0}),
-		make_scene_object(Model.Sphere, {-4.0, 0.0, 0.0}),
-		make_scene_object(Model.Sphere, {4.0, 0.0, 0.0}),
-		make_scene_object(Model.Suzanne, {0.0, -4.0, 0.0}),
-		make_scene_object(Model.Suzanne, {0.0, 4.0, 0.0}),
-	}
+	scene_objects: []SceneObject = {make_scene_object(Model.Reference, {0.0, 0.0, 0.0})}
 
 	main_loop: for {
 		new_ticks := sdl.GetTicks()
@@ -497,7 +492,6 @@ main :: proc() {
 				break main_loop
 
 			case .MOUSE_BUTTON_DOWN:
-				fmt.println(ev.button.button)
 				if ev.button.button == 1 {
 					ok = sdl.SetWindowRelativeMouseMode(window, true)
 					assert(ok)
@@ -563,12 +557,12 @@ main :: proc() {
 		sin_p := math.sin(camera_pitch)
 		cos_p := math.cos(camera_pitch)
 
-		forward_vec := Vec3{-sin_y * cos_p, sin_p, -cos_y * cos_p}
+		forward_vec := Vec3{-sin_y * cos_p, -sin_p, -cos_y * cos_p}
 		right_vec := Vec3{cos_y, 0.0, -sin_y}
 
 		move_speed := f32(5.0)
 		if movement.shift {
-			move_speed = f32(20.0)
+			move_speed = 20.0
 		}
 		dt_move := move_speed * delta_time
 
@@ -599,23 +593,18 @@ main :: proc() {
 			camera_pos[1] -= dt_move
 		}
 
-		rotation += ROTATION_SPEED * delta_time
-
-		// -- audio --
-		if sdl.GetAudioStreamAvailable(stream) < cast(i32)wav_data_len {
-			sdl.PutAudioStreamData(stream, wav_data, cast(i32)wav_data_len)
-		}
-
-		// Now build view matrix from position, yaw, pitch
-		// Start with identity
 		view_mat := linalg.MATRIX4F32_IDENTITY
-		// rotate by pitch around X, then yaw around Y (note: negative angles to rotate the world opposite the camera)
-		view_mat = linalg.matrix4_rotate_f32(-camera_pitch, {1, 0, 0}) * view_mat
 		view_mat = linalg.matrix4_rotate_f32(-camera_yaw, {0, 1, 0}) * view_mat
-		// translate the world by the negative of camera position
+		view_mat = linalg.matrix4_rotate_f32(-camera_pitch, {1, 0, 0}) * view_mat
 		view_mat =
 			view_mat *
 			linalg.matrix4_translate_f32({-camera_pos[0], -camera_pos[1], -camera_pos[2]})
+
+		// -- audio --
+		if sdl.GetAudioStreamAvailable(stream) < cast(i32)wav_data_len {
+			// sdl.PutAudioStreamData(stream, wav_data, cast(i32)wav_data_len)
+			// my sister asked to comment this out because its loud and its late
+		}
 
 		// -- render --
 		cmd_buf := sdl.AcquireGPUCommandBuffer(gpu)
@@ -657,8 +646,7 @@ main :: proc() {
 			sdl.BindGPUIndexBuffer(render_pass, index_buffer_binding, ._16BIT)
 
 			for obj in scene_objects {
-				local_spin := linalg.matrix4_rotate_f32(rotation, {0, 1, 0})
-				object_model := obj.local_model * local_spin
+				object_model := obj.local_model
 				mvp := proj_mat * view_mat * object_model
 
 				sdl.PushGPUVertexUniformData(cmd_buf, 0, &mvp, size_of(mvp))
