@@ -142,7 +142,7 @@ main :: proc() {
 
 	// -- window and gpu setup --
 
-	window := sdl.CreateWindow("arctic char*", 512, 512, {})
+	window := sdl.CreateWindow("arctic char*", 1024, 512, {})
 	assert(window != nil)
 
 	gpu := sdl.CreateGPUDevice(shader_format, gpu_debug, nil)
@@ -477,7 +477,33 @@ main :: proc() {
 		}
 	}
 
-	scene_objects: []SceneObject = {make_scene_object(Model.Reference, {0.0, 0.0, 0.0})}
+	scene_objects := make([dynamic]SceneObject, 0, 100)
+	for i := 0; i < 100; i += 1 {
+		// Random position in 100x100 space
+		pos := Vec3 {
+			rand.float32_range(-50, 50),
+			rand.float32_range(-50, 50),
+			rand.float32_range(-50, 50),
+		}
+
+		// Randomly pick a model type
+		model := Model(rand.int_max(int(MODEL_COUNT)))
+
+		// Create scene object with random rotation and scale
+		obj := make_scene_object(model, pos)
+
+		// Random rotation around Y axis
+		rotation := linalg.matrix4_rotate_f32(rand.float32() * math.TAU, {0, 1, 0})
+
+		// Random scale between 0.5 and 2.0
+		scale := rand.float32_range(0.5, 2.0)
+		scale_mat := linalg.matrix4_scale_f32({scale, scale, scale})
+
+		obj.local_model = linalg.matrix_mul(obj.local_model, rotation)
+		obj.local_model = linalg.matrix_mul(obj.local_model, scale_mat)
+
+		append(&scene_objects, obj)
+	}
 
 	main_loop: for {
 		new_ticks := sdl.GetTicks()
@@ -557,7 +583,7 @@ main :: proc() {
 		sin_p := math.sin(camera_pitch)
 		cos_p := math.cos(camera_pitch)
 
-		forward_vec := Vec3{-sin_y * cos_p, -sin_p, -cos_y * cos_p}
+		forward_vec := Vec3{-sin_y * cos_p, sin_p, -cos_y * cos_p}
 		right_vec := Vec3{cos_y, 0.0, -sin_y}
 
 		move_speed := f32(5.0)
@@ -596,6 +622,7 @@ main :: proc() {
 		view_mat := linalg.MATRIX4F32_IDENTITY
 		view_mat = linalg.matrix4_rotate_f32(-camera_yaw, {0, 1, 0}) * view_mat
 		view_mat = linalg.matrix4_rotate_f32(-camera_pitch, {1, 0, 0}) * view_mat
+
 		view_mat =
 			view_mat *
 			linalg.matrix4_translate_f32({-camera_pos[0], -camera_pos[1], -camera_pos[2]})
