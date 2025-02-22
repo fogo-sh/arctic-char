@@ -137,18 +137,25 @@ main :: proc() {
 		mem.tracking_allocator_init(&tracking_allocator, context.allocator)
 		context.allocator = mem.tracking_allocator(&tracking_allocator)
 		defer {
-			if len(tracking_allocator.allocation_map) > 0 {
+			leaked := len(tracking_allocator.allocation_map) > 0
+			if leaked {
 				fmt.eprint("\n--== Memory Leaks ==--\n")
 				fmt.eprintf("Total Leaks: %v\n", len(tracking_allocator.allocation_map))
 				for _, leak in tracking_allocator.allocation_map {
 					fmt.eprintf("Leak: %v bytes @%v\n", leak.size, leak.location)
 				}
 			}
-			if len(tracking_allocator.bad_free_array) > 0 {
+
+			bad_frees := len(tracking_allocator.bad_free_array) > 0
+			if bad_frees {
 				fmt.eprint("\n--== Bad Frees ==--\n")
 				for bad_free in tracking_allocator.bad_free_array {
 					fmt.eprintf("Bad Free: %p @%v\n", bad_free.memory, bad_free.location)
 				}
+			}
+
+			if !leaked && !bad_frees {
+				fmt.println("No leaks or bad frees detected!")
 			}
 		}
 	}
@@ -558,8 +565,9 @@ main :: proc() {
 	}
 
 	minMemorySize: u32 = clay.MinMemorySize()
-	memory := make([^]u8, minMemorySize)
-	arena: clay.Arena = clay.CreateArenaWithCapacityAndMemory(minMemorySize, memory)
+	clay_memory := make([^]u8, minMemorySize)
+	defer mem.free(clay_memory)
+	arena: clay.Arena = clay.CreateArenaWithCapacityAndMemory(minMemorySize, clay_memory)
 	clay.Initialize(
 		arena,
 		clay.Dimensions{width = f32(win_size.x), height = f32(win_size.y)},
