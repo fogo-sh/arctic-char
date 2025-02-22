@@ -498,23 +498,18 @@ main :: proc() {
 
 	scene_objects := make([dynamic]SceneObject, 0, 100)
 	for i := 0; i < 100; i += 1 {
-		// Random position in 100x100 space
 		pos := Vec3 {
 			rand.float32_range(-50, 50),
 			rand.float32_range(-50, 50),
 			rand.float32_range(-50, 50),
 		}
 
-		// Randomly pick a model type
 		model := Model(rand.int_max(int(MODEL_COUNT)))
 
-		// Create scene object with random rotation and scale
 		obj := make_scene_object(model, pos)
 
-		// Random rotation around Y axis
 		rotation := linalg.matrix4_rotate_f32(rand.float32() * math.TAU, {0, 1, 0})
 
-		// Random scale between 0.5 and 2.0
 		scale := rand.float32_range(0.5, 2.0)
 		scale_mat := linalg.matrix4_scale_f32({scale, scale, scale})
 
@@ -537,6 +532,7 @@ main :: proc() {
 				break main_loop
 
 			case .WINDOW_RESIZED:
+				log.debug("Window resize")
 				ok = sdl.GetWindowSize(window, &win_size.x, &win_size.y)
 				assert(ok)
 
