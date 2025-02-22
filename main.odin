@@ -82,6 +82,48 @@ Movement :: struct {
 	shift:    bool,
 }
 
+create_msaa_textures :: proc(
+	gpu: ^sdl.GPUDevice,
+	window: ^sdl.Window,
+	width: i32,
+	height: i32,
+) -> (
+	msaa_color_texture: ^sdl.GPUTexture,
+	msaa_depth_texture: ^sdl.GPUTexture,
+) {
+	msaa_color_texture = sdl.CreateGPUTexture(
+		gpu,
+		sdl.GPUTextureCreateInfo {
+			type = sdl.GPUTextureType.D2,
+			format = sdl.GetGPUSwapchainTextureFormat(gpu, window),
+			usage = sdl.GPUTextureUsageFlags{.COLOR_TARGET},
+			width = cast(u32)width,
+			height = cast(u32)height,
+			layer_count_or_depth = 1,
+			num_levels = 1,
+			sample_count = sdl.GPUSampleCount._4,
+		},
+	)
+	assert(msaa_color_texture != nil)
+
+	msaa_depth_texture = sdl.CreateGPUTexture(
+		gpu,
+		sdl.GPUTextureCreateInfo {
+			type = sdl.GPUTextureType.D2,
+			format = sdl.GPUTextureFormat.D32_FLOAT,
+			usage = sdl.GPUTextureUsageFlags{.DEPTH_STENCIL_TARGET},
+			width = cast(u32)width,
+			height = cast(u32)height,
+			layer_count_or_depth = 1,
+			num_levels = 1,
+			sample_count = sdl.GPUSampleCount._4,
+		},
+	)
+	assert(msaa_depth_texture != nil)
+
+	return msaa_color_texture, msaa_depth_texture
+}
+
 main :: proc() {
 	context.logger = log.create_console_logger()
 	default_context = context
@@ -142,7 +184,7 @@ main :: proc() {
 
 	// -- window and gpu setup --
 
-	window := sdl.CreateWindow("arctic char*", 1024, 512, {})
+	window := sdl.CreateWindow("arctic char*", 1024, 512, {.RESIZABLE})
 	assert(window != nil)
 
 	gpu := sdl.CreateGPUDevice(shader_format, gpu_debug, nil)
@@ -155,36 +197,13 @@ main :: proc() {
 	ok = sdl.GetWindowSize(window, &win_size.x, &win_size.y)
 	assert(ok)
 
-	msaa_color_texture := sdl.CreateGPUTexture(
+	msaa_color_texture, msaa_depth_texture := create_msaa_textures(
 		gpu,
-		sdl.GPUTextureCreateInfo {
-			type = sdl.GPUTextureType.D2,
-			format = sdl.GetGPUSwapchainTextureFormat(gpu, window),
-			usage = sdl.GPUTextureUsageFlags{.COLOR_TARGET},
-			width = cast(u32)win_size.x,
-			height = cast(u32)win_size.y,
-			layer_count_or_depth = 1,
-			num_levels = 1,
-			sample_count = sdl.GPUSampleCount._4,
-		},
+		window,
+		win_size.x,
+		win_size.y,
 	)
-	assert(msaa_color_texture != nil)
 	defer sdl.ReleaseGPUTexture(gpu, msaa_color_texture)
-
-	msaa_depth_texture := sdl.CreateGPUTexture(
-		gpu,
-		sdl.GPUTextureCreateInfo {
-			type = sdl.GPUTextureType.D2,
-			format = sdl.GPUTextureFormat.D32_FLOAT,
-			usage = sdl.GPUTextureUsageFlags{.DEPTH_STENCIL_TARGET},
-			width = cast(u32)win_size.x,
-			height = cast(u32)win_size.y,
-			layer_count_or_depth = 1,
-			num_levels = 1,
-			sample_count = sdl.GPUSampleCount._4,
-		},
-	)
-	assert(msaa_depth_texture != nil)
 	defer sdl.ReleaseGPUTexture(gpu, msaa_depth_texture)
 
 	vert_shader := load_shader(
@@ -516,6 +535,27 @@ main :: proc() {
 			#partial switch ev.type {
 			case .QUIT:
 				break main_loop
+
+			case .WINDOW_RESIZED:
+				ok = sdl.GetWindowSize(window, &win_size.x, &win_size.y)
+				assert(ok)
+
+				sdl.ReleaseGPUTexture(gpu, msaa_color_texture)
+				sdl.ReleaseGPUTexture(gpu, msaa_depth_texture)
+
+				msaa_color_texture, msaa_depth_texture = create_msaa_textures(
+					gpu,
+					window,
+					win_size.x,
+					win_size.y,
+				)
+
+				proj_mat = linalg.matrix4_perspective_f32(
+					linalg.to_radians(f32(70)),
+					f32(win_size.x) / f32(win_size.y),
+					0.1,
+					1000,
+				)
 
 			case .MOUSE_BUTTON_DOWN:
 				if ev.button.button == 1 {
