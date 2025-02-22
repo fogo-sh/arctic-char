@@ -149,22 +149,37 @@ main :: proc() {
 	win_size: [2]i32
 	ok = sdl.GetWindowSize(window, &win_size.x, &win_size.y);assert(ok)
 
-	depth_texture := sdl.CreateGPUTexture(
+	msaa_color_texture := sdl.CreateGPUTexture(
 		gpu,
 		sdl.GPUTextureCreateInfo {
 			type = sdl.GPUTextureType.D2,
-			format = sdl.GPUTextureFormat.D32_FLOAT,
-			usage = sdl.GPUTextureUsageFlags{sdl.GPUTextureUsageFlag.DEPTH_STENCIL_TARGET},
+			format = sdl.GetGPUSwapchainTextureFormat(gpu, window),
+			usage = sdl.GPUTextureUsageFlags{.COLOR_TARGET},
 			width = cast(u32)win_size.x,
 			height = cast(u32)win_size.y,
 			layer_count_or_depth = 1,
 			num_levels = 1,
-			sample_count = sdl.GPUSampleCount._1,
-			props = 0,
+			sample_count = sdl.GPUSampleCount._4,
 		},
 	)
-	assert(depth_texture != nil)
-	defer sdl.ReleaseGPUTexture(gpu, depth_texture)
+	assert(msaa_color_texture != nil)
+	defer sdl.ReleaseGPUTexture(gpu, msaa_color_texture)
+
+	msaa_depth_texture := sdl.CreateGPUTexture(
+		gpu,
+		sdl.GPUTextureCreateInfo {
+			type = sdl.GPUTextureType.D2,
+			format = sdl.GPUTextureFormat.D32_FLOAT,
+			usage = sdl.GPUTextureUsageFlags{.DEPTH_STENCIL_TARGET},
+			width = cast(u32)win_size.x,
+			height = cast(u32)win_size.y,
+			layer_count_or_depth = 1,
+			num_levels = 1,
+			sample_count = sdl.GPUSampleCount._4,
+		},
+	)
+	assert(msaa_depth_texture != nil)
+	defer sdl.ReleaseGPUTexture(gpu, msaa_depth_texture)
 
 	vert_shader := load_shader(
 		gpu,
@@ -279,6 +294,11 @@ main :: proc() {
 			rasterizer_state = sdl.GPURasterizerState {
 				cull_mode = .BACK,
 				front_face = .COUNTER_CLOCKWISE,
+			},
+			multisample_state = sdl.GPUMultisampleState {
+				sample_count = sdl.GPUSampleCount._4,
+				sample_mask = 0xffffffff,
+				enable_mask = true,
 			},
 			depth_stencil_state = depth_state,
 			target_info = target_info,
@@ -551,21 +571,23 @@ main :: proc() {
 
 		if swapchain_tex != nil {
 			color_target := sdl.GPUColorTargetInfo {
-				texture     = swapchain_tex,
-				load_op     = .CLEAR,
-				clear_color = {0.2, 0.4, 0.8, 1},
-				store_op    = .STORE,
+				texture           = msaa_color_texture,
+				load_op           = .CLEAR,
+				clear_color       = {0.2, 0.4, 0.8, 1},
+				store_op          = .RESOLVE,
+				resolve_texture   = swapchain_tex,
+				resolve_mip_level = 0,
+				resolve_layer     = 0,
 			}
-			depth_target: sdl.GPUDepthStencilTargetInfo = sdl.GPUDepthStencilTargetInfo {
-				texture          = depth_texture,
+			depth_target := sdl.GPUDepthStencilTargetInfo {
+				texture          = msaa_depth_texture,
 				clear_depth      = 1.0,
 				load_op          = .CLEAR,
 				store_op         = .STORE,
 				stencil_load_op  = .DONT_CARE,
 				stencil_store_op = .DONT_CARE,
-				cycle            = false,
-				clear_stencil    = 0,
 			}
+
 			render_pass := sdl.BeginGPURenderPass(cmd_buf, &color_target, 1, &depth_target)
 			sdl.BindGPUGraphicsPipeline(render_pass, pipeline)
 
@@ -605,7 +627,8 @@ main :: proc() {
 			sdl.EndGPURenderPass(render_pass)
 		}
 
-		ok = sdl.SubmitGPUCommandBuffer(cmd_buf);assert(ok)
+		ok = sdl.SubmitGPUCommandBuffer(cmd_buf)
+		assert(ok)
 	}
 
 	log.debug("Goodbye!")
