@@ -1,6 +1,7 @@
 package main
 
 import "base:runtime"
+import clay "clay-odin"
 import "core:fmt"
 import "core:log"
 import "core:math"
@@ -518,6 +519,22 @@ main :: proc() {
 
 		append(&scene_objects, obj)
 	}
+
+	clayErrorhandler :: proc "c" (errorData: clay.ErrorData) {
+		context = default_context
+		log.errorf("Clay error: {}", errorData.errorText)
+	}
+
+	minMemorySize: u32 = clay.MinMemorySize()
+	memory := make([^]u8, minMemorySize)
+	arena: clay.Arena = clay.CreateArenaWithCapacityAndMemory(minMemorySize, memory)
+	clay.Initialize(
+		arena,
+		clay.Dimensions{width = f32(win_size.x), height = f32(win_size.y)},
+		{handler = clayErrorhandler},
+	)
+
+	log.debug("Clay initialized")
 
 	main_loop: for {
 		new_ticks := sdl.GetTicks()
