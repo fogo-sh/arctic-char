@@ -12,10 +12,13 @@ import "core:os"
 import "core:reflect"
 import "core:strings"
 import "vendor:cgltf"
+import ma "vendor:miniaudio"
 import sdl "vendor:sdl3"
 import stbi "vendor:stb/image"
 
 default_context: runtime.Context
+
+ma_engine: ma.engine
 
 when ODIN_OS == .Darwin {
 	shader_entrypoint := "main0"
@@ -128,6 +131,27 @@ create_msaa_textures :: proc(
 main :: proc() {
 	context.logger = log.create_console_logger()
 	default_context = context
+
+	when ODIN_DEBUG {
+		tracking_allocator: mem.Tracking_Allocator
+		mem.tracking_allocator_init(&tracking_allocator, context.allocator)
+		context.allocator = mem.tracking_allocator(&tracking_allocator)
+		defer {
+			if len(tracking_allocator.allocation_map) > 0 {
+				fmt.eprint("\n--== Memory Leaks ==--\n")
+				fmt.eprintf("Total Leaks: %v\n", len(tracking_allocator.allocation_map))
+				for _, leak in tracking_allocator.allocation_map {
+					fmt.eprintf("Leak: %v bytes @%v\n", leak.size, leak.location)
+				}
+			}
+			if len(tracking_allocator.bad_free_array) > 0 {
+				fmt.eprint("\n--== Bad Frees ==--\n")
+				for bad_free in tracking_allocator.bad_free_array {
+					fmt.eprintf("Bad Free: %p @%v\n", bad_free.memory, bad_free.location)
+				}
+			}
+		}
+	}
 
 	ok := sdl.SetAppMetadata("arctic char*", "0.1.0", "sh.fogo.arctic-char")
 	assert(ok)
@@ -410,6 +434,14 @@ main :: proc() {
 
 	sdl.UnmapGPUTransferBuffer(gpu, transfer_buffer)
 
+	for vertex_data in vertex_datas {
+		delete(vertex_data)
+	}
+
+	for index_data in index_datas {
+		delete(index_data)
+	}
+
 	vertex_buffer := sdl.CreateGPUBuffer(
 		gpu,
 		{usage = {.VERTEX}, size = u32(combined_vertex_count * size_of(VertexData)), props = 0},
@@ -477,12 +509,11 @@ main :: proc() {
 
 	last_ticks := sdl.GetTicks()
 
-	// Camera position and mouse-look angles
 	camera_pos: [3]f32 = [3]f32{0.0, 0.0, 10.0}
 	camera_yaw: f32 = 0.0
 	camera_pitch: f32 = 0.0
 	mouse_locked := false
-	mouse_sensitivity := 0.003 // tweak as desired
+	mouse_sensitivity := 0.003
 
 	movement := Movement{}
 
@@ -498,6 +529,7 @@ main :: proc() {
 	}
 
 	scene_objects := make([dynamic]SceneObject, 0, 100)
+	defer delete(scene_objects)
 	for i := 0; i < 100; i += 1 {
 		pos := Vec3 {
 			rand.float32_range(-50, 50),
@@ -754,6 +786,8 @@ main :: proc() {
 		assert(ok)
 	}
 
+	delete(model_info_lookup)
+
 	log.debug("Goodbye!")
 }
 
@@ -764,16 +798,18 @@ load_shader :: proc(
 	num_uniform_buffers: u32,
 	num_samplers: u32,
 ) -> ^sdl.GPUShader {
+	entrypoint := strings.clone_to_cstring(shader_entrypoint)
+	defer delete(entrypoint)
 	return sdl.CreateGPUShader(
 		device,
 		{
-			code_size           = len(code),
-			code                = raw_data(code),
-			entrypoint          = strings.clone_to_cstring(shader_entrypoint), // TODO this needs to be free'd
-			format              = shader_format,
-			stage               = stage,
+			code_size = len(code),
+			code = raw_data(code),
+			entrypoint = entrypoint,
+			format = shader_format,
+			stage = stage,
 			num_uniform_buffers = num_uniform_buffers,
-			num_samplers        = num_samplers,
+			num_samplers = num_samplers,
 		},
 	)
 }
@@ -819,6 +855,7 @@ load_mesh_data :: proc(model_path: string) -> (vertices: []VertexData, indices: 
 	num_uv_components := cgltf.num_components(uv_accessor.type)
 
 	positions := make([]f32, vertex_count * num_pos_components)
+	defer delete(positions)
 	_ = cgltf.accessor_unpack_floats(
 		pos_accessor,
 		raw_data(positions),
@@ -826,6 +863,7 @@ load_mesh_data :: proc(model_path: string) -> (vertices: []VertexData, indices: 
 	)
 
 	colors: []f32
+	defer delete(colors)
 	if col_accessor != nil {
 		colors = make([]f32, vertex_count * num_col_components)
 		_ = cgltf.accessor_unpack_floats(
@@ -836,6 +874,7 @@ load_mesh_data :: proc(model_path: string) -> (vertices: []VertexData, indices: 
 	}
 
 	uvs := make([]f32, vertex_count * num_uv_components)
+	defer delete(uvs)
 	_ = cgltf.accessor_unpack_floats(
 		uv_accessor,
 		raw_data(uvs),
