@@ -11,6 +11,7 @@ import "core:reflect"
 import "core:strings"
 import "vendor:cgltf"
 import sdl "vendor:sdl3"
+import stbi "vendor:stb/image"
 
 default_context: runtime.Context
 
@@ -20,18 +21,12 @@ when ODIN_OS == .Darwin {
 
 	frag_shader_code := #load("shaders/msl/shader.msl.frag")
 	vert_shader_code := #load("shaders/msl/shader.msl.vert")
-
-	text_vert_shader_code := #load("shaders/msl/text_shader.msl.vert")
-	text_frag_shader_code := #load("shaders/msl/text_shader.msl.frag")
 } else when ODIN_OS == .Windows {
 	shader_entrypoint := "main0"
 	shader_format := sdl.GPUShaderFormat{.DXIL}
 
 	frag_shader_code := #load("shaders/dxil/shader.dxil.frag")
 	vert_shader_code := #load("shaders/dxil/shader.dxil.vert")
-
-	text_vert_shader_code := #load("shaders/dxil/text_shader.dxil.vert")
-	text_frag_shader_code := #load("shaders/dxil/text_shader.dxil.frag")
 } else {
 	shader_entrypoint := "main"
 
@@ -39,9 +34,6 @@ when ODIN_OS == .Darwin {
 
 	frag_shader_code := #load("shaders/spv/shader.spv.frag")
 	vert_shader_code := #load("shaders/spv/shader.spv.vert")
-
-	text_vert_shader_code := #load("shaders/spv/text_shader.spv.vert")
-	text_frag_shader_code := #load("shaders/spv/text_shader.spv.frag")
 }
 
 Vec3 :: [3]f32
@@ -176,6 +168,28 @@ main :: proc() {
 	vert_shader := load_shader(gpu, vert_shader_code, .VERTEX, 1)
 	frag_shader := load_shader(gpu, frag_shader_code, .FRAGMENT, 0)
 
+	img_size: [2]i32
+	pixels := stbi.load(
+		"./assets/test_albedo.png",
+		&img_size.x,
+		&img_size.y,
+		nil,
+		4,
+	);assert(pixels != nil)
+	pixels_byte_size := img_size.x * img_size.y * 4
+
+	texture := sdl.CreateGPUTexture(
+		gpu,
+		{
+			format = .R8G8B8A8_UNORM,
+			usage = {.SAMPLER},
+			width = u32(img_size.x),
+			height = u32(img_size.y),
+			layer_count_or_depth = 1,
+			num_levels = 1,
+		},
+	)
+
 	mesh_vertex_buffer_description := sdl.GPUVertexBufferDescription {
 		slot               = 0,
 		pitch              = size_of(f32) * (3 + 4 + 2), // float3 pos + float4 color + float2 uv
@@ -204,19 +218,6 @@ main :: proc() {
 		mesh_vertex_attribute_position,
 		mesh_vertex_attribute_color,
 		mesh_vertex_attribute_uv,
-	}
-
-	text_vertex_buffer_description := sdl.GPUVertexBufferDescription {
-		slot               = 0,
-		pitch              = 16,
-		input_rate         = .VERTEX,
-		instance_step_rate = 0,
-	}
-	text_vertex_attribute_description := sdl.GPUVertexAttribute {
-		location    = 0,
-		buffer_slot = 0,
-		format      = .FLOAT4,
-		offset      = 0,
 	}
 
 	depth_state := sdl.GPUDepthStencilState {
@@ -355,6 +356,7 @@ main :: proc() {
 
 	copy_command_buffer := sdl.AcquireGPUCommandBuffer(gpu)
 	copy_pass := sdl.BeginGPUCopyPass(copy_command_buffer)
+
 	sdl.UploadToGPUBuffer(
 		copy_pass,
 		{transfer_buffer = transfer_buffer, offset = 0},
@@ -365,15 +367,25 @@ main :: proc() {
 		},
 		false,
 	)
+
+	buffer_offset := u32(combined_vertex_count * size_of(VertexData))
+
 	sdl.UploadToGPUBuffer(
 		copy_pass,
-		{
-			transfer_buffer = transfer_buffer,
-			offset = u32(combined_vertex_count * size_of(VertexData)),
-		},
+		{transfer_buffer = transfer_buffer, offset = buffer_offset},
 		{buffer = index_buffer, offset = 0, size = u32(combined_index_count * size_of(u16))},
 		false,
 	)
+
+	buffer_offset += u32(combined_index_count * size_of(u16))
+
+	sdl.UploadToGPUTexture(
+		copy_pass,
+		{transfer_buffer = transfer_buffer, offset = buffer_offset},
+		{texture = texture, w = u32(img_size.x), h = u32(img_size.y), d = 1},
+		false,
+	)
+
 	sdl.EndGPUCopyPass(copy_pass)
 	ok = sdl.SubmitGPUCommandBuffer(copy_command_buffer);assert(ok)
 
@@ -402,9 +414,6 @@ main :: proc() {
 
 	movement := Movement{}
 
-	text_color1: [4]f32 = [4]f32{1.0, 0.5, 0.0, 1.0}
-	text_color2: [4]f32 = [4]f32{0.0, 1.0, 1.0, 1.0}
-
 	log.debug("Ready for main loop")
 
 	make_scene_object :: proc(model: Model, position: [3]f32) -> SceneObject {
@@ -416,15 +425,10 @@ main :: proc() {
 		}
 	}
 
-	scene_objects: [8]SceneObject = {
-		make_scene_object(Model.Suzanne, {-4.0, 1.5, 0.0}),
-		make_scene_object(Model.Sphere, {-2.0, 1.5, 0.0}),
-		make_scene_object(Model.Suzanne, {2.0, 1.5, 0.0}),
-		make_scene_object(Model.Sphere, {4.0, 1.5, 0.0}),
-		make_scene_object(Model.Sphere, {-4.0, -1.5, 0.0}),
-		make_scene_object(Model.Suzanne, {-2.0, -1.5, 0.0}),
-		make_scene_object(Model.Sphere, {2.0, -1.5, 0.0}),
-		make_scene_object(Model.Suzanne, {4.0, -1.5, 0.0}),
+	scene_objects: []SceneObject = {
+		make_scene_object(Model.Sphere, {0.0, 0.0, 0.0}),
+		make_scene_object(Model.Suzanne, {0.0, -4.0, 0.0}),
+		make_scene_object(Model.Suzanne, {0.0, 4.0, 0.0}),
 	}
 
 	main_loop: for {
