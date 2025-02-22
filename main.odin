@@ -59,9 +59,10 @@ model_info_lookup: map[Model]ModelInfo
 Model :: enum {
 	Suzanne,
 	Sphere,
+	Plane,
 }
 
-MODEL_COUNT :: 2
+MODEL_COUNT :: 3
 
 SceneObject :: struct {
 	vertex_offset: int,
@@ -148,25 +149,37 @@ main :: proc() {
 	win_size: [2]i32
 	ok = sdl.GetWindowSize(window, &win_size.x, &win_size.y);assert(ok)
 
-	depth_info := sdl.GPUTextureCreateInfo {
-		type                 = sdl.GPUTextureType.D2,
-		format               = sdl.GPUTextureFormat.D32_FLOAT,
-		usage                = sdl.GPUTextureUsageFlags {
-			sdl.GPUTextureUsageFlag.DEPTH_STENCIL_TARGET,
+	depth_texture := sdl.CreateGPUTexture(
+		gpu,
+		sdl.GPUTextureCreateInfo {
+			type = sdl.GPUTextureType.D2,
+			format = sdl.GPUTextureFormat.D32_FLOAT,
+			usage = sdl.GPUTextureUsageFlags{sdl.GPUTextureUsageFlag.DEPTH_STENCIL_TARGET},
+			width = cast(u32)win_size.x,
+			height = cast(u32)win_size.y,
+			layer_count_or_depth = 1,
+			num_levels = 1,
+			sample_count = sdl.GPUSampleCount._1,
+			props = 0,
 		},
-		width                = cast(u32)win_size.x,
-		height               = cast(u32)win_size.y,
-		layer_count_or_depth = 1,
-		num_levels           = 1,
-		sample_count         = sdl.GPUSampleCount._1,
-		props                = 0,
-	}
-	depth_texture := sdl.CreateGPUTexture(gpu, depth_info)
+	)
 	assert(depth_texture != nil)
 	defer sdl.ReleaseGPUTexture(gpu, depth_texture)
 
-	vert_shader := load_shader(gpu, vert_shader_code, .VERTEX, 1)
-	frag_shader := load_shader(gpu, frag_shader_code, .FRAGMENT, 0)
+	vert_shader := load_shader(
+		gpu,
+		vert_shader_code,
+		.VERTEX,
+		num_uniform_buffers = 1,
+		num_samplers = 0,
+	)
+	frag_shader := load_shader(
+		gpu,
+		frag_shader_code,
+		.FRAGMENT,
+		num_uniform_buffers = 0,
+		num_samplers = 1,
+	)
 
 	img_size: [2]i32
 	pixels := stbi.load(
@@ -176,7 +189,7 @@ main :: proc() {
 		nil,
 		4,
 	);assert(pixels != nil)
-	pixels_byte_size := img_size.x * img_size.y * 4
+	pixels_byte_size := int(img_size.x * img_size.y * 4)
 
 	texture := sdl.CreateGPUTexture(
 		gpu,
@@ -206,13 +219,13 @@ main :: proc() {
 		location    = 1,
 		buffer_slot = 0,
 		format      = .FLOAT4,
-		offset      = 12,
+		offset      = size_of(f32) * 3, // After float3 position
 	}
 	mesh_vertex_attribute_uv := sdl.GPUVertexAttribute {
 		location    = 2,
 		buffer_slot = 0,
 		format      = .FLOAT2,
-		offset      = 28,
+		offset      = size_of(f32) * (3 + 4), // After float3 position + float4 color
 	}
 	mesh_vertex_attributes := [3]sdl.GPUVertexAttribute {
 		mesh_vertex_attribute_position,
@@ -277,6 +290,8 @@ main :: proc() {
 	sdl.ReleaseGPUShader(gpu, vert_shader)
 	sdl.ReleaseGPUShader(gpu, frag_shader)
 
+	sampler := sdl.CreateGPUSampler(gpu, {})
+
 	model_names := reflect.enum_field_names(Model)
 
 	vertex_datas: [MODEL_COUNT][]VertexData
@@ -309,9 +324,6 @@ main :: proc() {
 		combined_index_count += len(index_data)
 	}
 
-	total_size_in_bytes :=
-		combined_vertex_count * size_of(VertexData) + combined_index_count * size_of(u16)
-
 	combined_vertex_data := make([]VertexData, combined_vertex_count)
 	combined_index_data := make([]u16, combined_index_count)
 
@@ -325,22 +337,34 @@ main :: proc() {
 		index_data_offset += len(index_datas[i])
 	}
 
+	total_size_in_bytes :=
+		combined_vertex_count * size_of(VertexData) +
+		combined_index_count * size_of(u16) +
+		pixels_byte_size
+
 	transfer_buffer := sdl.CreateGPUTransferBuffer(
 		gpu,
 		{usage = .UPLOAD, size = u32(total_size_in_bytes), props = 0},
 	)
 	transfer_buffer_ptr := transmute([^]byte)sdl.MapGPUTransferBuffer(gpu, transfer_buffer, false)
 
+	transfer_buffer_offset := 0
+
 	mem.copy(
-		transfer_buffer_ptr,
+		transfer_buffer_ptr[transfer_buffer_offset:],
 		raw_data(combined_vertex_data),
 		len(combined_vertex_data) * size_of(VertexData),
 	)
+	transfer_buffer_offset += len(combined_vertex_data) * size_of(VertexData)
+
 	mem.copy(
-		transfer_buffer_ptr[combined_vertex_count * size_of(VertexData):],
+		transfer_buffer_ptr[transfer_buffer_offset:],
 		raw_data(combined_index_data),
 		len(combined_index_data) * size_of(u16),
 	)
+	transfer_buffer_offset += len(combined_index_data) * size_of(u16)
+
+	mem.copy(transfer_buffer_ptr[transfer_buffer_offset:], pixels, pixels_byte_size)
 
 	sdl.UnmapGPUTransferBuffer(gpu, transfer_buffer)
 
@@ -426,7 +450,9 @@ main :: proc() {
 	}
 
 	scene_objects: []SceneObject = {
-		make_scene_object(Model.Sphere, {0.0, 0.0, 0.0}),
+		make_scene_object(Model.Plane, {0.0, 0.0, 0.0}),
+		make_scene_object(Model.Sphere, {-4.0, 0.0, 0.0}),
+		make_scene_object(Model.Sphere, {4.0, 0.0, 0.0}),
 		make_scene_object(Model.Suzanne, {0.0, -4.0, 0.0}),
 		make_scene_object(Model.Suzanne, {0.0, 4.0, 0.0}),
 	}
@@ -560,6 +586,12 @@ main :: proc() {
 				mvp := proj_mat * view_mat * object_model
 
 				sdl.PushGPUVertexUniformData(cmd_buf, 0, &mvp, size_of(mvp))
+				sdl.BindGPUFragmentSamplers(
+					render_pass,
+					0,
+					&(sdl.GPUTextureSamplerBinding{texture = texture, sampler = sampler}),
+					1,
+				)
 				sdl.DrawGPUIndexedPrimitives(
 					render_pass,
 					u32(obj.vertex_count),
@@ -584,6 +616,7 @@ load_shader :: proc(
 	code: []u8,
 	stage: sdl.GPUShaderStage,
 	num_uniform_buffers: u32,
+	num_samplers: u32,
 ) -> ^sdl.GPUShader {
 	return sdl.CreateGPUShader(
 		device,
@@ -594,6 +627,7 @@ load_shader :: proc(
 			format              = shader_format,
 			stage               = stage,
 			num_uniform_buffers = num_uniform_buffers,
+			num_samplers        = num_samplers,
 		},
 	)
 }
@@ -614,24 +648,29 @@ load_mesh_data :: proc(model_path: string) -> (vertices: []VertexData, indices: 
 
 	pos_attr: ^cgltf.attribute = nil
 	col_attr: ^cgltf.attribute = nil
+	uv_attr: ^cgltf.attribute = nil
 	for &attr in primitive.attributes {
 		#partial switch attr.type {
 		case cgltf.attribute_type.position:
 			pos_attr = &attr
 		case cgltf.attribute_type.color:
 			col_attr = &attr
+		case cgltf.attribute_type.texcoord:
+			uv_attr = &attr
 		}
 	}
 	assert(pos_attr != nil)
 
 	pos_accessor := pos_attr.data
-	col_accessor := col_attr.data
+	col_accessor := col_attr != nil ? col_attr.data : nil
+	uv_accessor := uv_attr.data
 	idx_accessor := primitive.indices
 
 	vertex_count := pos_accessor.count
 	index_count := idx_accessor.count
 	num_pos_components := cgltf.num_components(pos_accessor.type)
-	num_col_components := cgltf.num_components(col_accessor.type)
+	num_col_components := col_accessor != nil ? cgltf.num_components(col_accessor.type) : 0
+	num_uv_components := cgltf.num_components(uv_accessor.type)
 
 	positions := make([]f32, vertex_count * num_pos_components)
 	_ = cgltf.accessor_unpack_floats(
@@ -640,22 +679,40 @@ load_mesh_data :: proc(model_path: string) -> (vertices: []VertexData, indices: 
 		uint(vertex_count * num_pos_components),
 	)
 
-	colors := make([]f32, vertex_count * num_col_components)
+	colors: []f32
+	if col_accessor != nil {
+		colors = make([]f32, vertex_count * num_col_components)
+		_ = cgltf.accessor_unpack_floats(
+			col_accessor,
+			raw_data(colors),
+			uint(vertex_count * num_col_components),
+		)
+	}
+
+	uvs := make([]f32, vertex_count * num_uv_components)
 	_ = cgltf.accessor_unpack_floats(
-		col_accessor,
-		raw_data(colors),
-		uint(vertex_count * num_col_components),
+		uv_accessor,
+		raw_data(uvs),
+		uint(vertex_count * num_uv_components),
 	)
 
 	vertices = make([]VertexData, vertex_count)
 	for i := 0; i < int(vertex_count); i += 1 {
 		pos_idx := i * int(num_pos_components)
 		col_idx := i * int(num_col_components)
+		uv_idx := i * int(num_uv_components)
+
+		color: sdl.FColor
+		if col_accessor != nil {
+			color = sdl.FColor{colors[col_idx + 0], colors[col_idx + 1], colors[col_idx + 2], 1.0}
+		} else {
+			color = sdl.FColor{1.0, 1.0, 1.0, 1.0}
+		}
 
 		vertices[i] = VertexData {
 			pos   = Vec3{positions[pos_idx + 0], positions[pos_idx + 1], positions[pos_idx + 2]},
-			color = sdl.FColor{colors[col_idx + 0], colors[col_idx + 1], colors[col_idx + 2], 1.0},
-			uv    = [2]f32{0, 0},
+			color = color,
+			uv    = [2]f32{uvs[uv_idx + 0], uvs[uv_idx + 1]},
 		}
 	}
 

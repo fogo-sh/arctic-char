@@ -21,8 +21,10 @@ spv-to-dxil shader_name:
   if [ "$(uname)" = "Windows_NT" ]; then
     shadercross shaders/spv/{{shader_name}}.spv.vert -o shaders/dxil/{{shader_name}}.dxil.vert
     shadercross shaders/spv/{{shader_name}}.spv.frag -o shaders/dxil/{{shader_name}}.dxil.frag
+  else
+    echo "Not rendering DXIL shaders"
   fi
 
 shader shader_name: (glsl-to-spv shader_name) (spv-to-msl shader_name) (spv-to-dxil shader_name)
 
-shaders: (shader "shader") (shader "text_shader")
+shaders: (shader "shader")
