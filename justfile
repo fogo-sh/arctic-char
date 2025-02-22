@@ -4,10 +4,11 @@ screenshot:
   cwebp screenshot.png -o screenshot.webp
 
 build:
-  odin build . -debug -out:arctic-char
+  mkdir -p build
+  odin build . -debug -out:./build/arctic-char
 
 run:
-  ./arctic-char
+  ./build/arctic-char
 
 build-and-run: build run
 
