@@ -281,8 +281,8 @@ main :: proc() {
 	vertex_datas: [MODEL_COUNT][]VertexData
 	index_datas: [MODEL_COUNT][]u16
 
-	combined_vertex_data_size: int
-	combined_index_data_size: int
+	combined_vertex_count: int
+	combined_index_count: int
 
 	for i := 0; i < len(model_names); i += 1 {
 		model_name := model_names[i]
@@ -290,24 +290,29 @@ main :: proc() {
 
 		vertex_data, index_data := load_mesh_data(model_path)
 
+		for j in 0 ..< len(index_data) {
+			index_data[j] += u16(combined_vertex_count)
+		}
+
 		vertex_datas[i] = vertex_data
 		index_datas[i] = index_data
 
 		model_enum, ok := reflect.enum_from_name(Model, model_name);assert(ok)
 
 		model_info_lookup[model_enum] = ModelInfo {
-			offset      = len(vertex_data),
+			offset      = combined_index_count,
 			index_count = len(index_data),
 		}
 
-		combined_vertex_data_size += len(vertex_data) * size_of(VertexData)
-		combined_index_data_size += len(index_data) * size_of(u16)
+		combined_vertex_count += len(vertex_data)
+		combined_index_count += len(index_data)
 	}
 
-	total_size := combined_vertex_data_size + combined_index_data_size
+	total_size_in_bytes :=
+		combined_vertex_count * size_of(VertexData) + combined_index_count * size_of(u16)
 
-	combined_vertex_data := make([]VertexData, combined_vertex_data_size)
-	combined_index_data := make([]u16, combined_index_data_size)
+	combined_vertex_data := make([]VertexData, combined_vertex_count)
+	combined_index_data := make([]u16, combined_index_count)
 
 	vertex_data_offset := 0
 	index_data_offset := 0
@@ -321,7 +326,7 @@ main :: proc() {
 
 	transfer_buffer := sdl.CreateGPUTransferBuffer(
 		gpu,
-		{usage = .UPLOAD, size = u32(total_size), props = 0},
+		{usage = .UPLOAD, size = u32(total_size_in_bytes), props = 0},
 	)
 	transfer_buffer_ptr := transmute([^]byte)sdl.MapGPUTransferBuffer(gpu, transfer_buffer, false)
 
@@ -331,7 +336,7 @@ main :: proc() {
 		len(combined_vertex_data) * size_of(VertexData),
 	)
 	mem.copy(
-		transfer_buffer_ptr[combined_vertex_data_size:],
+		transfer_buffer_ptr[combined_vertex_count * size_of(VertexData):],
 		raw_data(combined_index_data),
 		len(combined_index_data) * size_of(u16),
 	)
@@ -340,12 +345,12 @@ main :: proc() {
 
 	vertex_buffer := sdl.CreateGPUBuffer(
 		gpu,
-		{usage = {.VERTEX}, size = u32(combined_vertex_data_size), props = 0},
+		{usage = {.VERTEX}, size = u32(combined_vertex_count * size_of(VertexData)), props = 0},
 	)
 
 	index_buffer := sdl.CreateGPUBuffer(
 		gpu,
-		{usage = {.INDEX}, size = u32(combined_index_data_size), props = 0},
+		{usage = {.INDEX}, size = u32(combined_index_count * size_of(u16)), props = 0},
 	)
 
 	copy_command_buffer := sdl.AcquireGPUCommandBuffer(gpu)
@@ -353,13 +358,20 @@ main :: proc() {
 	sdl.UploadToGPUBuffer(
 		copy_pass,
 		{transfer_buffer = transfer_buffer, offset = 0},
-		{buffer = vertex_buffer, offset = 0, size = u32(combined_vertex_data_size)},
+		{
+			buffer = vertex_buffer,
+			offset = 0,
+			size = u32(combined_vertex_count * size_of(VertexData)),
+		},
 		false,
 	)
 	sdl.UploadToGPUBuffer(
 		copy_pass,
-		{transfer_buffer = transfer_buffer, offset = u32(combined_vertex_data_size)},
-		{buffer = index_buffer, offset = 0, size = u32(combined_index_data_size)},
+		{
+			transfer_buffer = transfer_buffer,
+			offset = u32(combined_vertex_count * size_of(VertexData)),
+		},
+		{buffer = index_buffer, offset = 0, size = u32(combined_index_count * size_of(u16))},
 		false,
 	)
 	sdl.EndGPUCopyPass(copy_pass)
@@ -371,10 +383,10 @@ main :: proc() {
 
 	// -- main loop setup --
 
-	// TODO we're done with holding the model data in memory
-	// we should release the memory now
+	delete(combined_vertex_data)
+	delete(combined_index_data)
 
-	ROTATION_SPEED := linalg.to_radians(f32(90 * 10))
+	ROTATION_SPEED := linalg.to_radians(f32(90))
 	rotation := f32(0)
 
 	proj_mat := linalg.matrix4_perspective_f32(
@@ -546,9 +558,9 @@ main :: proc() {
 				sdl.PushGPUVertexUniformData(cmd_buf, 0, &mvp, size_of(mvp))
 				sdl.DrawGPUIndexedPrimitives(
 					render_pass,
-					u32(obj.vertex_offset),
 					u32(obj.vertex_count),
-					0,
+					1,
+					u32(obj.vertex_offset),
 					0,
 					0,
 				)
