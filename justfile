@@ -1,5 +1,8 @@
 set windows-powershell
 
+screenshot:
+  cwebp screenshot.png -o screenshot.webp
+
 build:
   odin build . -debug -out:arctic-char
 

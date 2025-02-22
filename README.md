@@ -1,6 +1,6 @@
 # arctic char\*
 
-based on [nadako](https://github.com/nadako)'s [hello-sdlgpu3-odin](https://github.com/nadako/hello-sdlgpu3-odin).
+![](./screenshot.webp)
 
 as much as possible from Odin's core / vendor libaries are being used here:
 
@@ -14,9 +14,15 @@ however, we are pulling in:
 
 using [SDL_shadercross](https://github.com/libsdl-org/SDL_shadercross) to compile shaders to different platforms.
 
+---
+
 todo:
 
 - user interface
 - main menu
 - sounds on button press rather than just looping WAV
 - billboard sprites
+
+---
+
+originally based on [nadako](https://github.com/nadako)'s [hello-sdlgpu3-odin](https://github.com/nadako/hello-sdlgpu3-odin), and also many aspects made following their amazing [youtube tutorial](https://www.youtube.com/playlist?list=PLI3kBEQ3yd-CbQfRchF70BPLF9G1HEzhy)!
