@@ -1,6 +1,6 @@
 # arctic char\*
 
-![](./screenshot.webp)
+![](./screenshot.webp | width=250)
 
 as much as possible from Odin's core / vendor libaries are being used here:
 
