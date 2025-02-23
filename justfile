@@ -6,6 +6,7 @@ screenshot:
 build:
   mkdir -p build
   odin build . -debug -out:./build/arctic-char
+  cp -r ./assets ./build/assets
 
 run:
   ./build/arctic-char
@@ -31,4 +32,4 @@ spv-to-dxil shader_name:
 
 shader shader_name: (glsl-to-spv shader_name) (spv-to-msl shader_name) (spv-to-dxil shader_name)
 
-shaders: (shader "shader")
+shaders: (shader "shader") (shader "ui")

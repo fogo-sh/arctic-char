@@ -26,12 +26,18 @@ when ODIN_OS == .Darwin {
 
 	frag_shader_code := #load("shaders/msl/shader.msl.frag")
 	vert_shader_code := #load("shaders/msl/shader.msl.vert")
+
+	ui_frag_shader_code := #load("shaders/msl/shader.msl.frag")
+	ui_vert_shader_code := #load("shaders/msl/shader.msl.vert")
 } else when ODIN_OS == .Windows {
 	shader_entrypoint := "main0"
 	shader_format := sdl.GPUShaderFormat{.DXIL}
 
 	frag_shader_code := #load("shaders/dxil/shader.dxil.frag")
 	vert_shader_code := #load("shaders/dxil/shader.dxil.vert")
+
+	ui_frag_shader_code := #load("shaders/dxil/shader.dxil.frag")
+	ui_vert_shader_code := #load("shaders/dxil/shader.dxil.vert")
 } else {
 	shader_entrypoint := "main"
 
@@ -39,6 +45,9 @@ when ODIN_OS == .Darwin {
 
 	frag_shader_code := #load("shaders/spv/shader.spv.frag")
 	vert_shader_code := #load("shaders/spv/shader.spv.vert")
+
+	ui_frag_shader_code := #load("shaders/spv/shader.spv.frag")
+	ui_vert_shader_code := #load("shaders/spv/shader.spv.vert")
 }
 
 Vec3 :: [3]f32
@@ -55,8 +64,8 @@ ModelData :: struct {
 }
 
 ModelInfo :: struct {
-	offset:      int,
-	index_count: int,
+	index_offset: int,
+	index_count:  int,
 }
 
 model_info_lookup: map[Model]ModelInfo
@@ -71,9 +80,8 @@ Model :: enum {
 MODEL_COUNT :: 4
 
 SceneObject :: struct {
-	vertex_offset: int,
-	vertex_count:  int,
-	local_model:   matrix[4, 4]f32,
+	model_info:  ^ModelInfo,
+	local_model: matrix[4, 4]f32,
 }
 
 Movement :: struct {
@@ -388,9 +396,17 @@ main :: proc() {
 		model_enum, ok := reflect.enum_from_name(Model, model_name)
 		assert(ok)
 
+		log.debugf(
+			"Loaded Model '%s', index_offset=%d, index_count=%d, vertex_count=%d",
+			model_name,
+			combined_index_count,
+			len(index_data),
+			len(vertex_data),
+		)
+
 		model_info_lookup[model_enum] = ModelInfo {
-			offset      = combined_index_count,
-			index_count = len(index_data),
+			index_offset = combined_index_count,
+			index_count  = len(index_data),
 		}
 
 		combined_vertex_count += len(vertex_data)
@@ -410,17 +426,25 @@ main :: proc() {
 		index_data_offset += len(index_datas[i])
 	}
 
-	total_size_in_bytes :=
-		combined_vertex_count * size_of(VertexData) +
-		combined_index_count * size_of(u16) +
-		pixels_byte_size
+	combined_vertex_data_size := combined_vertex_count * size_of(VertexData)
+	combined_index_data_size := combined_index_count * size_of(u16)
+	texture_size := pixels_byte_size
+
+	log.debugf(
+		"Memory usage: vertex data=%.2f kb, index data=%.2f kb, texture=%.2f kb",
+		f32(combined_vertex_data_size) / 1024.0,
+		f32(combined_index_data_size) / 1024.0,
+		f32(texture_size) / 1024.0,
+	)
+
+	total_size_in_bytes := combined_vertex_data_size + combined_index_data_size + texture_size
 
 	transfer_buffer := sdl.CreateGPUTransferBuffer(
 		gpu,
 		{usage = .UPLOAD, size = u32(total_size_in_bytes), props = 0},
 	)
-	transfer_buffer_ptr := transmute([^]byte)sdl.MapGPUTransferBuffer(gpu, transfer_buffer, false)
 
+	transfer_buffer_ptr := transmute([^]byte)sdl.MapGPUTransferBuffer(gpu, transfer_buffer, false)
 	transfer_buffer_offset := 0
 
 	mem.copy(
@@ -451,12 +475,12 @@ main :: proc() {
 
 	vertex_buffer := sdl.CreateGPUBuffer(
 		gpu,
-		{usage = {.VERTEX}, size = u32(combined_vertex_count * size_of(VertexData)), props = 0},
+		{usage = {.VERTEX}, size = u32(combined_vertex_data_size), props = 0},
 	)
 
 	index_buffer := sdl.CreateGPUBuffer(
 		gpu,
-		{usage = {.INDEX}, size = u32(combined_index_count * size_of(u16)), props = 0},
+		{usage = {.INDEX}, size = u32(combined_index_data_size), props = 0},
 	)
 
 	copy_command_buffer := sdl.AcquireGPUCommandBuffer(gpu)
@@ -527,10 +551,8 @@ main :: proc() {
 	log.debug("Ready for main loop")
 
 	make_scene_object :: proc(model: Model, position: [3]f32) -> SceneObject {
-		model_type := model_info_lookup[model]
 		return SceneObject {
-			vertex_offset = model_type.offset,
-			vertex_count = model_type.index_count,
+			model_info = &model_info_lookup[model],
 			local_model = linalg.matrix4_translate_f32(position),
 		}
 	}
@@ -573,6 +595,8 @@ main :: proc() {
 		clay.Dimensions{width = f32(win_size.x), height = f32(win_size.y)},
 		{handler = clayErrorhandler},
 	)
+
+	ui_pipeline := claySdlGpuRenderInitialize(gpu, window)
 
 	log.debug("Clay initialized")
 
@@ -777,11 +801,12 @@ main :: proc() {
 					&(sdl.GPUTextureSamplerBinding{texture = texture, sampler = sampler}),
 					1,
 				)
+
 				sdl.DrawGPUIndexedPrimitives(
 					render_pass,
-					u32(obj.vertex_count),
+					u32(obj.model_info.index_count),
 					1,
-					u32(obj.vertex_offset),
+					u32(obj.model_info.index_offset),
 					0,
 					0,
 				)
@@ -792,6 +817,57 @@ main :: proc() {
 
 		ok = sdl.SubmitGPUCommandBuffer(cmd_buf)
 		assert(ok)
+
+		{
+			ui_cmd_buf := sdl.AcquireGPUCommandBuffer(gpu)
+			ui_swapchain_tex: ^sdl.GPUTexture
+			ok = sdl.WaitAndAcquireGPUSwapchainTexture(
+				ui_cmd_buf,
+				window,
+				&ui_swapchain_tex,
+				nil,
+				nil,
+			)
+			assert(ok)
+
+			if ui_swapchain_tex != nil {
+				ui_color_target := sdl.GPUColorTargetInfo {
+					texture         = ui_swapchain_tex,
+					load_op         = .LOAD, // keep what was drawn (or you could CLEAR if desired)
+					store_op        = .STORE,
+					resolve_texture = nil,
+				}
+				ui_render_pass := sdl.BeginGPURenderPass(ui_cmd_buf, &ui_color_target, 1, nil)
+				sdl.BindGPUGraphicsPipeline(ui_render_pass, ui_pipeline)
+
+				ui_proj := matrix4_orthographic_f32(0, f32(win_size.x), f32(win_size.y), 0, -1, 1)
+
+				clay.BeginLayout()
+
+				COLOR_LIGHT :: clay.Color{244, 235, 230, 255}
+
+				if clay.UI()(
+				{
+					id = clay.ID("OuterContainer"),
+					layout = {
+						layoutDirection = .TopToBottom,
+						sizing = {clay.SizingGrow({}), clay.SizingGrow({})},
+					},
+					backgroundColor = COLOR_LIGHT,
+				},
+				) {
+
+				}
+
+				clay_commands := clay.EndLayout()
+
+				claySdlGpuRender(&clay_commands, gpu, ui_cmd_buf, ui_render_pass, ui_proj)
+
+				sdl.EndGPURenderPass(ui_render_pass)
+			}
+			ok = sdl.SubmitGPUCommandBuffer(ui_cmd_buf)
+			assert(ok)
+		}
 	}
 
 	delete(model_info_lookup)
@@ -915,4 +991,17 @@ load_mesh_data :: proc(model_path: string) -> (vertices: []VertexData, indices: 
 	}
 
 	return vertices, indices
+}
+
+
+matrix4_orthographic_f32 :: proc(left, right, bottom, top, near, far: f32) -> matrix[4, 4]f32 {
+	invRL := 1.0 / (right - left)
+	invTB := 1.0 / (top - bottom)
+	invFN := 1.0 / (far - near)
+	return matrix[4, 4]f32{
+		2 * invRL, 0, 0, -(right + left) * invRL, 
+		0, 2 * invTB, 0, -(top + bottom) * invTB, 
+		0, 0, -2 * invFN, -(far + near) * invFN, 
+		0, 0, 0, 1, 
+	}
 }
