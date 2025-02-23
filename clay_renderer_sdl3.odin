@@ -49,7 +49,7 @@ make_quad_for_rectangle :: proc(
 	return quad, idx
 }
 
-MAX_UI_RECTS :: 1024
+MAX_UI_RECTS :: 16
 MAX_UI_VERTICES :: MAX_UI_RECTS * 4
 MAX_UI_INDICES :: MAX_UI_RECTS * 6
 
@@ -145,8 +145,6 @@ claySdlGpuRenderInitialize :: proc(
 			format = sdl.GetGPUSwapchainTextureFormat(gpu, window),
 			blend_state = sdl.GPUColorTargetBlendState{},
 		},
-		depth_stencil_format      = sdl.GPUTextureFormat.D32_FLOAT,
-		has_depth_stencil_target  = true,
 	}
 
 	pipeline := sdl.CreateGPUGraphicsPipeline(
@@ -161,15 +159,7 @@ claySdlGpuRenderInitialize :: proc(
 				vertex_attributes = &mesh_vertex_attributes[0],
 			},
 			primitive_type = .TRIANGLELIST,
-			rasterizer_state = sdl.GPURasterizerState {
-				cull_mode = .BACK,
-				front_face = .COUNTER_CLOCKWISE,
-			},
-			multisample_state = sdl.GPUMultisampleState {
-				sample_count = sdl.GPUSampleCount._4,
-				sample_mask = 0xffffffff,
-				enable_mask = true,
-			},
+			rasterizer_state = sdl.GPURasterizerState{},
 			depth_stencil_state = sdl.GPUDepthStencilState{},
 			target_info = target_info,
 		},
@@ -178,15 +168,13 @@ claySdlGpuRenderInitialize :: proc(
 
 	white_texture = sdl.CreateGPUTexture(
 		gpu,
-		sdl.GPUTextureCreateInfo {
-			type = sdl.GPUTextureType.D2,
-			format = sdl.GPUTextureFormat.R8G8B8A8_UNORM,
-			usage = sdl.GPUTextureUsageFlags{.SAMPLER},
+		{
+			format = .R8G8B8A8_UNORM,
+			usage = {.SAMPLER},
 			width = 1,
 			height = 1,
 			layer_count_or_depth = 1,
 			num_levels = 1,
-			sample_count = sdl.GPUSampleCount._1,
 		},
 	)
 	assert(white_texture != nil)
