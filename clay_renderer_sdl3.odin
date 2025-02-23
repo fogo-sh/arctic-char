@@ -213,6 +213,7 @@ claySdlGpuRender :: proc(
 
 	for i in 0 ..< int(renderCommands.length) {
 		cmd := clay.RenderCommandArray_Get(renderCommands, cast(i32)i)
+
 		#partial switch (cmd.commandType) {
 		case clay.RenderCommandType.Rectangle:
 			{
@@ -243,9 +244,11 @@ claySdlGpuRender :: proc(
 		return
 	}
 
+	white_pixel: [4]u8 = {255, 255, 255, 255}
+
 	vtx_data_size := cast(u32)(vertex_count) * size_of(UIVertex)
 	idx_data_size := cast(u32)(index_count) * size_of(u16)
-	total_size := vtx_data_size + idx_data_size
+	total_size := vtx_data_size + idx_data_size + size_of(white_pixel)
 
 	transfer_buffer_ptr := transmute([^]byte)sdl.MapGPUTransferBuffer(
 		gpu,
@@ -260,28 +263,55 @@ claySdlGpuRender :: proc(
 		raw_data(batch_vertices[:vertex_count]),
 		int(vtx_data_size),
 	)
+
 	transfer_buffer_offset += int(vtx_data_size)
 	mem.copy(
 		transfer_buffer_ptr[transfer_buffer_offset:],
 		raw_data(batch_indices[:index_count]),
 		int(idx_data_size),
 	)
+	transfer_buffer_offset += int(idx_data_size)
+
+	mem.copy(
+		transfer_buffer_ptr[transfer_buffer_offset:],
+		raw_data(&white_pixel),
+		size_of(white_pixel),
+	)
+
+	transfer_buffer_offset += size_of(white_pixel)
+
 	sdl.UnmapGPUTransferBuffer(gpu, ui_transfer_buffer)
 
 	copy_cmd_buf := sdl.AcquireGPUCommandBuffer(gpu)
 	copy_pass := sdl.BeginGPUCopyPass(copy_cmd_buf)
+
+	buffer_offset: u32 = 0
+
 	sdl.UploadToGPUBuffer(
 		copy_pass,
-		sdl.GPUTransferBufferLocation{ui_transfer_buffer, 0},
-		sdl.GPUBufferRegion{buffer = ui_vertex_buffer, offset = 0, size = vtx_data_size},
+		{transfer_buffer = ui_transfer_buffer, offset = buffer_offset},
+		{buffer = ui_vertex_buffer, offset = 0, size = vtx_data_size},
 		false,
 	)
+
+	buffer_offset += vtx_data_size
+
 	sdl.UploadToGPUBuffer(
 		copy_pass,
-		sdl.GPUTransferBufferLocation{ui_transfer_buffer, vtx_data_size},
-		sdl.GPUBufferRegion{buffer = ui_index_buffer, offset = 0, size = idx_data_size},
+		{transfer_buffer = ui_transfer_buffer, offset = buffer_offset},
+		{buffer = ui_index_buffer, offset = 0, size = idx_data_size},
 		false,
 	)
+
+	buffer_offset += idx_data_size
+
+	sdl.UploadToGPUTexture(
+		copy_pass,
+		{transfer_buffer = ui_transfer_buffer, offset = buffer_offset},
+		{texture = white_texture, w = 1, h = 1, d = 1},
+		false,
+	)
+
 	sdl.EndGPUCopyPass(copy_pass)
 	ok := sdl.SubmitGPUCommandBuffer(copy_cmd_buf)
 	assert(ok)
