@@ -50,6 +50,9 @@ when ODIN_OS == .Darwin {
 	ui_vert_shader_code := #load("shaders/spv/shader.spv.vert")
 }
 
+render_game: bool = false
+render_ui: bool = true
+
 Vec3 :: [3]f32
 
 VertexData :: struct {
@@ -486,9 +489,11 @@ main :: proc() {
 	copy_command_buffer := sdl.AcquireGPUCommandBuffer(gpu)
 	copy_pass := sdl.BeginGPUCopyPass(copy_command_buffer)
 
+	buffer_offset: u32 = 0
+
 	sdl.UploadToGPUBuffer(
 		copy_pass,
-		{transfer_buffer = transfer_buffer, offset = 0},
+		{transfer_buffer = transfer_buffer, offset = buffer_offset},
 		{
 			buffer = vertex_buffer,
 			offset = 0,
@@ -497,7 +502,7 @@ main :: proc() {
 		false,
 	)
 
-	buffer_offset := u32(combined_vertex_count * size_of(VertexData))
+	buffer_offset += u32(combined_vertex_count * size_of(VertexData))
 
 	sdl.UploadToGPUBuffer(
 		copy_pass,
@@ -758,96 +763,102 @@ main :: proc() {
 		assert(ok)
 
 		if swapchain_tex != nil {
-			color_target := sdl.GPUColorTargetInfo {
-				texture           = msaa_color_texture,
-				load_op           = .CLEAR,
-				clear_color       = {0.2, 0.4, 0.8, 1.0},
-				store_op          = .RESOLVE,
-				resolve_texture   = swapchain_tex,
-				resolve_mip_level = 0,
-				resolve_layer     = 0,
-			}
-			depth_target := sdl.GPUDepthStencilTargetInfo {
-				texture          = msaa_depth_texture,
-				clear_depth      = 1.0,
-				load_op          = .CLEAR,
-				store_op         = .STORE,
-				stencil_load_op  = .DONT_CARE,
-				stencil_store_op = .DONT_CARE,
-			}
+			if render_game {
+				color_target := sdl.GPUColorTargetInfo {
+					texture           = msaa_color_texture,
+					load_op           = .CLEAR,
+					clear_color       = {0.2, 0.4, 0.8, 1.0},
+					store_op          = .RESOLVE,
+					resolve_texture   = swapchain_tex,
+					resolve_mip_level = 0,
+					resolve_layer     = 0,
+				}
+				depth_target := sdl.GPUDepthStencilTargetInfo {
+					texture          = msaa_depth_texture,
+					clear_depth      = 1.0,
+					load_op          = .CLEAR,
+					store_op         = .STORE,
+					stencil_load_op  = .DONT_CARE,
+					stencil_store_op = .DONT_CARE,
+				}
 
-			render_pass := sdl.BeginGPURenderPass(cmd_buf, &color_target, 1, &depth_target)
-			sdl.BindGPUGraphicsPipeline(render_pass, pipeline)
+				render_pass := sdl.BeginGPURenderPass(cmd_buf, &color_target, 1, &depth_target)
+				sdl.BindGPUGraphicsPipeline(render_pass, pipeline)
 
-			vertex_buffer_binding := sdl.GPUBufferBinding {
-				buffer = vertex_buffer,
-				offset = 0,
-			}
-			index_buffer_binding := sdl.GPUBufferBinding {
-				buffer = index_buffer,
-				offset = 0,
-			}
-			sdl.BindGPUVertexBuffers(render_pass, 0, &vertex_buffer_binding, 1)
-			sdl.BindGPUIndexBuffer(render_pass, index_buffer_binding, ._16BIT)
+				vertex_buffer_binding := sdl.GPUBufferBinding {
+					buffer = vertex_buffer,
+					offset = 0,
+				}
+				index_buffer_binding := sdl.GPUBufferBinding {
+					buffer = index_buffer,
+					offset = 0,
+				}
+				sdl.BindGPUVertexBuffers(render_pass, 0, &vertex_buffer_binding, 1)
+				sdl.BindGPUIndexBuffer(render_pass, index_buffer_binding, ._16BIT)
 
-			for obj in scene_objects {
-				object_model := obj.local_model
-				mvp := proj_mat * view_mat * object_model
+				for obj in scene_objects {
+					object_model := obj.local_model
+					mvp := proj_mat * view_mat * object_model
 
-				sdl.PushGPUVertexUniformData(cmd_buf, 0, &mvp, size_of(mvp))
-				sdl.BindGPUFragmentSamplers(
-					render_pass,
-					0,
-					&(sdl.GPUTextureSamplerBinding{texture = texture, sampler = sampler}),
-					1,
-				)
+					sdl.PushGPUVertexUniformData(cmd_buf, 0, &mvp, size_of(mvp))
+					sdl.BindGPUFragmentSamplers(
+						render_pass,
+						0,
+						&(sdl.GPUTextureSamplerBinding{texture = texture, sampler = sampler}),
+						1,
+					)
 
-				sdl.DrawGPUIndexedPrimitives(
-					render_pass,
-					u32(obj.model_info.index_count),
-					1,
-					u32(obj.model_info.index_offset),
-					0,
-					0,
-				)
-			}
+					sdl.DrawGPUIndexedPrimitives(
+						render_pass,
+						u32(obj.model_info.index_count),
+						1,
+						u32(obj.model_info.index_offset),
+						0,
+						0,
+					)
+				}
 
-			sdl.EndGPURenderPass(render_pass)
-
-			ui_color_target := sdl.GPUColorTargetInfo {
-				texture         = swapchain_tex,
-				load_op         = .LOAD,
-				store_op        = .STORE,
-				resolve_texture = nil,
+				sdl.EndGPURenderPass(render_pass)
 			}
 
-			ui_render_pass := sdl.BeginGPURenderPass(cmd_buf, &ui_color_target, 1, nil)
-			sdl.BindGPUGraphicsPipeline(ui_render_pass, ui_pipeline)
+			if render_ui {
+				ui_color_target := sdl.GPUColorTargetInfo {
+					texture         = swapchain_tex,
+					load_op         = .LOAD,
+					store_op        = .STORE,
+					resolve_texture = nil,
+				}
 
-			ui_proj := matrix4_orthographic_f32(0, f32(win_size.x), f32(win_size.y), 0, -1, 1)
+				ui_render_pass := sdl.BeginGPURenderPass(cmd_buf, &ui_color_target, 1, nil)
+				sdl.BindGPUGraphicsPipeline(ui_render_pass, ui_pipeline)
 
-			clay.BeginLayout()
+				ui_proj := matrix4_orthographic_f32(0, f32(win_size.x), f32(win_size.y), 0, -1, 1)
 
-			COLOR_LIGHT :: clay.Color{244, 235, 230, 255}
+				clay.SetLayoutDimensions({f32(win_size.x), f32(win_size.y)})
 
-			if clay.UI()(
-			{
-				id = clay.ID("OuterContainer"),
-				layout = {
-					layoutDirection = .TopToBottom,
-					sizing = {clay.SizingGrow({}), clay.SizingGrow({})},
+				clay.BeginLayout()
+
+				COLOR_LIGHT :: clay.Color{244, 235, 230, 255}
+
+				if clay.UI()(
+				{
+					id = clay.ID("OuterContainer"),
+					layout = {
+						layoutDirection = .TopToBottom,
+						sizing = {clay.SizingGrow({}), clay.SizingGrow({})},
+					},
+					backgroundColor = COLOR_LIGHT,
 				},
-				backgroundColor = COLOR_LIGHT,
-			},
-			) {
+				) {
 
+				}
+
+				clay_commands := clay.EndLayout()
+
+				claySdlGpuRender(&clay_commands, gpu, cmd_buf, ui_render_pass, ui_proj)
+
+				sdl.EndGPURenderPass(ui_render_pass)
 			}
-
-			clay_commands := clay.EndLayout()
-
-			claySdlGpuRender(&clay_commands, gpu, cmd_buf, ui_render_pass, ui_proj)
-
-			sdl.EndGPURenderPass(ui_render_pass)
 		}
 
 		ok = sdl.SubmitGPUCommandBuffer(cmd_buf)
