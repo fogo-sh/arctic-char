@@ -813,61 +813,44 @@ main :: proc() {
 			}
 
 			sdl.EndGPURenderPass(render_pass)
+
+			ui_color_target := sdl.GPUColorTargetInfo {
+				texture         = swapchain_tex,
+				load_op         = .LOAD,
+				store_op        = .STORE,
+				resolve_texture = nil,
+			}
+
+			ui_render_pass := sdl.BeginGPURenderPass(cmd_buf, &ui_color_target, 1, nil)
+			sdl.BindGPUGraphicsPipeline(ui_render_pass, ui_pipeline)
+
+			ui_proj := matrix4_orthographic_f32(0, f32(win_size.x), f32(win_size.y), 0, -1, 1)
+
+			clay.BeginLayout()
+
+			COLOR_LIGHT :: clay.Color{244, 235, 230, 255}
+
+			if clay.UI()(
+			{
+				id = clay.ID("OuterContainer"),
+				layout = {
+					layoutDirection = .TopToBottom,
+					sizing = {clay.SizingGrow({}), clay.SizingGrow({})},
+				},
+				backgroundColor = COLOR_LIGHT,
+			},
+			) {
+
+			}
+
+			clay_commands := clay.EndLayout()
+
+			claySdlGpuRender(&clay_commands, gpu, cmd_buf, ui_render_pass, ui_proj)
+
+			sdl.EndGPURenderPass(ui_render_pass)
 		}
 
 		ok = sdl.SubmitGPUCommandBuffer(cmd_buf)
-		assert(ok)
-
-		{
-			ui_cmd_buf := sdl.AcquireGPUCommandBuffer(gpu)
-			ui_swapchain_tex: ^sdl.GPUTexture
-			ok = sdl.WaitAndAcquireGPUSwapchainTexture(
-				ui_cmd_buf,
-				window,
-				&ui_swapchain_tex,
-				nil,
-				nil,
-			)
-			assert(ok)
-
-			if ui_swapchain_tex != nil {
-				ui_color_target := sdl.GPUColorTargetInfo {
-					texture         = ui_swapchain_tex,
-					load_op         = .LOAD, // keep what was drawn (or you could CLEAR if desired)
-					store_op        = .STORE,
-					resolve_texture = nil,
-				}
-				ui_render_pass := sdl.BeginGPURenderPass(ui_cmd_buf, &ui_color_target, 1, nil)
-				sdl.BindGPUGraphicsPipeline(ui_render_pass, ui_pipeline)
-
-				ui_proj := matrix4_orthographic_f32(0, f32(win_size.x), f32(win_size.y), 0, -1, 1)
-
-				clay.BeginLayout()
-
-				COLOR_LIGHT :: clay.Color{244, 235, 230, 255}
-
-				if clay.UI()(
-				{
-					id = clay.ID("OuterContainer"),
-					layout = {
-						layoutDirection = .TopToBottom,
-						sizing = {clay.SizingGrow({}), clay.SizingGrow({})},
-					},
-					backgroundColor = COLOR_LIGHT,
-				},
-				) {
-
-				}
-
-				clay_commands := clay.EndLayout()
-
-				claySdlGpuRender(&clay_commands, gpu, ui_cmd_buf, ui_render_pass, ui_proj)
-
-				sdl.EndGPURenderPass(ui_render_pass)
-			}
-			ok = sdl.SubmitGPUCommandBuffer(ui_cmd_buf)
-			assert(ok)
-		}
 	}
 
 	delete(model_info_lookup)
