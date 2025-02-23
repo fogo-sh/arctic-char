@@ -27,8 +27,8 @@ when ODIN_OS == .Darwin {
 	frag_shader_code := #load("shaders/msl/shader.msl.frag")
 	vert_shader_code := #load("shaders/msl/shader.msl.vert")
 
-	ui_frag_shader_code := #load("shaders/msl/shader.msl.frag")
-	ui_vert_shader_code := #load("shaders/msl/shader.msl.vert")
+	ui_frag_shader_code := #load("shaders/msl/ui.msl.frag")
+	ui_vert_shader_code := #load("shaders/msl/ui.msl.vert")
 } else when ODIN_OS == .Windows {
 	shader_entrypoint := "main0"
 	shader_format := sdl.GPUShaderFormat{.DXIL}
@@ -36,8 +36,8 @@ when ODIN_OS == .Darwin {
 	frag_shader_code := #load("shaders/dxil/shader.dxil.frag")
 	vert_shader_code := #load("shaders/dxil/shader.dxil.vert")
 
-	ui_frag_shader_code := #load("shaders/dxil/shader.dxil.frag")
-	ui_vert_shader_code := #load("shaders/dxil/shader.dxil.vert")
+	ui_frag_shader_code := #load("shaders/dxil/ui.dxil.frag")
+	ui_vert_shader_code := #load("shaders/dxil/ui.dxil.vert")
 } else {
 	shader_entrypoint := "main"
 
@@ -46,11 +46,11 @@ when ODIN_OS == .Darwin {
 	frag_shader_code := #load("shaders/spv/shader.spv.frag")
 	vert_shader_code := #load("shaders/spv/shader.spv.vert")
 
-	ui_frag_shader_code := #load("shaders/spv/shader.spv.frag")
-	ui_vert_shader_code := #load("shaders/spv/shader.spv.vert")
+	ui_frag_shader_code := #load("shaders/spv/ui.spv.frag")
+	ui_vert_shader_code := #load("shaders/spv/ui.spv.vert")
 }
 
-render_game: bool = false
+render_game: bool = true
 render_ui: bool = true
 
 Vec3 :: [3]f32
@@ -169,6 +169,8 @@ main :: proc() {
 				fmt.println("No leaks or bad frees detected!")
 			}
 		}
+
+		os.set_env("MTL_DEBUG_LAYER", "1")
 	}
 
 	ok := sdl.SetAppMetadata("arctic char*", "0.1.0", "sh.fogo.arctic-char")
@@ -823,10 +825,9 @@ main :: proc() {
 
 			if render_ui {
 				ui_color_target := sdl.GPUColorTargetInfo {
-					texture         = swapchain_tex,
-					load_op         = .LOAD,
-					store_op        = .STORE,
-					resolve_texture = nil,
+					texture  = swapchain_tex,
+					store_op = .STORE,
+					load_op  = .LOAD,
 				}
 
 				ui_render_pass := sdl.BeginGPURenderPass(cmd_buf, &ui_color_target, 1, nil)
@@ -845,7 +846,7 @@ main :: proc() {
 					id = clay.ID("OuterContainer"),
 					layout = {
 						layoutDirection = .TopToBottom,
-						sizing = {clay.SizingGrow({}), clay.SizingGrow({})},
+						sizing = {clay.SizingFixed(100), clay.SizingGrow({})},
 					},
 					backgroundColor = COLOR_LIGHT,
 				},
