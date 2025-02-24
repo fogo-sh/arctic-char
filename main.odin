@@ -845,7 +845,7 @@ main :: proc() {
 				{
 					id = clay.ID("OuterContainer"),
 					layout = {
-						layoutDirection = .TopToBottom,
+						layoutDirection = .LeftToRight,
 						sizing = {clay.SizingFixed(100), clay.SizingGrow({})},
 					},
 					backgroundColor = COLOR_LIGHT,

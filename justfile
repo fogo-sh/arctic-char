@@ -3,9 +3,17 @@ set windows-powershell
 screenshot:
   cwebp screenshot.png -o screenshot.webp
 
-build:
+clean:
+  rm -rf ./build
+
+build: clean
   mkdir -p build
   odin build . -debug -out:./build/arctic-char
+  cp -r ./assets ./build/assets
+
+build-release: clean
+  mkdir -p build
+  odin build . -out:./build/arctic-char
   cp -r ./assets ./build/assets
 
 run:
