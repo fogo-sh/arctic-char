@@ -8,7 +8,7 @@ import "core:strings"
 import sdl "vendor:sdl3"
 
 clayColorToSdlFColor :: proc(color: clay.Color) -> sdl.FColor {
-	return sdl.FColor{color[0], color[1], color[2], color[3]}
+	return sdl.FColor{color[0] / 255.0, color[1] / 255.0, color[2] / 255.0, color[3] / 255.0}
 }
 
 measureText :: proc "c" (
@@ -49,7 +49,7 @@ make_quad_for_rectangle :: proc(
 	return quad, idx
 }
 
-MAX_UI_RECTS :: 16
+MAX_UI_RECTS :: 1024
 MAX_UI_VERTICES :: MAX_UI_RECTS * 4
 MAX_UI_INDICES :: MAX_UI_RECTS * 6
 
@@ -85,6 +85,7 @@ claySdlGpuRenderInitialize :: proc(
 			props = 0,
 		},
 	)
+	sdl.SetGPUBufferName(gpu, ui_vertex_buffer, "UI Vertex Buffer")
 	assert(ui_vertex_buffer != nil)
 
 	ui_index_buffer = sdl.CreateGPUBuffer(
@@ -95,6 +96,7 @@ claySdlGpuRenderInitialize :: proc(
 			props = 0,
 		},
 	)
+	sdl.SetGPUBufferName(gpu, ui_index_buffer, "UI Index Buffer")
 	assert(ui_index_buffer != nil)
 
 	ui_transfer_buffer = sdl.CreateGPUTransferBuffer(
@@ -190,6 +192,7 @@ claySdlGpuRenderInitialize :: proc(
 			num_levels = 1,
 		},
 	)
+	sdl.SetGPUTextureName(gpu, white_texture, "1x1 White Texture")
 	assert(white_texture != nil)
 
 	sampler = sdl.CreateGPUSampler(gpu, {})
