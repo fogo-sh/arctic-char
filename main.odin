@@ -119,6 +119,7 @@ create_msaa_textures :: proc(
 			sample_count = sdl.GPUSampleCount._4,
 		},
 	)
+	sdl.SetGPUTextureName(gpu, msaa_color_texture, "MSAA Color Texture")
 	assert(msaa_color_texture != nil)
 
 	msaa_depth_texture = sdl.CreateGPUTexture(
@@ -134,6 +135,7 @@ create_msaa_textures :: proc(
 			sample_count = sdl.GPUSampleCount._4,
 		},
 	)
+	sdl.SetGPUTextureName(gpu, msaa_depth_texture, "MSAA Depth Texture")
 	assert(msaa_depth_texture != nil)
 
 	return msaa_color_texture, msaa_depth_texture
@@ -282,6 +284,7 @@ main :: proc() {
 			num_levels = 1,
 		},
 	)
+	sdl.SetGPUTextureName(gpu, texture, "Test Texture")
 
 	mesh_vertex_buffer_description := sdl.GPUVertexBufferDescription {
 		slot               = 0,
@@ -482,11 +485,13 @@ main :: proc() {
 		gpu,
 		{usage = {.VERTEX}, size = u32(combined_vertex_data_size), props = 0},
 	)
+	sdl.SetGPUBufferName(gpu, vertex_buffer, "Main Vertex Buffer")
 
 	index_buffer := sdl.CreateGPUBuffer(
 		gpu,
 		{usage = {.INDEX}, size = u32(combined_index_data_size), props = 0},
 	)
+	sdl.SetGPUBufferName(gpu, index_buffer, "Main Index Buffer")
 
 	copy_command_buffer := sdl.AcquireGPUCommandBuffer(gpu)
 	copy_pass := sdl.BeginGPUCopyPass(copy_command_buffer)
@@ -770,6 +775,9 @@ main :: proc() {
 
 		// -- render --
 		cmd_buf := sdl.AcquireGPUCommandBuffer(gpu)
+		if ODIN_DEBUG {
+			sdl.InsertGPUDebugLabel(cmd_buf, "Main Loop Render Pass")
+		}
 		swapchain_tex: ^sdl.GPUTexture
 		ok = sdl.WaitAndAcquireGPUSwapchainTexture(cmd_buf, window, &swapchain_tex, nil, nil)
 		assert(ok)
@@ -849,7 +857,12 @@ main :: proc() {
 
 				clay.BeginLayout()
 
-				COLOR_LIGHT :: clay.Color{255, 0, 0, 255}
+				COLOR_RED :: clay.Color{255, 0, 0, 255}
+				COLOR_GREEN :: clay.Color{0, 255, 0, 255}
+				COLOR_BLUE :: clay.Color{0, 0, 255, 255}
+				COLOR_YELLOW :: clay.Color{255, 255, 0, 255}
+				COLOR_PURPLE :: clay.Color{255, 0, 255, 255}
+				COLOR_CYAN :: clay.Color{0, 255, 255, 255}
 
 				if clay.UI()(
 				{
@@ -857,13 +870,22 @@ main :: proc() {
 					layout = {
 						layoutDirection = .LeftToRight,
 						sizing = {clay.SizingFixed(100), clay.SizingGrow({})},
+						padding = {10, 10, 10, 10},
 					},
-					backgroundColor = COLOR_LIGHT,
+					backgroundColor = COLOR_CYAN,
 				},
 				) {
-
+					if clay.UI()(
+					{
+						id = clay.ID("InnerContainer"),
+						layout = {
+							layoutDirection = .TopToBottom,
+							sizing = {clay.SizingGrow({}), clay.SizingGrow({})},
+						},
+						backgroundColor = COLOR_RED,
+					},
+					) {}
 				}
-
 				clay_commands := clay.EndLayout()
 
 				claySdlGpuRender(&clay_commands, gpu, cmd_buf, ui_render_pass, ui_proj)
@@ -997,7 +1019,6 @@ load_mesh_data :: proc(model_path: string) -> (vertices: []VertexData, indices: 
 
 	return vertices, indices
 }
-
 
 matrix4_orthographic_f32 :: proc(left, right, bottom, top, near, far: f32) -> matrix[4, 4]f32 {
 	invRL := 1.0 / (right - left)
