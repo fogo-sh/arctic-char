@@ -551,6 +551,7 @@ main :: proc() {
 	)
 
 	last_ticks := sdl.GetTicks()
+	total_time: f32 = 0.0
 
 	camera_pos: [3]f32 = [3]f32{0.0, 0.0, 10.0}
 	camera_yaw: f32 = 0.0
@@ -626,6 +627,7 @@ main :: proc() {
 		new_ticks := sdl.GetTicks()
 		delta_time := f32(new_ticks - last_ticks) / 1000
 		last_ticks = new_ticks
+		total_time += delta_time
 
 		// -- events --
 		ev: sdl.Event
@@ -818,9 +820,14 @@ main :: proc() {
 
 				for obj in scene_objects {
 					object_model := obj.local_model
-					mvp := proj_mat * view_mat * object_model
-
-					sdl.PushGPUVertexUniformData(cmd_buf, 0, &mvp, size_of(mvp))
+					ubo_data := struct {
+						mvp:  matrix[4, 4]f32,
+						time: f32,
+					} {
+						mvp  = proj_mat * view_mat * object_model,
+						time = total_time,
+					}
+					sdl.PushGPUVertexUniformData(cmd_buf, 0, &ubo_data, size_of(ubo_data))
 					sdl.BindGPUFragmentSamplers(
 						render_pass,
 						0,
