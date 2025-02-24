@@ -240,8 +240,6 @@ claySdlGpuRender :: proc(
 					&vertex_count,
 					&index_count,
 				)
-
-				log.debugf("Text: %s", text)
 			}
 		case clay.RenderCommandType.Image:
 			{
