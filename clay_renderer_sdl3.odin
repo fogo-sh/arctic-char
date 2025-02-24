@@ -6,6 +6,7 @@ import "core:math"
 import "core:mem"
 import "core:strings"
 import sdl "vendor:sdl3"
+import easy_font "vendor:stb/easy_font"
 
 clayColorToSdlFColor :: proc(color: clay.Color) -> sdl.FColor {
 	return sdl.FColor{color[0] / 255.0, color[1] / 255.0, color[2] / 255.0, color[3] / 255.0}
@@ -49,9 +50,9 @@ make_quad_for_rectangle :: proc(
 	return quad, idx
 }
 
-MAX_UI_RECTS :: 1024
-MAX_UI_VERTICES :: MAX_UI_RECTS * 4
-MAX_UI_INDICES :: MAX_UI_RECTS * 6
+MAX_UI_QUADS :: 1024
+MAX_UI_VERTICES :: MAX_UI_QUADS * 4
+MAX_UI_INDICES :: MAX_UI_QUADS * 6
 
 ui_vertex_buffer: ^sdl.GPUBuffer = nil
 ui_index_buffer: ^sdl.GPUBuffer = nil
@@ -208,17 +209,52 @@ claySdlGpuRender :: proc(
 	render_pass: ^sdl.GPURenderPass,
 	ui_projection: matrix[4, 4]f32,
 ) {
-	batch_vertices: []UIVertex = make([]UIVertex, MAX_UI_RECTS * 4)
+	batch_vertices: []UIVertex = make([]UIVertex, MAX_UI_QUADS * 4)
 	defer delete(batch_vertices)
-	batch_indices: []u16 = make([]u16, MAX_UI_RECTS * 6)
+	batch_indices: []u16 = make([]u16, MAX_UI_QUADS * 6)
 	defer delete(batch_indices)
 	vertex_count: int = 0
 	index_count: int = 0
 
 	for i in 0 ..< int(renderCommands.length) {
 		cmd := clay.RenderCommandArray_Get(renderCommands, cast(i32)i)
+		boundingBox := cmd.boundingBox
 
 		#partial switch (cmd.commandType) {
+		case clay.RenderCommandType.None:
+			{}
+		case clay.RenderCommandType.Text:
+			{
+				config := cmd.renderData.text
+				c_text := config.stringContents
+				text := string(c_text.chars[:c_text.length])
+
+				color: easy_font.Color = {255, 255, 255, 255}
+
+				append_text_quads(
+					boundingBox,
+					text,
+					color,
+					batch_vertices,
+					batch_indices,
+					&vertex_count,
+					&index_count,
+				)
+
+				log.debugf("Text: %s", text)
+			}
+		case clay.RenderCommandType.Image:
+			{
+				// TODO
+			}
+		case clay.RenderCommandType.ScissorStart:
+			{
+				// TODO
+			}
+		case clay.RenderCommandType.ScissorEnd:
+			{
+				// TODO
+			}
 		case clay.RenderCommandType.Rectangle:
 			{
 				rect_config := cmd.renderData.rectangle
@@ -240,7 +276,12 @@ claySdlGpuRender :: proc(
 				}
 				index_count += 6
 			}
-			default: {}
+		case clay.RenderCommandType.Border:
+			{
+				// TODO
+			}
+		case clay.RenderCommandType.Custom:
+			{}
 		}
 	}
 
@@ -343,4 +384,66 @@ claySdlGpuRender :: proc(
 	)
 
 	sdl.DrawGPUIndexedPrimitives(render_pass, cast(u32)(index_count), 1, 0, 0, 0)
+}
+
+append_text_quads :: proc(
+	bbox: clay.BoundingBox,
+	text: string,
+	text_color: easy_font.Color,
+	batch_vertices: []UIVertex,
+	batch_indices: []u16,
+	vertex_count: ^int,
+	index_count: ^int,
+) {
+	norm_color: sdl.FColor = sdl.FColor {
+		cast(f32)(text_color[0]) / 255.0,
+		cast(f32)(text_color[1]) / 255.0,
+		cast(f32)(text_color[2]) / 255.0,
+		cast(f32)(text_color[3]) / 255.0,
+	}
+
+	quads: [128]easy_font.Quad
+	num_quads := easy_font.print(bbox.x, bbox.y, text, text_color, quads[:])
+
+	for i := 0; i < num_quads; i += 1 {
+		q := quads[i]
+
+		v0 := UIVertex {
+			pos   = q.tl.v,
+			color = norm_color,
+			uv    = [2]f32{0, 0},
+		}
+		v1 := UIVertex {
+			pos   = q.tr.v,
+			color = norm_color,
+			uv    = [2]f32{1, 0},
+		}
+		v2 := UIVertex {
+			pos   = q.br.v,
+			color = norm_color,
+			uv    = [2]f32{1, 1},
+		}
+		v3 := UIVertex {
+			pos   = q.bl.v,
+			color = norm_color,
+			uv    = [2]f32{0, 1},
+		}
+
+		current_vertex := vertex_count^
+
+		batch_vertices[current_vertex + 0] = v0
+		batch_vertices[current_vertex + 1] = v1
+		batch_vertices[current_vertex + 2] = v2
+		batch_vertices[current_vertex + 3] = v3
+		vertex_count^ += 4
+
+		base := cast(u16)(current_vertex)
+		batch_indices[index_count^ + 0] = base + 0
+		batch_indices[index_count^ + 1] = base + 1
+		batch_indices[index_count^ + 2] = base + 2
+		batch_indices[index_count^ + 3] = base + 2
+		batch_indices[index_count^ + 4] = base + 3
+		batch_indices[index_count^ + 5] = base + 0
+		index_count^ += 6
+	}
 }
