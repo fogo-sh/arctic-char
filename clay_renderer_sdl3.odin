@@ -60,6 +60,19 @@ ui_transfer_buffer: ^sdl.GPUTransferBuffer = nil
 white_texture: ^sdl.GPUTexture = nil
 sampler: ^sdl.GPUSampler = nil
 
+claySdlGpuRenderMeasureText :: proc "c" (
+	text: clay.StringSlice,
+	config: ^clay.TextElementConfig,
+	userData: rawptr,
+) -> clay.Dimensions {
+	textSize: clay.Dimensions = {0, 0}
+
+	// TODO
+	textSize = clay.Dimensions{100, 100}
+
+	return textSize
+}
+
 claySdlGpuRenderInitialize :: proc(
 	gpu: ^sdl.GPUDevice,
 	window: ^sdl.Window,

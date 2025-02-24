@@ -590,7 +590,10 @@ main :: proc() {
 
 	clayErrorhandler :: proc "c" (errorData: clay.ErrorData) {
 		context = default_context
-		log.errorf("Clay error: {}", errorData.errorText)
+
+		message := string(errorData.errorText.chars[:errorData.errorText.length])
+
+		log.errorf("Clay error: {}", message)
 	}
 
 	minMemorySize: u32 = clay.MinMemorySize()
@@ -602,6 +605,13 @@ main :: proc() {
 		clay.Dimensions{width = f32(win_size.x), height = f32(win_size.y)},
 		{handler = clayErrorhandler},
 	)
+
+	clay.SetMeasureTextFunction(claySdlGpuRenderMeasureText, nil)
+
+	if ODIN_DEBUG {
+		clay.SetDebugModeEnabled(true)
+		// todo make keyboard shortcut to toggle debug mode
+	}
 
 	ui_pipeline := claySdlGpuRenderInitialize(gpu, window)
 
@@ -839,7 +849,7 @@ main :: proc() {
 
 				clay.BeginLayout()
 
-				COLOR_LIGHT :: clay.Color{244, 235, 230, 255}
+				COLOR_LIGHT :: clay.Color{255, 0, 0, 255}
 
 				if clay.UI()(
 				{
