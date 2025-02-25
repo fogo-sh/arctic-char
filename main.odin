@@ -146,6 +146,8 @@ main :: proc() {
 	default_context = context
 
 	when ODIN_DEBUG {
+		os.set_env("MTL_DEBUG_LAYER", "1")
+
 		tracking_allocator: mem.Tracking_Allocator
 		mem.tracking_allocator_init(&tracking_allocator, context.allocator)
 		context.allocator = mem.tracking_allocator(&tracking_allocator)
@@ -171,8 +173,6 @@ main :: proc() {
 				fmt.println("No leaks or bad frees detected!")
 			}
 		}
-
-		os.set_env("MTL_DEBUG_LAYER", "1")
 	}
 
 	ok := sdl.SetAppMetadata("arctic char*", "0.1.0", "sh.fogo.arctic-char")
@@ -821,11 +821,13 @@ main :: proc() {
 				for obj in scene_objects {
 					object_model := obj.local_model
 					ubo_data := struct {
-						mvp:  matrix[4, 4]f32,
-						time: f32,
+						mv:            matrix[4, 4]f32,
+						proj:          matrix[4, 4]f32,
+						viewport_size: [2]f32,
 					} {
-						mvp  = proj_mat * view_mat * object_model,
-						time = total_time,
+						mv            = view_mat * object_model,
+						proj          = proj_mat,
+						viewport_size = [2]f32{f32(win_size.x), f32(win_size.y)},
 					}
 					sdl.PushGPUVertexUniformData(cmd_buf, 0, &ubo_data, size_of(ubo_data))
 					sdl.BindGPUFragmentSamplers(

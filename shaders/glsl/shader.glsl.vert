@@ -1,8 +1,9 @@
 #version 460
 
 layout(set=1, binding=0) uniform UBO {
-    mat4 mvp;
-    float time;
+    mat4 mv;
+    mat4 proj;
+    vec2 viewport_size;
 };
 
 layout(location=0) in vec3 position;
@@ -12,30 +13,23 @@ layout(location=2) in vec2 uv;
 layout(location=0) out vec4 out_color;
 layout(location=1) out vec2 out_uv;
 
-float random(vec3 seed) {
-    return fract(sin(dot(seed, vec3(12.9898, 78.233, 45.543))) * 43758.5453);
-}
-
 vec3 quantize(vec3 pos, float scale) {
-    return floor(pos * scale) / scale;
+    float w = (proj * vec4(pos, 1.0)).w;
+    return round(pos / w * scale) / scale * w;
 }
 
 void main() {
-    float quantizationLevel = 16.0;
-    float jitterAmount = 0.006;
+    vec3 viewPos = (mv * vec4(position, 1.0)).xyz;
 
-    float stepSize = 0.5;
-    float discreteTime = floor(time / stepSize) * stepSize;
+    float jitter = 0.6;
 
-    vec3 jitter = vec3(
-        random(position + discreteTime) - 0.5,
-        random(position.yzx + discreteTime) - 0.5,
-        random(position.zxy + discreteTime) - 0.5
-    ) * jitterAmount;
+    float z_orig = viewPos.z;
+    float scale = (1.0 - jitter) * min(viewport_size.x, viewport_size.y) / 2.0;
+    viewPos = quantize(viewPos, scale);
 
-    vec3 quantizedPos = quantize(position + jitter, quantizationLevel);
+    viewPos.z = z_orig;
 
-    gl_Position = mvp * vec4(quantizedPos, 1.0);
+    gl_Position = proj * vec4(viewPos, 1.0);
 
     out_color = color;
     out_uv = uv;
