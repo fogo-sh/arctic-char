@@ -51,7 +51,7 @@ when ODIN_OS == .Darwin {
 }
 
 render_game: bool = true
-render_ui: bool = true
+render_ui: bool = false
 
 Vec3 :: [3]f32
 
