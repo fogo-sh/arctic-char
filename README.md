@@ -10,7 +10,7 @@ as much as possible from Odin's core / vendor libaries are being used here:
 
 however, we are pulling in:
 
-- [clay](https://github.com/nicbarker/clay/tree/main/bindings/odin): UI (_being worked on as i write this version of the readme_)
+- [clay](https://github.com/nicbarker/clay/tree/main/bindings/odin): Layout (_heavily WIP SDL3 GPU renderer also in this project_)
 
 using [SDL_shadercross](https://github.com/libsdl-org/SDL_shadercross) to compile shaders to different platforms.
 
