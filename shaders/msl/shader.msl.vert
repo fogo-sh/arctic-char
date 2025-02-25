@@ -7,8 +7,9 @@ using namespace metal;
 
 struct UBO
 {
-    float4x4 mvp;
-    float time;
+    float4x4 mv;
+    float4x4 proj;
+    float2 viewport_size;
 };
 
 struct main0_out
@@ -26,32 +27,24 @@ struct main0_in
 };
 
 static inline __attribute__((always_inline))
-float random(thread const float3& seed)
+float3 quantize(thread const float3& pos, thread const float& scale, constant UBO& _21)
 {
-    return fract(sin(dot(seed, float3(12.98980045318603515625, 78.233001708984375, 45.542999267578125))) * 43758.546875);
+    float w = (_21.proj * float4(pos, 1.0)).w;
+    return (round((pos / float3(w)) * scale) / float3(scale)) * w;
 }
 
-static inline __attribute__((always_inline))
-float3 quantize(thread const float3& pos, thread const float& scale)
-{
-    return floor(pos * scale) / float3(scale);
-}
-
-vertex main0_out main0(main0_in in [[stage_in]], constant UBO& _51 [[buffer(0)]])
+vertex main0_out main0(main0_in in [[stage_in]], constant UBO& _21 [[buffer(0)]])
 {
     main0_out out = {};
-    float quantizationLevel = 16.0;
-    float jitterAmount = 0.006000000052154064178466796875;
-    float stepSize = 0.5;
-    float discreteTime = floor(_51.time / stepSize) * stepSize;
-    float3 param = in.position + float3(discreteTime);
-    float3 param_1 = in.position.yzx + float3(discreteTime);
-    float3 param_2 = in.position.zxy + float3(discreteTime);
-    float3 jitter = float3(random(param) - 0.5, random(param_1) - 0.5, random(param_2) - 0.5) * jitterAmount;
-    float3 param_3 = in.position + jitter;
-    float param_4 = quantizationLevel;
-    float3 quantizedPos = quantize(param_3, param_4);
-    out.gl_Position = _51.mvp * float4(quantizedPos, 1.0);
+    float3 viewPos = (_21.mv * float4(in.position, 1.0)).xyz;
+    float jitter = 0.60000002384185791015625;
+    float z_orig = viewPos.z;
+    float scale = ((1.0 - jitter) * fast::min(_21.viewport_size.x, _21.viewport_size.y)) / 2.0;
+    float3 param = viewPos;
+    float param_1 = scale;
+    viewPos = quantize(param, param_1, _21);
+    viewPos.z = z_orig;
+    out.gl_Position = _21.proj * float4(viewPos, 1.0);
     out.out_color = in.color;
     out.out_uv = in.uv;
     return out;
