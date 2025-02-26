@@ -10,6 +10,7 @@ import "core:math/rand"
 import "core:mem"
 import "core:os"
 import "core:reflect"
+import "core:strings"
 import ma "vendor:miniaudio"
 import sdl "vendor:sdl3"
 import stbi "vendor:stb/image"
@@ -318,7 +319,7 @@ main :: proc() {
 	combined_index_count: int
 
 	for i := 0; i < len(model_names); i += 1 {
-		model_name := model_names[i]
+		model_name := strings.to_lower(model_names[i])
 		model_path := fmt.tprintf("./assets/%s.glb", model_name)
 
 		vertex_data, index_data := load_mesh_data(model_path)

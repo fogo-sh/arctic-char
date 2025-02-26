@@ -5,7 +5,7 @@
         "commandLine": "",
         "environment": [
         ],
-        "executable": "C:\\Users\\Jack\\repos\\arctic-char\\arctic-char.exe",
+        "executable": "C:\\Users\\Jack\\repos\\arctic-char\\build\\arctic-char.exe",
         "inject": false,
         "numQueuedFrames": 0,
         "options": {
