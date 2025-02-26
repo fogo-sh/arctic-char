@@ -21,6 +21,7 @@ ma_engine: ma.engine
 
 render_game: bool = true
 render_ui: bool = false
+camera_mode: CameraMode = .Noclip
 
 Vec3 :: [3]f32
 
@@ -50,11 +51,6 @@ Model :: enum {
 }
 
 MODEL_COUNT :: 4
-
-SceneObject :: struct {
-	model_info:  ^ModelInfo,
-	local_model: matrix[4, 4]f32,
-}
 
 Movement :: struct {
 	forward:  bool,
@@ -484,7 +480,6 @@ main :: proc() {
 	last_ticks := sdl.GetTicks()
 	total_time: f32 = 0.0
 
-	camera_mode: CameraMode = .Noclip
 	noclip_camera := NoclipCamera {
 		mouse_sensitivity = 0.003,
 	}
@@ -493,37 +488,6 @@ main :: proc() {
 	movement := Movement{}
 
 	log.debug("Ready for main loop")
-
-	make_scene_object :: proc(model: Model, position: [3]f32) -> SceneObject {
-		return SceneObject {
-			model_info = &model_info_lookup[model],
-			local_model = linalg.matrix4_translate_f32(position),
-		}
-	}
-
-	scene_objects := make([dynamic]SceneObject, 0, 100)
-	defer delete(scene_objects)
-	for i := 0; i < 100; i += 1 {
-		pos := Vec3 {
-			rand.float32_range(-50, 50),
-			rand.float32_range(-50, 50),
-			rand.float32_range(-50, 50),
-		}
-
-		model := Model(rand.int_max(int(MODEL_COUNT)))
-
-		obj := make_scene_object(model, pos)
-
-		rotation := linalg.matrix4_rotate_f32(rand.float32() * math.TAU, {0, 1, 0})
-
-		scale := rand.float32_range(0.5, 2.0)
-		scale_mat := linalg.matrix4_scale_f32({scale, scale, scale})
-
-		obj.local_model = linalg.matrix_mul(obj.local_model, rotation)
-		obj.local_model = linalg.matrix_mul(obj.local_model, scale_mat)
-
-		append(&scene_objects, obj)
-	}
 
 	clayErrorhandler :: proc "c" (errorData: clay.ErrorData) {
 		context = default_context
@@ -553,6 +517,8 @@ main :: proc() {
 	ui_pipeline := claySdlGpuRenderInitialize(gpu, window)
 
 	log.debug("Clay initialized")
+
+	entity_create_test_entities(Vec3{0, 0, -10})
 
 	main_loop: for {
 		new_ticks := sdl.GetTicks()
@@ -711,17 +677,23 @@ main :: proc() {
 				}
 				sdl.BindGPUVertexBuffers(render_pass, 0, &vertex_buffer_binding, 1)
 				sdl.BindGPUIndexBuffer(render_pass, index_buffer_binding, ._16BIT)
+				jitter_offset := u32(total_time * 10) % u32(len(entities))
 
-				for obj in scene_objects {
-					object_model := obj.local_model
+				for entity, i in entities {
+					object_model := entity.local_model
+
+					jitter_index := (i + int(jitter_offset)) % len(entities)
+					jitter := 0.6 + (f32(jitter_index) / f32(len(entities) - 1)) * 0.4
 					ubo_data := struct {
 						mv:            matrix[4, 4]f32,
 						proj:          matrix[4, 4]f32,
 						viewport_size: [2]f32,
+						jitter:        f32,
 					} {
 						mv            = view_mat * object_model,
 						proj          = proj_mat,
 						viewport_size = [2]f32{f32(win_size.x), f32(win_size.y)},
+						jitter        = jitter,
 					}
 					sdl.PushGPUVertexUniformData(cmd_buf, 0, &ubo_data, size_of(ubo_data))
 					sdl.BindGPUFragmentSamplers(
@@ -733,9 +705,9 @@ main :: proc() {
 
 					sdl.DrawGPUIndexedPrimitives(
 						render_pass,
-						u32(obj.model_info.index_count),
+						u32(entity.model_info.index_count),
 						1,
-						u32(obj.model_info.index_offset),
+						u32(entity.model_info.index_offset),
 						0,
 						0,
 					)

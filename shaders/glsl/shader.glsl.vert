@@ -4,6 +4,7 @@ layout(set=1, binding=0) uniform UBO {
     mat4 mv;
     mat4 proj;
     vec2 viewport_size;
+    float jitter;
 };
 
 layout(location=0) in vec3 position;
@@ -20,8 +21,6 @@ vec3 quantize(vec3 pos, float scale) {
 
 void main() {
     vec3 viewPos = (mv * vec4(position, 1.0)).xyz;
-
-    float jitter = 0.6;
 
     float z_orig = viewPos.z;
     float scale = (1.0 - jitter) * min(viewport_size.x, viewport_size.y) / 2.0;
