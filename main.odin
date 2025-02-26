@@ -22,6 +22,7 @@ ma_engine: ma.engine
 render_game: bool = true
 render_ui: bool = false
 camera_mode: CameraMode = .Noclip
+noclip_orthographic: bool = true
 
 Vec3 :: [3]f32
 
@@ -470,13 +471,6 @@ main :: proc() {
 	ROTATION_SPEED := linalg.to_radians(f32(90))
 	rotation := f32(0)
 
-	proj_mat := linalg.matrix4_perspective_f32(
-		linalg.to_radians(f32(70)),
-		f32(win_size.x) / f32(win_size.y),
-		0.1,
-		1000,
-	)
-
 	last_ticks := sdl.GetTicks()
 	total_time: f32 = 0.0
 
@@ -484,6 +478,13 @@ main :: proc() {
 		mouse_sensitivity = 0.003,
 	}
 	player_camera := PlayerCamera{}
+
+	proj_mat := noclip_camera_get_projection(
+		&noclip_camera,
+		win_size.x,
+		win_size.y,
+		noclip_orthographic,
+	)
 
 	movement := Movement{}
 
@@ -549,11 +550,11 @@ main :: proc() {
 					win_size.y,
 				)
 
-				proj_mat = linalg.matrix4_perspective_f32(
-					linalg.to_radians(f32(70)),
-					f32(win_size.x) / f32(win_size.y),
-					0.1,
-					1000,
+				proj_mat = noclip_camera_get_projection(
+					&noclip_camera,
+					win_size.x,
+					win_size.y,
+					noclip_orthographic,
 				)
 
 			case .MOUSE_BUTTON_DOWN:
@@ -592,6 +593,14 @@ main :: proc() {
 					movement.down = true
 				} else if ev.key.scancode == .LSHIFT || ev.key.scancode == .RSHIFT {
 					movement.shift = true
+				} else if ev.key.scancode == .P {
+					noclip_orthographic = !noclip_orthographic
+					proj_mat = noclip_camera_get_projection(
+						&noclip_camera,
+						win_size.x,
+						win_size.y,
+						noclip_orthographic,
+					)
 				}
 
 			case .KEY_UP:

@@ -107,3 +107,27 @@ noclip_camera_unlock :: proc(camera: ^NoclipCamera, window: ^sdl.Window) -> bool
 	camera.is_locked = false
 	return ok
 }
+
+noclip_camera_get_projection :: proc(
+	camera: ^NoclipCamera,
+	window_width: i32,
+	window_height: i32,
+	is_orthographic: bool = false,
+) -> matrix[4, 4]f32 {
+	aspect_ratio := f32(window_width) / f32(window_height)
+
+	if is_orthographic {
+		ortho_width := f32(20.0)
+		ortho_height := ortho_width / aspect_ratio
+		return matrix4_orthographic_f32(
+			-ortho_width / 2,
+			ortho_width / 2,
+			-ortho_height / 2,
+			ortho_height / 2,
+			0.1,
+			1000.0,
+		)
+	} else {
+		return linalg.matrix4_perspective_f32(linalg.to_radians(f32(70)), aspect_ratio, 0.1, 1000)
+	}
+}
