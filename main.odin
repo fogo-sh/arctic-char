@@ -319,8 +319,9 @@ main :: proc() {
 	combined_index_count: int
 
 	for i := 0; i < len(model_names); i += 1 {
-		model_name := strings.to_lower(model_names[i])
-		model_path := fmt.tprintf("./assets/%s.glb", model_name)
+		model_name := model_names[i]
+		model_name_lower = strings.to_lower(model_name)
+		model_path := fmt.tprintf("./assets/%s.glb", model_name_lower)
 
 		vertex_data, index_data := load_mesh_data(model_path)
 
