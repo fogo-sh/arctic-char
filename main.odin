@@ -2,6 +2,7 @@ package main
 
 import "base:runtime"
 import clay "clay-odin"
+import "core:flags"
 import "core:fmt"
 import "core:log"
 import "core:math"
@@ -21,35 +22,6 @@ ma_engine: ma.engine
 
 render_game: bool = true
 render_ui: bool = false
-
-Vec3 :: [3]f32
-
-VertexData :: struct {
-	pos:   Vec3,
-	color: sdl.FColor,
-	uv:    [2]f32,
-}
-
-ModelData :: struct {
-	vertices: []VertexData,
-	indices:  []u16,
-}
-
-ModelInfo :: struct {
-	index_offset: int,
-	index_count:  int,
-}
-
-model_info_lookup: map[Model]ModelInfo
-
-Model :: enum {
-	Suzanne,
-	Sphere,
-	Plane,
-	Reference,
-}
-
-MODEL_COUNT :: 4
 
 Movement :: struct {
 	forward:  bool,
@@ -95,8 +67,25 @@ main :: proc() {
 		}
 	}
 
-	ok := sdl.SetAppMetadata("arctic char*", "0.1.0", "sh.fogo.arctic-char")
-	assert(ok)
+	EntryPoints :: enum {
+		Game,
+		Map,
+	}
+
+	Options :: struct {
+		entry_point: EntryPoints `args:"pos=0" usage:"Entry point."`,
+	}
+
+	opt: Options
+	flags.parse_or_exit(&opt, os.args, .Odin)
+
+	switch opt.entry_point {
+	case .Game:
+		break
+	case .Map:
+		test_bsp_data()
+		return
+	}
 
 	// -- initial setup --
 
@@ -125,13 +114,16 @@ main :: proc() {
 		gpu_debug := false
 	}
 
-	// -- end initial setup --
-
-	// -- audio setup --
+	ok := sdl.SetAppMetadata("arctic char*", "0.1.0", "sh.fogo.arctic-char")
+	assert(ok)
 
 	ok = sdl.Init({.VIDEO, .AUDIO})
 	assert(ok)
 	defer sdl.Quit()
+
+	// -- end initial setup --
+
+	// -- audio setup --
 
 	spec: sdl.AudioSpec
 	wav_data: [^]u8
@@ -310,6 +302,11 @@ main :: proc() {
 
 	for i := 0; i < len(model_names); i += 1 {
 		model_name := model_names[i]
+
+		if model_name == "Map" {
+			continue
+		}
+
 		model_name_lower := strings.to_lower(model_name)
 		model_path := fmt.tprintf("./assets/%s.glb", model_name_lower)
 
@@ -340,6 +337,38 @@ main :: proc() {
 
 		combined_vertex_count += len(vertex_data)
 		combined_index_count += len(index_data)
+	}
+
+	{
+		bsp_data, map_ok := load_bsp("./assets/maps/test.bsp")
+		assert(map_ok)
+
+		vertices, indices := bsp_to_model(&bsp_data)
+
+		for i in 0 ..< len(indices) {
+			indices[i] += u16(combined_vertex_count)
+		}
+
+		map_model_enum := Model.Map
+		model_info_lookup[map_model_enum] = ModelInfo {
+			index_offset = combined_index_count,
+			index_count  = len(indices),
+		}
+
+		log.debugf(
+			"Loaded Map Model, index_offset=%d, index_count=%d, vertex_count=%d",
+			combined_index_count,
+			len(indices),
+			len(vertices),
+		)
+
+		combined_vertex_count += len(vertices)
+		combined_index_count += len(indices)
+
+		vertex_datas[Model.Map] = vertices
+		index_datas[Model.Map] = indices
+
+		free_bsp_data(&bsp_data)
 	}
 
 	combined_vertex_data := make([]VertexData, combined_vertex_count)
@@ -461,14 +490,11 @@ main :: proc() {
 	delete(combined_vertex_data)
 	delete(combined_index_data)
 
-	ROTATION_SPEED := linalg.to_radians(f32(90))
-	rotation := f32(0)
-
 	last_ticks := sdl.GetTicks()
 	total_time: f32 = 0.0
 
 	camera := Camera {
-		mode              = .Player,
+		mode              = .Noclip,
 		perspective       = .Perspective,
 		mouse_sensitivity = 0.003,
 	}
@@ -654,23 +680,18 @@ main :: proc() {
 				}
 				sdl.BindGPUVertexBuffers(render_pass, 0, &vertex_buffer_binding, 1)
 				sdl.BindGPUIndexBuffer(render_pass, index_buffer_binding, ._16BIT)
-				jitter_offset := u32(total_time * 10) % u32(len(entities))
 
 				for entity, i in entities {
 					object_model := entity.local_model
 
-					jitter_index := (i + int(jitter_offset)) % len(entities)
-					jitter := 0.6 + (f32(jitter_index) / f32(len(entities) - 1)) * 0.4
 					ubo_data := struct {
 						mv:            matrix[4, 4]f32,
 						proj:          matrix[4, 4]f32,
 						viewport_size: [2]f32,
-						jitter:        f32,
 					} {
 						mv            = view_mat * object_model,
 						proj          = proj_mat,
 						viewport_size = [2]f32{f32(win_size.x), f32(win_size.y)},
-						jitter        = jitter,
 					}
 					sdl.PushGPUVertexUniformData(cmd_buf, 0, &ubo_data, size_of(ubo_data))
 					sdl.BindGPUFragmentSamplers(
