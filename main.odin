@@ -83,7 +83,7 @@ main :: proc() {
 	case .Game:
 		break
 	case .Map:
-		test_map_data()
+		test_bsp_data()
 		return
 	}
 
@@ -340,10 +340,10 @@ main :: proc() {
 	}
 
 	{
-		map_data, map_ok := load_map_data("./assets/maps/test.map")
+		bsp_data, map_ok := load_bsp("./assets/maps/test.bsp")
 		assert(map_ok)
 
-		vertices, indices := map_to_model(&map_data)
+		vertices, indices := bsp_to_model(&bsp_data)
 
 		for i in 0 ..< len(indices) {
 			indices[i] += u16(combined_vertex_count)
@@ -368,7 +368,7 @@ main :: proc() {
 		vertex_datas[Model.Map] = vertices
 		index_datas[Model.Map] = indices
 
-		free_map_data(&map_data)
+		free_bsp_data(&bsp_data)
 	}
 
 	combined_vertex_data := make([]VertexData, combined_vertex_count)
