@@ -152,7 +152,7 @@ load_map_data :: proc(map_path: string) -> (map_data: MapData, map_ok: bool) {
 	return map_data, true
 }
 
-free_map_data :: proc(map_data: MapData) {
+free_map_data :: proc(map_data: ^MapData) {
 	for entity in map_data.entities {
 		delete(entity.properties)
 
@@ -169,6 +169,13 @@ free_map_data :: proc(map_data: MapData) {
 test_map_data :: proc() {
 	map_data, ok := load_map_data("./assets/maps/test.map")
 	assert(ok)
+
+	debug_print_map_data(&map_data)
+
+	defer free_map_data(&map_data)
+}
+
+debug_print_map_data :: proc(map_data: ^MapData) {
 	fmt.println("Map Data Structure:")
 	for entity, entity_idx in map_data.entities {
 		fmt.printf("Entity %d:\n", entity_idx)
@@ -210,79 +217,265 @@ test_map_data :: proc() {
 			}
 		}
 	}
-	defer free_map_data(map_data)
 }
 
-map_to_model :: proc(map_data: MapData) -> ModelData {
-	vertices := make([dynamic]VertexData)
-	indices := make([dynamic]u16)
+map_to_model :: proc(map_data: ^MapData) -> (vertices: []VertexData, indices: []u16) {
+	fmt.println("Starting map_to_model conversion...")
+
+	vertex_count := 0
+	index_count := 0
+
+	brush_count := 0
+	face_count := 0
+	valid_face_count := 0
 
 	for entity in map_data.entities {
 		for brush in entity.brushes {
-			for face in brush.faces {
-				p1, p2, p3 := face.plane_points[0], face.plane_points[1], face.plane_points[2]
+			brush_count += 1
 
+			planes := make([]Plane, len(brush.faces))
+			defer delete(planes)
+
+			for face, i in brush.faces {
+				face_count += 1
+				p1, p2, p3 := face.plane_points[0], face.plane_points[1], face.plane_points[2]
 				edge1 := p2 - p1
 				edge2 := p3 - p1
 				normal := linalg.normalize(linalg.cross(edge1, edge2))
+				d := -linalg.dot(normal, p1)
+				planes[i] = Plane{normal, d}
 
-				axis := 0
-				if abs(normal.y) > abs(normal.x) {
-					axis = 1
-				}
-				if abs(normal.z) > abs(normal[axis]) {
-					axis = 2
-				}
+				fmt.printf("Face %d plane: normal=%v, distance=%f\n", i, normal, d)
+			}
 
-				v_offset := cast(u16)len(vertices)
+			for i := 0; i < len(brush.faces); i += 1 {
+				polygon := calculate_face_polygon(planes, i)
 
-				size := f32(64.0)
-
-				quad_points: [4]Vec3
-				if axis == 0 {
-					quad_points[0] = {p1.x, p1.y - size, p1.z - size}
-					quad_points[1] = {p1.x, p1.y + size, p1.z - size}
-					quad_points[2] = {p1.x, p1.y + size, p1.z + size}
-					quad_points[3] = {p1.x, p1.y - size, p1.z + size}
-				} else if axis == 1 {
-					quad_points[0] = {p1.x - size, p1.y, p1.z - size}
-					quad_points[1] = {p1.x + size, p1.y, p1.z - size}
-					quad_points[2] = {p1.x + size, p1.y, p1.z + size}
-					quad_points[3] = {p1.x - size, p1.y, p1.z + size}
+				if len(polygon) >= 3 {
+					valid_face_count += 1
+					vertex_count += len(polygon)
+					index_count += (len(polygon) - 2) * 3
+					fmt.printf(
+						"Valid polygon found for face %d with %d vertices\n",
+						i,
+						len(polygon),
+					)
 				} else {
-					quad_points[0] = {p1.x - size, p1.y - size, p1.z}
-					quad_points[1] = {p1.x + size, p1.y - size, p1.z}
-					quad_points[2] = {p1.x + size, p1.y + size, p1.z}
-					quad_points[3] = {p1.x - size, p1.y + size, p1.z}
+					fmt.printf("Invalid or clipped away polygon for face %d\n", i)
 				}
 
-				for i in 0 ..< 4 {
-					u := face.u_offset + f32(i % 2) * face.u_scale
-					v := face.v_offset + f32(i / 2) * face.v_scale
-
-					vertex := VertexData {
-						pos   = quad_points[i],
-						color = {1.0, 1.0, 1.0, 1.0},
-						uv    = {u, v},
-					}
-					append(&vertices, vertex)
-				}
-
-				append(&indices, v_offset)
-				append(&indices, v_offset + 1)
-				append(&indices, v_offset + 2)
-
-				append(&indices, v_offset)
-				append(&indices, v_offset + 2)
-				append(&indices, v_offset + 3)
+				delete(polygon)
 			}
 		}
 	}
 
-	return ModelData{vertices = vertices[:], indices = indices[:]}
+	fmt.printf(
+		"Brush count: %d, Face count: %d, Valid face count: %d\n",
+		brush_count,
+		face_count,
+		valid_face_count,
+	)
+	fmt.printf("Total vertices: %d, Total indices: %d\n", vertex_count, index_count)
+
+	assert(vertex_count > 0, "No valid geometry found")
+
+	vertices = make([]VertexData, vertex_count)
+	indices = make([]u16, index_count)
+
+	vertex_idx := 0
+	index_idx := 0
+
+	for entity in map_data.entities {
+		for brush in entity.brushes {
+			// Calculate planes again
+			planes := make([]Plane, len(brush.faces))
+			defer delete(planes)
+
+			for face, i in brush.faces {
+				p1, p2, p3 := face.plane_points[0], face.plane_points[1], face.plane_points[2]
+				edge1 := p2 - p1
+				edge2 := p3 - p1
+				normal := linalg.normalize(linalg.cross(edge1, edge2))
+				d := -linalg.dot(normal, p1)
+				planes[i] = Plane{normal, d}
+			}
+
+			// Process each face
+			for i := 0; i < len(brush.faces); i += 1 {
+				face := brush.faces[i]
+				polygon := calculate_face_polygon(planes, i)
+
+				if len(polygon) >= 3 {
+					// Add vertices
+					v_offset := u16(vertex_idx)
+					normal := planes[i].normal
+
+					// Calculate texture axes based on normal
+					tex_s, tex_t := calculate_texture_axes(normal)
+
+					// Add all vertices of the polygon
+					for j := 0; j < len(polygon); j += 1 {
+						point := polygon[j]
+
+						// Calculate texture coordinates
+						u := face.u_offset + linalg.dot(point, tex_s) / face.u_scale
+						v := face.v_offset + linalg.dot(point, tex_t) / face.v_scale
+
+						// Apply rotation if needed
+						if face.rotation != 0 {
+							rot_rad := face.rotation * math.PI / 180.0
+							s := math.sin(rot_rad)
+							c := math.cos(rot_rad)
+							u_old, v_old := u, v
+							u = u_old * c - v_old * s
+							v = u_old * s + v_old * c
+						}
+
+						vertices[vertex_idx] = VertexData {
+							pos   = point,
+							color = {1.0, 1.0, 1.0, 1.0},
+							uv    = {u, v},
+						}
+						vertex_idx += 1
+					}
+
+					// Triangulate using a fan
+					for j := 0; j < len(polygon) - 2; j += 1 {
+						indices[index_idx] = v_offset
+						indices[index_idx + 1] = v_offset + u16(j + 1)
+						indices[index_idx + 2] = v_offset + u16(j + 2)
+						index_idx += 3
+					}
+				}
+
+				delete(polygon)
+			}
+		}
+	}
+
+	return vertices, indices
 }
 
-free_model_data :: proc(model: ModelData) {
+calculate_face_polygon :: proc(planes: []Plane, face_idx: int) -> []Vec3 {
+	if len(planes) == 0 {
+		return make([]Vec3, 0)
+	}
+
+	face_plane := planes[face_idx]
+
+	normal := face_plane.normal
+
+	u, v: Vec3
+
+	if math.abs(normal.x) <= math.abs(normal.y) && math.abs(normal.x) <= math.abs(normal.z) {
+		u = {0, -normal.z, normal.y}
+	} else if math.abs(normal.y) <= math.abs(normal.z) {
+		u = {-normal.z, 0, normal.x}
+	} else {
+		u = {-normal.y, normal.x, 0}
+	}
+
+	u = linalg.normalize(u)
+	v = linalg.normalize(linalg.cross(normal, u))
+
+	point_on_plane := normal * -face_plane.distance
+
+	size := f32(1000.0)
+	polygon := make([]Vec3, 4)
+	polygon[0] = point_on_plane + u * size + v * size
+	polygon[1] = point_on_plane - u * size + v * size
+	polygon[2] = point_on_plane - u * size - v * size
+	polygon[3] = point_on_plane + u * size - v * size
+
+	for i := 0; i < len(planes); i += 1 {
+		if i == face_idx do continue
+
+		plane := planes[i]
+
+		clip_plane := Plane{-plane.normal, -plane.distance}
+
+		new_polygon := clip_polygon_to_plane(polygon, clip_plane)
+		delete(polygon)
+		polygon = new_polygon
+
+		if len(polygon) < 3 {
+			delete(polygon)
+			return make([]Vec3, 0)
+		}
+	}
+
+	return polygon
+}
+
+Plane :: struct {
+	normal:   Vec3,
+	distance: f32,
+}
+
+clip_polygon_to_plane :: proc(polygon: []Vec3, plane: Plane) -> []Vec3 {
+	if len(polygon) == 0 do return make([]Vec3, 0)
+
+	result := make([dynamic]Vec3)
+
+	for i := 0; i < len(polygon); i += 1 {
+		current := polygon[i]
+		next := polygon[(i + 1) % len(polygon)]
+
+		current_inside := is_point_inside_plane(current, plane)
+		next_inside := is_point_inside_plane(next, plane)
+
+		if current_inside {
+			append(&result, current)
+		}
+
+		if current_inside != next_inside {
+			t := plane_line_intersection(current, next, plane)
+			intersection := current + (next - current) * t
+			append(&result, intersection)
+		}
+	}
+
+	if len(result) < 3 {
+		delete(result)
+		return make([]Vec3, 0)
+	}
+
+	final_result := result[:]
+	return final_result
+}
+
+is_point_inside_plane :: proc(point: Vec3, plane: Plane) -> bool {
+	return linalg.dot(plane.normal, point) + plane.distance <= 0
+}
+
+plane_line_intersection :: proc(p1, p2: Vec3, plane: Plane) -> f32 {
+	normal := plane.normal
+
+	dot1 := linalg.dot(normal, p1) + plane.distance
+	dot2 := linalg.dot(normal, p2) + plane.distance
+
+	t := -dot1 / (dot2 - dot1)
+	return t
+}
+
+calculate_texture_axes :: proc(normal: Vec3) -> (s_axis: Vec3, t_axis: Vec3) {
+	ax, ay, az := math.abs(normal.x), math.abs(normal.y), math.abs(normal.z)
+
+	if az >= ax && az >= ay {
+		s_axis = {1, 0, 0}
+		t_axis = {0, -1, 0}
+	} else if ay >= ax {
+		s_axis = {1, 0, 0}
+		t_axis = {0, 0, -1}
+	} else {
+		s_axis = {0, 1, 0}
+		t_axis = {0, 0, -1}
+	}
+
+	return s_axis, t_axis
+}
+
+free_model_data :: proc(model: ^ModelData) {
 	delete(model.vertices)
 	delete(model.indices)
 }
