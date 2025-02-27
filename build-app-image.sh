@@ -3,9 +3,8 @@
 docker build -t odin-appimage-builder .
 
 docker run --rm \
-    --device /dev/fuse \
+    --privileged \
     -v $(pwd):/workspace:Z \
-    --cap-add SYS_ADMIN \
     odin-appimage-builder /bin/bash -c "
 cd /workspace
 
