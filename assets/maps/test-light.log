@@ -1,0 +1,34 @@
+---- light / ericw-tools 2.0.0-alpha9-6-gea1e4696 ----
+LoadBSPFile: './assets/maps/test.bsp'
+BSP is version Quake BSP bsp29
+INFO: using built-in palette.
+load: WARNING: filesystem error: in file_size: Is a directory ["./assets/maps/"]
+ConvertTextures: WARNING: invalid size data for 
+ConvertTextures: WARNING: Texture  duplicated
+ConvertTextures: WARNING: Texture  duplicated
+ConvertTextures: WARNING: Texture  duplicated
+Loading extended texinfo flags from ./assets/maps/test.texinfo.json...
+1 entities read, 0 are lights.
+
+--- Options Summary ---
+
+Embree_TraceInit: Embree version: 4.3.3
+Embree_TraceInit: 
+	0 sky faces
+	6 solid faces
+	0 filtered faces
+	0 shadow-casting skip faces
+SetupLights: 0 initial lights
+SetupLights: 0 after surface lights
+SetupLights: 0 after jittering
+Final count: 0 lights, 0 suns in use.
+0 surface light points in use.
+lightmap size (total): 0
+Lighting Completed.
+
+0 switchable light styles (32 max)
+Writing ./assets/maps/test.bsp as Quake BSP bsp29
+0.003s seconds elapsed
+0 empty lightmaps
+
+

@@ -1,0 +1,16 @@
+@SolidClass = worldspawn : "World entity"
+[
+]
+
+@PointClass size(-16 -16 0, 16 16 16) model({ "path": model }) = StaticProp : "Static Prop" 
+[
+  model(String) : "Model file path" : : "Set this to a 3D model file."
+  radius(integer) : "Radius" : 6 : "Pushout Radius"
+  height(integer) : "Height" : 12 : "Pushout Height"
+]
+
+@PointClass size(-16 -16 0, 16 16 32) = PlayerSpawn : "Player start position" 
+[
+  name(string) : "Name" : "Start"
+]
+

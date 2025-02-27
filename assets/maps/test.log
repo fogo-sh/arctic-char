@@ -1,0 +1,82 @@
+---- qbsp / ericw-tools 2.0.0-alpha9-6-gea1e4696 ----
+
+--- Options Summary ---
+
+Input file: /Users/jack/repos/personal/arctic-char/./assets/maps/test.map
+Output file: /Users/jack/repos/personal/arctic-char/./assets/maps/test.bsp
+
+INFO: using built-in palette.
+WARNING: No wad or _wad key exists in the worldmodel
+     1 entities
+     4 unique textures
+     6 texinfos
+    12 unique planes
+
+INFO: world extents calculated to 328 units
+    1 brushes
+    6 sides
+
+            0 texture frames added
+WARNING: unable to find texture skip
+WARNING: unable to find texture no-draw
+WARNING: unable to find texture wall
+WARNING: unable to find texture floor
+Processing hull 0...
+    1 SOLID brushes
+    1 brushes total
+    6 visible sides
+INFO: calculating BSP for 1 brushes with 6 sides
+    1 brushes
+    6 visible faces
+    6 nodes
+    6 expensive split nodes
+    7 leaves
+    1 SOLID leafs
+    6 EMPTY leafs
+    7 leafs total
+    7 max tree height
+    4 avg tree height
+    36 tree portals
+WARNING: No entities in empty space -- no filling performed (hull 0)
+    36 tree portals
+    6 sides visible
+    6 makefaces
+     6 player-occupiable leaves
+     6 clusters of leaves
+    12 vis portals
+    1 SOLID leafs
+    6 EMPTY leafs
+    7 leafs total
+    7 max tree height
+    4 avg tree height
+     6 faces optimized through MWT
+    12 triangles computed from MWT
+    12 edges
+     6 faces
+Processing hull 1...
+WARNING: No entities in empty space -- no filling performed (hull 1)
+Processing hull 2...
+WARNING: No entities in empty space -- no filling performed (hull 2)
+Writing ./assets/maps/test.bsp as Quake BSP bsp29
+Wrote ./assets/maps/test.bsp
+
+count   lump name    byte size 
+      1 models               64
+     17 planes              340
+      8 vertexes             96
+      6 nodes               144
+      5 texinfos            200
+      6 faces               120
+     12 clipnodes            96
+      7 leafs               196
+      6 marksurfaces         12
+     13 edges                52
+     24 surfedges            96
+      4 textures             20
+        lightdata             0
+        visdata               0
+        entdata              30
+
+0.010s seconds elapsed
+
+

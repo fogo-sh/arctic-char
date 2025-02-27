@@ -44,3 +44,10 @@ spv-to-dxil shader_name:
 shader shader_name: (glsl-to-spv shader_name) (spv-to-msl shader_name) (spv-to-dxil shader_name)
 
 shaders: (shader "shader") (shader "ui")
+
+map map_name:
+  qbsp ./assets/maps/{{map_name}}.map
+  vis ./assets/maps/{{map_name}}.bsp
+  light ./assets/maps/{{map_name}}.bsp
+
+maps: (map "test")
