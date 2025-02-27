@@ -2,6 +2,7 @@ package main
 
 import "base:runtime"
 import clay "clay-odin"
+import "core:flags"
 import "core:fmt"
 import "core:log"
 import "core:math"
@@ -21,35 +22,6 @@ ma_engine: ma.engine
 
 render_game: bool = true
 render_ui: bool = false
-
-Vec3 :: [3]f32
-
-VertexData :: struct {
-	pos:   Vec3,
-	color: sdl.FColor,
-	uv:    [2]f32,
-}
-
-ModelData :: struct {
-	vertices: []VertexData,
-	indices:  []u16,
-}
-
-ModelInfo :: struct {
-	index_offset: int,
-	index_count:  int,
-}
-
-model_info_lookup: map[Model]ModelInfo
-
-Model :: enum {
-	Suzanne,
-	Sphere,
-	Plane,
-	Reference,
-}
-
-MODEL_COUNT :: 4
 
 Movement :: struct {
 	forward:  bool,
@@ -95,8 +67,25 @@ main :: proc() {
 		}
 	}
 
-	ok := sdl.SetAppMetadata("arctic char*", "0.1.0", "sh.fogo.arctic-char")
-	assert(ok)
+	EntryPoints :: enum {
+		Game,
+		Map,
+	}
+
+	Options :: struct {
+		entry_point: EntryPoints `args:"pos=0" usage:"Entry point."`,
+	}
+
+	opt: Options
+	flags.parse_or_exit(&opt, os.args, .Odin)
+
+	switch opt.entry_point {
+	case .Game:
+		break
+	case .Map:
+		test_map_data()
+		return
+	}
 
 	// -- initial setup --
 
@@ -125,13 +114,16 @@ main :: proc() {
 		gpu_debug := false
 	}
 
-	// -- end initial setup --
-
-	// -- audio setup --
+	ok := sdl.SetAppMetadata("arctic char*", "0.1.0", "sh.fogo.arctic-char")
+	assert(ok)
 
 	ok = sdl.Init({.VIDEO, .AUDIO})
 	assert(ok)
 	defer sdl.Quit()
+
+	// -- end initial setup --
+
+	// -- audio setup --
 
 	spec: sdl.AudioSpec
 	wav_data: [^]u8

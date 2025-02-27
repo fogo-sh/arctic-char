@@ -34,6 +34,35 @@ when ODIN_OS == .Darwin {
 	ui_vert_shader_code := #load("shaders/spv/ui.spv.vert")
 }
 
+Vec3 :: [3]f32
+
+VertexData :: struct {
+	pos:   Vec3,
+	color: sdl.FColor,
+	uv:    [2]f32,
+}
+
+ModelData :: struct {
+	vertices: []VertexData,
+	indices:  []u16,
+}
+
+ModelInfo :: struct {
+	index_offset: int,
+	index_count:  int,
+}
+
+model_info_lookup: map[Model]ModelInfo
+
+Model :: enum {
+	Suzanne,
+	Sphere,
+	Plane,
+	Reference,
+}
+
+MODEL_COUNT :: 4
+
 create_msaa_textures :: proc(
 	gpu: ^sdl.GPUDevice,
 	window: ^sdl.Window,
