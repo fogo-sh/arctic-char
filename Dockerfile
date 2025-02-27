@@ -18,8 +18,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     file \
     && rm -rf /var/lib/apt/lists/*
 
-RUN apt-get update && apt-get install -y fuse && rm -rf /var/lib/apt/lists/*
-
 RUN wget https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage \
     && chmod +x appimagetool-x86_64.AppImage \
     && mv appimagetool-x86_64.AppImage /usr/local/bin/appimagetool
