@@ -21,8 +21,6 @@ ma_engine: ma.engine
 
 render_game: bool = true
 render_ui: bool = false
-camera_mode: CameraMode = .Noclip
-noclip_orthographic: bool = true
 
 Vec3 :: [3]f32
 
@@ -61,11 +59,6 @@ Movement :: struct {
 	up:       bool,
 	down:     bool,
 	shift:    bool,
-}
-
-CameraMode :: enum {
-	Player,
-	Noclip,
 }
 
 main :: proc() {
@@ -474,17 +467,13 @@ main :: proc() {
 	last_ticks := sdl.GetTicks()
 	total_time: f32 = 0.0
 
-	noclip_camera := NoclipCamera {
+	camera := Camera {
+		mode              = .Player,
+		perspective       = .Perspective,
 		mouse_sensitivity = 0.003,
 	}
-	player_camera := PlayerCamera{}
 
-	proj_mat := noclip_camera_get_projection(
-		&noclip_camera,
-		win_size.x,
-		win_size.y,
-		noclip_orthographic,
-	)
+	proj_mat := camera_get_projection(&camera, win_size.x, win_size.y)
 
 	movement := Movement{}
 
@@ -550,34 +539,24 @@ main :: proc() {
 					win_size.y,
 				)
 
-				proj_mat = noclip_camera_get_projection(
-					&noclip_camera,
-					win_size.x,
-					win_size.y,
-					noclip_orthographic,
-				)
+				proj_mat = camera_get_projection(&camera, win_size.x, win_size.y)
 
 			case .MOUSE_BUTTON_DOWN:
 				if ev.button.button == 1 {
-					if camera_mode == .Noclip {
-						noclip_camera_handle_mouse_button(&noclip_camera, 1, true, window)
-					}
+					camera_handle_mouse_button(&camera, 1, true, window)
 				}
 
 			case .KEY_DOWN:
 				if ev.key.scancode == .Q {
 					break main_loop
 				} else if ev.key.scancode == .ESCAPE {
-					if camera_mode == .Noclip {
-						noclip_camera_unlock(&noclip_camera, window)
-					}
+					camera_unlock(&camera, window)
 				} else if ev.key.scancode == .C {
-					if camera_mode == .Noclip {
-						camera_mode = .Player
-						noclip_camera_unlock(&noclip_camera, window)
+					if camera.mode == .Noclip {
+						camera.mode = .Player
 					} else {
-						camera_mode = .Noclip
-						noclip_camera_lock(&noclip_camera, window)
+						camera.mode = .Noclip
+						camera_lock(&camera, window)
 					}
 				} else if ev.key.scancode == .W {
 					movement.forward = true
@@ -594,13 +573,12 @@ main :: proc() {
 				} else if ev.key.scancode == .LSHIFT || ev.key.scancode == .RSHIFT {
 					movement.shift = true
 				} else if ev.key.scancode == .P {
-					noclip_orthographic = !noclip_orthographic
-					proj_mat = noclip_camera_get_projection(
-						&noclip_camera,
-						win_size.x,
-						win_size.y,
-						noclip_orthographic,
-					)
+					if camera.perspective == .Perspective {
+						camera.perspective = .Orthographic
+					} else {
+						camera.perspective = .Perspective
+					}
+					proj_mat = camera_get_projection(&camera, win_size.x, win_size.y)
 				}
 
 			case .KEY_UP:
@@ -621,22 +599,12 @@ main :: proc() {
 				}
 
 			case .MOUSE_MOTION:
-				if camera_mode == .Noclip {
-					noclip_camera_handle_mouse_motion(
-						&noclip_camera,
-						f32(ev.motion.xrel),
-						f32(ev.motion.yrel),
-					)
-				}
+				camera_handle_mouse_motion(&camera, f32(ev.motion.xrel), f32(ev.motion.yrel))
 			}
 		}
 
 		view_mat: matrix[4, 4]f32
-		if camera_mode == .Noclip {
-			view_mat = noclip_camera_update(&noclip_camera, delta_time, movement)
-		} else {
-			view_mat = player_camera_update(&player_camera, delta_time, movement)
-		}
+		view_mat = camera_update(&camera, delta_time, movement)
 
 		// -- audio --
 		if sdl.GetAudioStreamAvailable(stream) < cast(i32)wav_data_len {

@@ -1,10 +1,12 @@
 *.swp
 .vs
+.DS_Store
 
 *.exe
 *.pdb
 *.dSYM
 build
+tmp
 
 *.blend1
 screenshot.png
