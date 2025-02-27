@@ -26,7 +26,6 @@ cp arctic-char AppDir/usr/bin/
 mkdir -p AppDir/usr/share/icons/hicolor/256x256/apps
 cp arctic-char.png AppDir/usr/share/icons/hicolor/256x256/apps/arctic-char.png
 
-# Create a desktop file
 mkdir -p AppDir/usr/share/applications
 echo '[Desktop Entry]
 Name=arctic-char
