@@ -21,6 +21,9 @@ run:
 
 build-and-run: build run
 
+build-and-run-map: build
+  ./build/arctic-char Map
+
 glsl-to-spv shader_name:
   glslc shaders/glsl/{{shader_name}}.glsl.vert -o shaders/spv/{{shader_name}}.spv.vert
   glslc shaders/glsl/{{shader_name}}.glsl.frag -o shaders/spv/{{shader_name}}.spv.frag
