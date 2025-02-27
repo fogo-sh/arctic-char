@@ -306,44 +306,61 @@ map_to_model :: proc(map_data: ^MapData) -> (vertices: []VertexData, indices: []
 				polygon := calculate_face_polygon(planes, i)
 
 				if len(polygon) >= 3 {
-					// Add vertices
 					v_offset := u16(vertex_idx)
 					normal := planes[i].normal
 
-					// Calculate texture axes based on normal
-					tex_s, tex_t := calculate_texture_axes(normal)
+					s_axis, t_axis := calculate_texture_axes(normal)
 
-					// Add all vertices of the polygon
 					for j := 0; j < len(polygon); j += 1 {
 						point := polygon[j]
 
-						// Calculate texture coordinates
-						u := face.u_offset + linalg.dot(point, tex_s) / face.u_scale
-						v := face.v_offset + linalg.dot(point, tex_t) / face.v_scale
+						transformed_point := Vec3{point.x, point.z, -point.y}
 
-						// Apply rotation if needed
+						texture_scale := f32(16.0)
+
+						u :=
+							(linalg.dot(point, s_axis) + face.u_offset) /
+							(texture_scale * face.u_scale)
+						v :=
+							(linalg.dot(point, t_axis) + face.v_offset) /
+							(texture_scale * face.v_scale)
+
 						if face.rotation != 0 {
 							rot_rad := face.rotation * math.PI / 180.0
-							s := math.sin(rot_rad)
-							c := math.cos(rot_rad)
-							u_old, v_old := u, v
-							u = u_old * c - v_old * s
-							v = u_old * s + v_old * c
+							sin_val := math.sin(rot_rad)
+							cos_val := math.cos(rot_rad)
+
+							center := Vec3{0, 0, 0}
+							for p := 0; p < len(polygon); p += 1 {
+								center += polygon[p]
+							}
+							center *= 1.0 / f32(len(polygon))
+
+							center_u :=
+								(linalg.dot(center, s_axis) + face.u_offset) /
+								(texture_scale * face.u_scale)
+							center_v :=
+								(linalg.dot(center, t_axis) + face.v_offset) /
+								(texture_scale * face.v_scale)
+
+							rel_u := u - center_u
+							rel_v := v - center_v
+							u = center_u + rel_u * cos_val - rel_v * sin_val
+							v = center_v + rel_u * sin_val + rel_v * cos_val
 						}
 
 						vertices[vertex_idx] = VertexData {
-							pos   = point,
+							pos   = transformed_point,
 							color = {1.0, 1.0, 1.0, 1.0},
 							uv    = {u, v},
 						}
 						vertex_idx += 1
 					}
 
-					// Triangulate using a fan
 					for j := 0; j < len(polygon) - 2; j += 1 {
 						indices[index_idx] = v_offset
-						indices[index_idx + 1] = v_offset + u16(j + 1)
-						indices[index_idx + 2] = v_offset + u16(j + 2)
+						indices[index_idx + 1] = v_offset + u16(j + 2)
+						indices[index_idx + 2] = v_offset + u16(j + 1)
 						index_idx += 3
 					}
 				}
@@ -459,18 +476,31 @@ plane_line_intersection :: proc(p1, p2: Vec3, plane: Plane) -> f32 {
 }
 
 calculate_texture_axes :: proc(normal: Vec3) -> (s_axis: Vec3, t_axis: Vec3) {
-	ax, ay, az := math.abs(normal.x), math.abs(normal.y), math.abs(normal.z)
+	abs_normal := Vec3{math.abs(normal.x), math.abs(normal.y), math.abs(normal.z)}
+	max_component := max(abs_normal.x, max(abs_normal.y, abs_normal.z))
 
-	if az >= ax && az >= ay {
-		s_axis = {1, 0, 0}
-		t_axis = {0, -1, 0}
-	} else if ay >= ax {
-		s_axis = {1, 0, 0}
-		t_axis = {0, 0, -1}
+	if abs_normal.x == max_component {
+		s_axis = Vec3{0, 1, 0}
+		t_axis = Vec3{0, 0, -1}
+		if normal.x < 0 {
+			s_axis.y = -s_axis.y
+		}
+	} else if abs_normal.y == max_component {
+		s_axis = Vec3{1, 0, 0}
+		t_axis = Vec3{0, 0, -1}
+		if normal.y < 0 {
+			s_axis.x = -s_axis.x
+		}
 	} else {
-		s_axis = {0, 1, 0}
-		t_axis = {0, 0, -1}
+		s_axis = Vec3{1, 0, 0}
+		t_axis = Vec3{0, 1, 0}
+		if normal.z < 0 {
+			t_axis.y = -t_axis.y
+		}
 	}
+
+	s_axis = linalg.normalize(s_axis - normal * linalg.dot(normal, s_axis))
+	t_axis = linalg.normalize(t_axis - normal * linalg.dot(normal, t_axis))
 
 	return s_axis, t_axis
 }

@@ -680,23 +680,18 @@ main :: proc() {
 				}
 				sdl.BindGPUVertexBuffers(render_pass, 0, &vertex_buffer_binding, 1)
 				sdl.BindGPUIndexBuffer(render_pass, index_buffer_binding, ._16BIT)
-				jitter_offset := u32(total_time * 10) % u32(len(entities))
 
 				for entity, i in entities {
 					object_model := entity.local_model
 
-					jitter_index := (i + int(jitter_offset)) % len(entities)
-					jitter := 0.6 + (f32(jitter_index) / f32(len(entities) - 1)) * 0.4
 					ubo_data := struct {
 						mv:            matrix[4, 4]f32,
 						proj:          matrix[4, 4]f32,
 						viewport_size: [2]f32,
-						jitter:        f32,
 					} {
 						mv            = view_mat * object_model,
 						proj          = proj_mat,
 						viewport_size = [2]f32{f32(win_size.x), f32(win_size.y)},
-						jitter        = jitter,
 					}
 					sdl.PushGPUVertexUniformData(cmd_buf, 0, &ubo_data, size_of(ubo_data))
 					sdl.BindGPUFragmentSamplers(
