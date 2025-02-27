@@ -8,5 +8,6 @@
 build
 tmp
 
+autosave
 *.blend1
 screenshot.png
