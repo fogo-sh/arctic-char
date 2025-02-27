@@ -59,9 +59,10 @@ Model :: enum {
 	Sphere,
 	Plane,
 	Reference,
+	Map,
 }
 
-MODEL_COUNT :: 4
+MODEL_COUNT :: 5
 
 create_msaa_textures :: proc(
 	gpu: ^sdl.GPUDevice,

@@ -302,6 +302,11 @@ main :: proc() {
 
 	for i := 0; i < len(model_names); i += 1 {
 		model_name := model_names[i]
+
+		if model_name == "Map" {
+			continue
+		}
+
 		model_name_lower := strings.to_lower(model_name)
 		model_path := fmt.tprintf("./assets/%s.glb", model_name_lower)
 
@@ -332,6 +337,38 @@ main :: proc() {
 
 		combined_vertex_count += len(vertex_data)
 		combined_index_count += len(index_data)
+	}
+
+	{
+		map_data, map_ok := load_map_data("./assets/maps/test.map")
+		assert(map_ok)
+
+		vertices, indices := map_to_model(&map_data)
+
+		for i in 0 ..< len(indices) {
+			indices[i] += u16(combined_vertex_count)
+		}
+
+		map_model_enum := Model.Map
+		model_info_lookup[map_model_enum] = ModelInfo {
+			index_offset = combined_index_count,
+			index_count  = len(indices),
+		}
+
+		log.debugf(
+			"Loaded Map Model, index_offset=%d, index_count=%d, vertex_count=%d",
+			combined_index_count,
+			len(indices),
+			len(vertices),
+		)
+
+		combined_vertex_count += len(vertices)
+		combined_index_count += len(indices)
+
+		vertex_datas[Model.Map] = vertices
+		index_datas[Model.Map] = indices
+
+		free_map_data(&map_data)
 	}
 
 	combined_vertex_data := make([]VertexData, combined_vertex_count)
@@ -453,14 +490,11 @@ main :: proc() {
 	delete(combined_vertex_data)
 	delete(combined_index_data)
 
-	ROTATION_SPEED := linalg.to_radians(f32(90))
-	rotation := f32(0)
-
 	last_ticks := sdl.GetTicks()
 	total_time: f32 = 0.0
 
 	camera := Camera {
-		mode              = .Player,
+		mode              = .Noclip,
 		perspective       = .Perspective,
 		mouse_sensitivity = 0.003,
 	}
