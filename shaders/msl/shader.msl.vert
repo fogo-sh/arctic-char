@@ -15,7 +15,7 @@ struct UBO
 struct main0_out
 {
     float4 out_color [[user(locn0)]];
-    float2 out_uv [[user(locn1)]];
+    float3 out_uvw [[user(locn1)]];
     float4 gl_Position [[position]];
 };
 
@@ -23,7 +23,7 @@ struct main0_in
 {
     float3 position [[attribute(0)]];
     float4 color [[attribute(1)]];
-    float2 uv [[attribute(2)]];
+    float3 uvw [[attribute(2)]];
 };
 
 static inline __attribute__((always_inline))
@@ -46,7 +46,7 @@ vertex main0_out main0(main0_in in [[stage_in]], constant UBO& _21 [[buffer(0)]]
     viewPos.z = z_orig;
     out.gl_Position = _21.proj * float4(viewPos, 1.0);
     out.out_color = in.color;
-    out.out_uv = in.uv;
+    out.out_uvw = in.uvw;
     return out;
 }
 

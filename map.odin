@@ -272,29 +272,28 @@ convert_bsp_to_model :: proc(bsp_data: ^BSPData) {
 			s *= f32(texture_scale)
 			t *= f32(texture_scale)
 
-			texture_name := bsp_data.textures[texinfo.texture_id]
+			s = s - math.floor(s)
+			t = t - math.floor(t)
 
+			texture_name := bsp_data.textures[texinfo.texture_id]
 			first_char := strings.to_upper(string(texture_name[0:1]))
+			defer delete(first_char)
 			rest_of_name := texture_name[1:]
 			modified_texture_name := fmt.tprintf("%s%s", first_char, rest_of_name)
-
 			texture_name_enum, ok := reflect.enum_from_name(Texture_Name, modified_texture_name)
 			assert(ok)
 
-			texture_info := atlas_textures[texture_name_enum]
-
-			log.debugf("texture_info: %v", texture_info)
-
-			atlas_rect := texture_info.rect
-
-			s = (s * atlas_rect.width) + atlas_rect.x
-			t = (t * atlas_rect.height) + atlas_rect.y
+			texture_index := f32(texture_name_enum)
 
 			t = 1.0 - t
 
+			uvw: [3]f32 = {s, t, texture_index}
+
+			log.debugf("u %s v %s w %s", s, t, texture_index)
+
 			bsp_data.render_vertices[vertex_offset + i] = VertexData {
 				pos   = transformed_pos,
-				uv    = {s, t},
+				uvw   = uvw,
 				color = {1.0, 1.0, 1.0, 1.0},
 			}
 		}
@@ -321,7 +320,6 @@ free_bsp_data :: proc(bsp_data: ^BSPData) {
 		delete(texture_name)
 	}
 	delete(bsp_data.textures)
-
 }
 
 bsp_to_model :: proc(bsp_data: ^BSPData) -> (vertices: []VertexData, indices: []u16) {

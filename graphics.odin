@@ -39,7 +39,7 @@ Vec3 :: [3]f32
 VertexData :: struct {
 	pos:   Vec3,
 	color: sdl.FColor,
-	uv:    [2]f32,
+	uvw:   Vec3,
 }
 
 ModelData :: struct {
@@ -218,7 +218,7 @@ load_mesh_data :: proc(model_path: string) -> (vertices: []VertexData, indices: 
 		vertices[i] = VertexData {
 			pos   = Vec3{positions[pos_idx + 0], positions[pos_idx + 1], positions[pos_idx + 2]},
 			color = color,
-			uv    = [2]f32{uvs[uv_idx + 0], uvs[uv_idx + 1]},
+			uvw   = [3]f32{uvs[uv_idx + 0], uvs[uv_idx + 1], 0},
 		}
 	}
 
