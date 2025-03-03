@@ -34,6 +34,40 @@ when ODIN_OS == .Darwin {
 	ui_vert_shader_code := #load("shaders/spv/ui.spv.vert")
 }
 
+Vec3 :: [3]f32
+
+VertexData :: struct {
+	pos:   Vec3,
+	color: sdl.FColor,
+	uvw:   Vec3,
+}
+
+ModelData :: struct {
+	vertices: []VertexData,
+	indices:  []u16,
+}
+
+ModelInfo :: struct {
+	index_offset: int,
+	index_count:  int,
+}
+
+Rect :: struct {
+	x, y, width, height: f32,
+}
+
+model_info_lookup: map[Model]ModelInfo
+
+Model :: enum {
+	Suzanne,
+	Sphere,
+	Plane,
+	Reference,
+	Map,
+}
+
+MODEL_COUNT :: 5
+
 create_msaa_textures :: proc(
 	gpu: ^sdl.GPUDevice,
 	window: ^sdl.Window,
@@ -184,7 +218,7 @@ load_mesh_data :: proc(model_path: string) -> (vertices: []VertexData, indices: 
 		vertices[i] = VertexData {
 			pos   = Vec3{positions[pos_idx + 0], positions[pos_idx + 1], positions[pos_idx + 2]},
 			color = color,
-			uv    = [2]f32{uvs[uv_idx + 0], uvs[uv_idx + 1]},
+			uvw   = [3]f32{uvs[uv_idx + 0], uvs[uv_idx + 1], 0},
 		}
 	}
 
@@ -203,7 +237,7 @@ matrix4_orthographic_f32 :: proc(left, right, bottom, top, near, far: f32) -> ma
 	return matrix[4, 4]f32{
 		2 * invRL, 0, 0, -(right + left) * invRL, 
 		0, 2 * invTB, 0, -(top + bottom) * invTB, 
-		0, 0, -2 * invFN, -(far + near) * invFN, 
+		0, 0, 2 * invFN, (far + near) * invFN, 
 		0, 0, 0, 1, 
 	}
 }
