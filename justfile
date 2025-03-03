@@ -52,5 +52,5 @@ map map_name:
 
 maps: (map "test")
 
-build-atlas:
+atlas:
   odin run ./atlas-builder/

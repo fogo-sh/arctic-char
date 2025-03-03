@@ -33,9 +33,9 @@ SHAPES_TEXTURE_RECT :: Rect {195, 0, 10, 10}
 
 Texture_Name :: enum {
 	None,
-	Floor,
 	Wall,
 	Skip,
+	Floor,
 }
 
 Atlas_Texture :: struct {
@@ -55,9 +55,9 @@ Atlas_Texture :: struct {
 
 atlas_textures: [Texture_Name]Atlas_Texture = {
 	.None = {},
-	.Floor = { rect = {0, 0, 64, 64}, offset_top = 0, offset_right = 0, offset_bottom = 0, offset_left = 0, document_size = {64, 64}, duration = 0.000},
-	.Wall = { rect = {65, 0, 64, 64}, offset_top = 0, offset_right = 0, offset_bottom = 0, offset_left = 0, document_size = {64, 64}, duration = 0.000},
-	.Skip = { rect = {130, 0, 64, 64}, offset_top = 0, offset_right = 0, offset_bottom = 0, offset_left = 0, document_size = {64, 64}, duration = 0.000},
+	.Wall = { rect = {0, 0, 64, 64}, offset_top = 0, offset_right = 0, offset_bottom = 0, offset_left = 0, document_size = {64, 64}, duration = 0.000},
+	.Skip = { rect = {65, 0, 64, 64}, offset_top = 0, offset_right = 0, offset_bottom = 0, offset_left = 0, document_size = {64, 64}, duration = 0.000},
+	.Floor = { rect = {130, 0, 64, 64}, offset_top = 0, offset_right = 0, offset_bottom = 0, offset_left = 0, document_size = {64, 64}, duration = 0.000},
 }
 
 Animation_Name :: enum {
