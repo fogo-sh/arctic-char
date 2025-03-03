@@ -272,8 +272,7 @@ convert_bsp_to_model :: proc(bsp_data: ^BSPData) {
 			s *= f32(texture_scale)
 			t *= f32(texture_scale)
 
-			s = s - math.floor(s)
-			t = t - math.floor(t)
+			t = 1.0 - t
 
 			texture_name := bsp_data.textures[texinfo.texture_id]
 			first_char := strings.to_upper(string(texture_name[0:1]))
@@ -283,13 +282,17 @@ convert_bsp_to_model :: proc(bsp_data: ^BSPData) {
 			texture_name_enum, ok := reflect.enum_from_name(Texture_Name, modified_texture_name)
 			assert(ok)
 
-			texture_index := f32(texture_name_enum)
+			texture_index := f32(texture_name_enum) - 1
 
-			t = 1.0 - t
+			fmt.printf(
+				"Texture: %s -> %s (enum: %v, index: %v)\n",
+				texture_name,
+				modified_texture_name,
+				texture_name_enum,
+				texture_index,
+			)
 
 			uvw: [3]f32 = {s, t, texture_index}
-
-			log.debugf("u %s v %s w %s", s, t, texture_index)
 
 			bsp_data.render_vertices[vertex_offset + i] = VertexData {
 				pos   = transformed_pos,

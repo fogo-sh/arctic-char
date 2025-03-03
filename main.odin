@@ -176,7 +176,7 @@ main :: proc() {
 		gpu,
 		frag_shader_code,
 		.FRAGMENT,
-		num_uniform_buffers = 0,
+		num_uniform_buffers = 1,
 		num_samplers = 1,
 	)
 
@@ -657,6 +657,24 @@ main :: proc() {
 		ok = sdl.WaitAndAcquireGPUSwapchainTexture(cmd_buf, window, &swapchain_tex, nil, nil)
 		assert(ok)
 
+		fragment_uniforms: struct {
+			atlas_width:  f32,
+			atlas_height: f32,
+			atlas_lookup: [len(atlas_textures)][4]f32,
+		}
+
+		fragment_uniforms.atlas_width = f32(ATLAS_WIDTH)
+		fragment_uniforms.atlas_height = f32(ATLAS_HEIGHT)
+
+		for texture, i in atlas_textures {
+			fragment_uniforms.atlas_lookup[i] = {
+				texture.rect.x,
+				texture.rect.y,
+				texture.rect.width,
+				texture.rect.height,
+			}
+		}
+
 		if swapchain_tex != nil {
 			if render_game {
 				color_target := sdl.GPUColorTargetInfo {
@@ -691,10 +709,17 @@ main :: proc() {
 				sdl.BindGPUVertexBuffers(render_pass, 0, &vertex_buffer_binding, 1)
 				sdl.BindGPUIndexBuffer(render_pass, index_buffer_binding, ._16BIT)
 
+				sdl.BindGPUFragmentSamplers(
+					render_pass,
+					0,
+					&(sdl.GPUTextureSamplerBinding{texture = texture, sampler = sampler}),
+					1,
+				)
+
 				for entity, i in entities {
 					object_model := entity.local_model
 
-					ubo_data := struct {
+					vertex_uniforms := struct {
 						mv:            matrix[4, 4]f32,
 						proj:          matrix[4, 4]f32,
 						viewport_size: [2]f32,
@@ -703,14 +728,18 @@ main :: proc() {
 						proj          = proj_mat,
 						viewport_size = [2]f32{f32(win_size.x), f32(win_size.y)},
 					}
-					sdl.PushGPUVertexUniformData(cmd_buf, 0, &ubo_data, size_of(ubo_data))
-					sdl.BindGPUFragmentSamplers(
-						render_pass,
+					sdl.PushGPUVertexUniformData(
+						cmd_buf,
 						0,
-						&(sdl.GPUTextureSamplerBinding{texture = texture, sampler = sampler}),
-						1,
+						&vertex_uniforms,
+						size_of(vertex_uniforms),
 					)
-
+					sdl.PushGPUFragmentUniformData(
+						cmd_buf,
+						0,
+						&fragment_uniforms,
+						size_of(fragment_uniforms),
+					)
 					sdl.DrawGPUIndexedPrimitives(
 						render_pass,
 						u32(entity.model_info.index_count),
