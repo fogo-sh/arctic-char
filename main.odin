@@ -202,7 +202,7 @@ main :: proc() {
 
 	mesh_vertex_buffer_description := sdl.GPUVertexBufferDescription {
 		slot               = 0,
-		pitch              = size_of(f32) * (3 + 4 + 2), // float3 pos + float4 color + float2 uv
+		pitch              = size_of(f32) * (3 + 4 + 3), // float3 pos + float4 color + float3 uvw
 		input_rate         = .VERTEX,
 		instance_step_rate = 0,
 	}
@@ -218,16 +218,16 @@ main :: proc() {
 		format      = .FLOAT4,
 		offset      = size_of(f32) * 3, // After float3 position
 	}
-	mesh_vertex_attribute_uv := sdl.GPUVertexAttribute {
+	mesh_vertex_attribute_uvw := sdl.GPUVertexAttribute {
 		location    = 2,
 		buffer_slot = 0,
-		format      = .FLOAT2,
+		format      = .FLOAT3,
 		offset      = size_of(f32) * (3 + 4), // After float3 position + float4 color
 	}
 	mesh_vertex_attributes := [3]sdl.GPUVertexAttribute {
 		mesh_vertex_attribute_position,
 		mesh_vertex_attribute_color,
-		mesh_vertex_attribute_uv,
+		mesh_vertex_attribute_uvw,
 	}
 
 	depth_state := sdl.GPUDepthStencilState {
