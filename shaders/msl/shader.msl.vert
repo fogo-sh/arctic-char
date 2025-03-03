@@ -10,7 +10,6 @@ struct UBO
     float4x4 mv;
     float4x4 proj;
     float2 viewport_size;
-    float jitter;
 };
 
 struct main0_out
@@ -38,8 +37,9 @@ vertex main0_out main0(main0_in in [[stage_in]], constant UBO& _21 [[buffer(0)]]
 {
     main0_out out = {};
     float3 viewPos = (_21.mv * float4(in.position, 1.0)).xyz;
+    float jitter = 0.5;
     float z_orig = viewPos.z;
-    float scale = ((1.0 - _21.jitter) * fast::min(_21.viewport_size.x, _21.viewport_size.y)) / 2.0;
+    float scale = ((1.0 - jitter) * fast::min(_21.viewport_size.x, _21.viewport_size.y)) / 2.0;
     float3 param = viewPos;
     float param_1 = scale;
     viewPos = quantize(param, param_1, _21);

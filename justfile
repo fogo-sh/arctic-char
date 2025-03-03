@@ -46,8 +46,11 @@ shader shader_name: (glsl-to-spv shader_name) (spv-to-msl shader_name) (spv-to-d
 shaders: (shader "shader") (shader "ui")
 
 map map_name:
-  qbsp ./assets/maps/{{map_name}}.map
-  vis ./assets/maps/{{map_name}}.bsp
-  light ./assets/maps/{{map_name}}.bsp
+  cd ./assets && qbsp -notex ./maps/{{map_name}}.map
+  cd ./assets && vis ./maps/{{map_name}}.bsp
+  cd ./assets && light ./maps/{{map_name}}.bsp
 
 maps: (map "test")
+
+build-atlas:
+  odin run ./atlas-builder/
