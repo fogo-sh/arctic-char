@@ -181,9 +181,11 @@ main :: proc() {
 	)
 
 	img_size: [2]i32
-	pixels := stbi.load("./assets/test_albedo.png", &img_size.x, &img_size.y, nil, 4)
+	pixels := stbi.load("./assets/atlas.png", &img_size.x, &img_size.y, nil, 4)
 	assert(pixels != nil)
 	pixels_byte_size := int(img_size.x * img_size.y * 4)
+
+	log.debugf("Pixels byte size: %d", pixels_byte_size)
 
 	texture := sdl.CreateGPUTexture(
 		gpu,
@@ -405,6 +407,7 @@ main :: proc() {
 	transfer_buffer_ptr := transmute([^]byte)sdl.MapGPUTransferBuffer(gpu, transfer_buffer, false)
 	transfer_buffer_offset := 0
 
+	log.debugf("Copying vertex data to transfer buffer")
 	mem.copy(
 		transfer_buffer_ptr[transfer_buffer_offset:],
 		raw_data(combined_vertex_data),
@@ -412,6 +415,7 @@ main :: proc() {
 	)
 	transfer_buffer_offset += len(combined_vertex_data) * size_of(VertexData)
 
+	log.debugf("Copying index data to transfer buffer")
 	mem.copy(
 		transfer_buffer_ptr[transfer_buffer_offset:],
 		raw_data(combined_index_data),
@@ -419,7 +423,13 @@ main :: proc() {
 	)
 	transfer_buffer_offset += len(combined_index_data) * size_of(u16)
 
-	mem.copy(transfer_buffer_ptr[transfer_buffer_offset:], pixels, pixels_byte_size)
+	texture_offset := transfer_buffer_offset
+	if texture_offset % 4 != 0 {
+		padding := 4 - (texture_offset % 4)
+		texture_offset += padding
+	}
+
+	mem.copy(transfer_buffer_ptr[texture_offset:], pixels, pixels_byte_size)
 
 	sdl.UnmapGPUTransferBuffer(gpu, transfer_buffer)
 
@@ -468,7 +478,7 @@ main :: proc() {
 		false,
 	)
 
-	buffer_offset += u32(combined_index_count * size_of(u16))
+	buffer_offset = u32(texture_offset) // Use the same offset we calculated earlier
 
 	sdl.UploadToGPUTexture(
 		copy_pass,
@@ -774,3 +784,9 @@ main :: proc() {
 
 	log.debug("Goodbye!")
 }
+
+@(export)
+NvOptimusEnablement: u32 = 1
+
+@(export)
+AmdPowerXpressRequestHighPerformance: i32 = 1

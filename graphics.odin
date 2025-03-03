@@ -52,6 +52,10 @@ ModelInfo :: struct {
 	index_count:  int,
 }
 
+Rect :: struct {
+	x, y, width, height: f32,
+}
+
 model_info_lookup: map[Model]ModelInfo
 
 Model :: enum {
@@ -233,7 +237,7 @@ matrix4_orthographic_f32 :: proc(left, right, bottom, top, near, far: f32) -> ma
 	return matrix[4, 4]f32{
 		2 * invRL, 0, 0, -(right + left) * invRL, 
 		0, 2 * invTB, 0, -(top + bottom) * invTB, 
-		0, 0, -2 * invFN, -(far + near) * invFN, 
+		0, 0, 2 * invFN, (far + near) * invFN, 
 		0, 0, 0, 1, 
 	}
 }

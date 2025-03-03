@@ -5,6 +5,7 @@ import "core:log"
 import "core:math"
 import "core:math/linalg"
 import "core:os"
+import "core:reflect"
 import "core:strconv"
 import "core:strings"
 
@@ -98,6 +99,7 @@ BSPData :: struct {
 	ledges:          []i32,
 	render_vertices: []VertexData,
 	render_indices:  []u16,
+	textures:        []string,
 }
 
 load_bsp :: proc(bsp_path: string) -> (bsp_data: BSPData, ok: bool) {
@@ -182,6 +184,45 @@ load_bsp :: proc(bsp_path: string) -> (bsp_data: BSPData, ok: bool) {
 		}
 	}
 
+	{
+		lump := bsp_data.lumps[BSPLump.TEXTURES]
+		if lump.length > 0 {
+			mip_header := cast(^MipTexHeader)&data[lump.offset]
+			num_textures := mip_header.numtex
+
+			bsp_data.textures = make([]string, num_textures)
+
+			texture_offsets := make([]i32, num_textures)
+			defer delete(texture_offsets)
+
+			for i in 0 ..< num_textures {
+				offset_ptr := cast(^i32)&data[lump.offset + size_of(MipTexHeader) + i * size_of(i32)]
+				texture_offsets[i] = offset_ptr^
+			}
+
+			for i in 0 ..< num_textures {
+				if texture_offsets[i] == -1 {
+					bsp_data.textures[i] = ""
+					continue
+				}
+
+				tex_offset := lump.offset + texture_offsets[i]
+				mip_tex := cast(^MipTex)&data[tex_offset]
+
+				name_len := 0
+				for j in 0 ..< 16 {
+					if mip_tex.name[j] == 0 {
+						break
+					}
+					name_len += 1
+				}
+
+				name_bytes := mip_tex.name[:name_len]
+				bsp_data.textures[i] = strings.clone_from_bytes(name_bytes)
+			}
+		}
+	}
+
 	convert_bsp_to_model(&bsp_data)
 
 	return bsp_data, true
@@ -231,6 +272,24 @@ convert_bsp_to_model :: proc(bsp_data: ^BSPData) {
 			s *= f32(texture_scale)
 			t *= f32(texture_scale)
 
+			texture_name := bsp_data.textures[texinfo.texture_id]
+
+			first_char := strings.to_upper(string(texture_name[0:1]))
+			rest_of_name := texture_name[1:]
+			modified_texture_name := fmt.tprintf("%s%s", first_char, rest_of_name)
+
+			texture_name_enum, ok := reflect.enum_from_name(Texture_Name, modified_texture_name)
+			assert(ok)
+
+			texture_info := atlas_textures[texture_name_enum]
+
+			log.debugf("texture_info: %v", texture_info)
+
+			atlas_rect := texture_info.rect
+
+			s = (s * atlas_rect.width) + atlas_rect.x
+			t = (t * atlas_rect.height) + atlas_rect.y
+
 			t = 1.0 - t
 
 			bsp_data.render_vertices[vertex_offset + i] = VertexData {
@@ -257,6 +316,12 @@ free_bsp_data :: proc(bsp_data: ^BSPData) {
 	delete(bsp_data.texinfos)
 	delete(bsp_data.edges)
 	delete(bsp_data.ledges)
+
+	for texture_name in bsp_data.textures {
+		delete(texture_name)
+	}
+	delete(bsp_data.textures)
+
 }
 
 bsp_to_model :: proc(bsp_data: ^BSPData) -> (vertices: []VertexData, indices: []u16) {
@@ -279,6 +344,11 @@ test_bsp_data :: proc() {
 		len(bsp_data.render_vertices),
 		len(bsp_data.render_indices),
 	)
+
+	fmt.println("Texture names:")
+	for name, i in bsp_data.textures {
+		fmt.printf("  %d: %s\n", i, name)
+	}
 
 	defer free_bsp_data(&bsp_data)
 }
