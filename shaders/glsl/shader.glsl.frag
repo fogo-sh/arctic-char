@@ -25,8 +25,8 @@ void main() {
     
     vec2 local_uv = fract(uvw.xy);
     
-    float section_width = 64.0 / atlas_width;
-    float section_height = 64.0 / atlas_height;
+    float section_width = texture_rect.z / atlas_width;
+    float section_height = texture_rect.w / atlas_height;
     
     float u = texture_rect.x / atlas_width + local_uv.x * section_width;
     float v = texture_rect.y / atlas_height + local_uv.y * section_height;

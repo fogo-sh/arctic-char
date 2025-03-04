@@ -546,6 +546,32 @@ main :: proc() {
 
 	entity_create_test_entities(Vec3{0, 0, -10})
 
+	fragment_uniforms: struct {
+		atlas_width:  f32,
+		atlas_height: f32,
+		atlas_lookup: [len(atlas_textures)][4]f32,
+	}
+
+	fragment_uniforms.atlas_width = f32(ATLAS_WIDTH)
+	fragment_uniforms.atlas_height = f32(ATLAS_HEIGHT)
+
+	for texture, i in atlas_textures {
+		log.debugf(
+			"Texture: i: {} x: {} y: {} width: {} height: {}",
+			i,
+			texture.rect.x,
+			texture.rect.y,
+			texture.rect.width,
+			texture.rect.height,
+		)
+		fragment_uniforms.atlas_lookup[i] = {
+			texture.rect.width,
+			texture.rect.height,
+			texture.rect.x,
+			texture.rect.y,
+		}
+	}
+
 	main_loop: for {
 		new_ticks := sdl.GetTicks()
 		delta_time := f32(new_ticks - last_ticks) / 1000
@@ -656,24 +682,6 @@ main :: proc() {
 		swapchain_tex: ^sdl.GPUTexture
 		ok = sdl.WaitAndAcquireGPUSwapchainTexture(cmd_buf, window, &swapchain_tex, nil, nil)
 		assert(ok)
-
-		fragment_uniforms: struct {
-			atlas_width:  f32,
-			atlas_height: f32,
-			atlas_lookup: [len(atlas_textures)][4]f32,
-		}
-
-		fragment_uniforms.atlas_width = f32(ATLAS_WIDTH)
-		fragment_uniforms.atlas_height = f32(ATLAS_HEIGHT)
-
-		for texture, i in atlas_textures {
-			fragment_uniforms.atlas_lookup[i] = {
-				texture.rect.x,
-				texture.rect.y,
-				texture.rect.width,
-				texture.rect.height,
-			}
-		}
 
 		if swapchain_tex != nil {
 			if render_game {
