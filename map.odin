@@ -268,7 +268,7 @@ convert_bsp_to_model :: proc(bsp_data: ^BSPData) {
 			s := linalg.dot(bsp_vertex.position, texinfo.vectorS) + texinfo.distS
 			t := linalg.dot(bsp_vertex.position, texinfo.vectorT) + texinfo.distT
 
-			texture_scale := 1.0 / 16.0
+			texture_scale := 1.0 / 32.0
 			s *= f32(texture_scale)
 			t *= f32(texture_scale)
 
@@ -282,7 +282,9 @@ convert_bsp_to_model :: proc(bsp_data: ^BSPData) {
 			texture_name_enum, ok := reflect.enum_from_name(Texture_Name, modified_texture_name)
 			assert(ok)
 
-			texture_index := f32(texture_name_enum) - 1
+			texture_index := f32(texture_name_enum)
+
+			assert(texture_index != -1)
 
 			fmt.printf(
 				"Texture: %s -> %s (enum: %v, index: %v)\n",

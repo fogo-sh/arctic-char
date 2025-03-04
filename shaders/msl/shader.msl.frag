@@ -32,8 +32,8 @@ fragment main0_out main0(main0_in in [[stage_in]], constant UBO& _42 [[buffer(0)
     }
     float4 texture_rect = _42.atlas_lookup[texture_index];
     float2 local_uv = fract(in.uvw.xy);
-    float section_width = 64.0 / _42.atlas_width;
-    float section_height = 64.0 / _42.atlas_height;
+    float section_width = texture_rect.z / _42.atlas_width;
+    float section_height = texture_rect.w / _42.atlas_height;
     float u = (texture_rect.x / _42.atlas_width) + (local_uv.x * section_width);
     float v = (texture_rect.y / _42.atlas_height) + (local_uv.y * section_height);
     float2 atlas_uv = float2(u, v);
