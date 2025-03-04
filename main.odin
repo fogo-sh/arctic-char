@@ -724,6 +724,13 @@ main :: proc() {
 					1,
 				)
 
+				sdl.PushGPUFragmentUniformData(
+					cmd_buf,
+					0,
+					&fragment_uniforms,
+					size_of(fragment_uniforms),
+				)
+
 				for entity, i in entities {
 					object_model := entity.local_model
 
@@ -742,12 +749,7 @@ main :: proc() {
 						&vertex_uniforms,
 						size_of(vertex_uniforms),
 					)
-					sdl.PushGPUFragmentUniformData(
-						cmd_buf,
-						0,
-						&fragment_uniforms,
-						size_of(fragment_uniforms),
-					)
+
 					sdl.DrawGPUIndexedPrimitives(
 						render_pass,
 						u32(entity.model_info.index_count),
