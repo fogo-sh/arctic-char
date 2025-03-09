@@ -84,6 +84,12 @@ camera_update :: proc(camera: ^Camera, delta_time: f32, movement: Movement) -> m
 			move_force = 300.0
 		}
 
+		player_height := box2d.Body_GetPosition(player.body).y
+
+		if player_height > water_height {
+			move_force = 0
+		}
+
 		if movement.forward {
 			box2d.Body_ApplyForce(
 				player.body,

@@ -11,7 +11,9 @@ Entity :: struct {
 	model_info:  ^ModelInfo,
 	local_model: matrix[4, 4]f32,
 	body:        box2d.BodyId,
+	shape:       box2d.ShapeId,
 	has_body:    bool,
+	scale:       Vec3,
 }
 
 entity_create :: proc(
@@ -24,6 +26,7 @@ entity_create :: proc(
 	return Entity {
 		model_info = &model_info_lookup[model],
 		local_model = linalg.matrix_mul(translation_matrix, scale_matrix),
+		scale = scale,
 	}
 }
 
@@ -40,6 +43,7 @@ entity_setup_physics :: proc(entity: ^Entity, pos: Vec3) {
 	sd := box2d.DefaultShapeDef()
 
 	shape := box2d.CreateCircleShape(body, sd, box2d.Circle{center = {0, 0}, radius = 1})
+	entity.shape = shape
 }
 
 entity_create_test_entities :: proc(offset: Vec3 = {0, 0, 0}) {
@@ -72,17 +76,28 @@ entity_update :: proc(entity: ^Entity) {
 	if entity.has_body {
 		position := box2d.Body_GetPosition(entity.body)
 
-		scale := Vec3 {
-			linalg.length(entity.local_model[0].xyz),
-			linalg.length(entity.local_model[1].xyz),
-			linalg.length(entity.local_model[2].xyz),
+		if position.y < water_height {
+			box2d.Body_SetGravityScale(entity.body, 0)
+		} else {
+			box2d.Body_SetGravityScale(entity.body, 1)
 		}
 
-		scale_matrix := linalg.matrix4_scale_f32(scale)
+		scale_matrix := linalg.matrix4_scale_f32(entity.scale)
 		translation_matrix := linalg.matrix4_translate_f32({position.x, position.y, 0})
 
 		entity.local_model = linalg.matrix_mul(translation_matrix, scale_matrix)
 	}
+}
+
+entity_player_collide :: proc(entity: ^Entity) {
+	player.scale *= 1.1
+
+	position := box2d.Body_GetPosition(player.body)
+	scale_matrix := linalg.matrix4_scale_f32(player.scale)
+	translation_matrix := linalg.matrix4_translate_f32({position.x, position.y, 0})
+	player.local_model = linalg.matrix_mul(translation_matrix, scale_matrix)
+
+	log.debugf("Player scaled up to: %s", player.scale.x)
 }
 
 entity_update_all :: proc() {

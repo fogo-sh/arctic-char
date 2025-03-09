@@ -26,6 +26,8 @@ render_ui: bool = false
 
 show_collision_debug: bool = false
 
+water_height: f32 = 18
+
 world_id: box2d.WorldId
 
 Movement :: struct {
@@ -321,7 +323,7 @@ main :: proc() {
 
 		if model_name == "Collision" {
 			world_def := box2d.DefaultWorldDef()
-			world_def.gravity = box2d.Vec2{0, 0}
+			world_def.gravity = box2d.Vec2{0, -10}
 			world_id = box2d.CreateWorld(world_def)
 			map_body := load_box2d_geometry(world_id, vertex_data, index_data)
 		}
@@ -589,6 +591,31 @@ main :: proc() {
 		time_accumulator += delta_time
 		for time_accumulator >= PHYSICS_STEP {
 			box2d.World_Step(world_id, PHYSICS_STEP, 4)
+
+			contact_events := box2d.World_GetContactEvents(world_id)
+
+			for i in 0 ..< contact_events.beginCount {
+				contact_event := contact_events.beginEvents[i]
+
+				if contact_event.shapeIdA == player.shape ||
+				   contact_event.shapeIdB == player.shape {
+					other_shape_id: box2d.ShapeId
+					if contact_event.shapeIdA == player.shape {
+						other_shape_id = contact_event.shapeIdB
+					} else {
+						other_shape_id = contact_event.shapeIdA
+					}
+
+					for entity_idx := 0; entity_idx < len(entities); entity_idx += 1 {
+						if entities[entity_idx].has_body &&
+						   entities[entity_idx].shape == other_shape_id {
+							entity_player_collide(&entities[entity_idx])
+							break
+						}
+					}
+				}
+			}
+
 			time_accumulator -= PHYSICS_STEP
 		}
 
