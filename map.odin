@@ -286,14 +286,6 @@ convert_bsp_to_model :: proc(bsp_data: ^BSPData) {
 
 			assert(texture_index != -1)
 
-			fmt.printf(
-				"Texture: %s -> %s (enum: %v, index: %v)\n",
-				texture_name,
-				modified_texture_name,
-				texture_name_enum,
-				texture_index,
-			)
-
 			uvw: [3]f32 = {s, t, texture_index}
 
 			bsp_data.render_vertices[vertex_offset + i] = VertexData {
