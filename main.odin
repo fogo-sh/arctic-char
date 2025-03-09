@@ -24,6 +24,8 @@ ma_engine: ma.engine
 render_game: bool = true
 render_ui: bool = false
 
+show_collision_debug: bool = false
+
 world_id: box2d.WorldId
 
 Movement :: struct {
@@ -319,7 +321,7 @@ main :: proc() {
 
 		if model_name == "Collision" {
 			world_def := box2d.DefaultWorldDef()
-			world_def.gravity = box2d.Vec2{0, -10}
+			world_def.gravity = box2d.Vec2{0, 0}
 			world_id = box2d.CreateWorld(world_def)
 			map_body := load_box2d_geometry(world_id, vertex_data, index_data)
 		}
@@ -381,9 +383,6 @@ main :: proc() {
 		index_datas[Model.Map] = indices
 
 		free_bsp_data(&bsp_data)
-	}
-
-	{
 	}
 
 	combined_vertex_data := make([]VertexData, combined_vertex_count)
@@ -517,7 +516,7 @@ main :: proc() {
 	total_time: f32 = 0.0
 
 	camera := Camera {
-		mode              = .Noclip,
+		mode              = .Player,
 		perspective       = .Perspective,
 		mouse_sensitivity = 0.003,
 	}

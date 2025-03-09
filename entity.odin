@@ -5,6 +5,7 @@ import "core:math/linalg"
 import "vendor:box2d"
 
 entities: [dynamic]Entity
+player: Entity
 
 Entity :: struct {
 	model_info:  ^ModelInfo,
@@ -26,32 +27,45 @@ entity_create :: proc(
 	}
 }
 
+entity_setup_physics :: proc(entity: ^Entity, pos: Vec3) {
+	bd := box2d.DefaultBodyDef()
+	bd.isEnabled = true
+	bd.type = .dynamicBody
+	bd.position = box2d.Vec2{f32(pos.x), f32(pos.y)}
+	body := box2d.CreateBody(world_id, bd)
+
+	entity.body = body
+	entity.has_body = true
+
+	sd := box2d.DefaultShapeDef()
+
+	shape := box2d.CreateCircleShape(body, sd, box2d.Circle{center = {0, 0}, radius = 1})
+}
+
 entity_create_test_entities :: proc(offset: Vec3 = {0, 0, 0}) {
 	for i in 0 ..< 20 {
 		pos := Vec3{f32(i * 5), 10, 0} + offset
 		suzanne_entity := entity_create(.Suzanne, pos)
-
-		bd := box2d.DefaultBodyDef()
-		bd.isEnabled = true
-		bd.type = .dynamicBody
-		bd.position = box2d.Vec2{f32(pos.x), f32(pos.y)}
-		body := box2d.CreateBody(world_id, bd)
-
-		suzanne_entity.body = body
-		suzanne_entity.has_body = true
-
-		sd := box2d.DefaultShapeDef()
-
-		shape := box2d.CreateCircleShape(body, sd, box2d.Circle{center = {0, 0}, radius = 1})
-
+		entity_setup_physics(&suzanne_entity, pos)
 		append(&entities, suzanne_entity)
 	}
 
 	map_entity := entity_create(.Map, {0, 0, 0}, {1.0 / 16.0, 1.0 / 16.0, 1.0 / 16.0})
 	append(&entities, map_entity)
 
-	collision_entity := entity_create(.Collision, {0, 0, 0}, {2.0, 2.0, 2.0})
-	append(&entities, collision_entity)
+	if show_collision_debug {
+		collision_entity := entity_create(.Collision, {0, 0, 0}, {2.0, 2.0, 2.0})
+		append(&entities, collision_entity)
+	}
+
+	player = entity_create_player()
+	append(&entities, player)
+}
+
+entity_create_player :: proc() -> Entity {
+	player_entity := entity_create(.Fish, {0, 0, 0}, {1.0, 1.0, 1.0})
+	entity_setup_physics(&player_entity, {0, 0, 0})
+	return player_entity
 }
 
 entity_update :: proc(entity: ^Entity) {
