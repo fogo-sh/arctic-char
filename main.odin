@@ -12,6 +12,7 @@ import "core:mem"
 import "core:os"
 import "core:reflect"
 import "core:strings"
+import "vendor:box2d"
 import ma "vendor:miniaudio"
 import sdl "vendor:sdl3"
 import stbi "vendor:stb/image"
@@ -22,6 +23,8 @@ ma_engine: ma.engine
 
 render_game: bool = true
 render_ui: bool = false
+
+world_id: box2d.WorldId
 
 Movement :: struct {
 	forward:  bool,
@@ -314,6 +317,13 @@ main :: proc() {
 
 		vertex_data, index_data := load_mesh_data(model_path)
 
+		if model_name == "Collision" {
+			world_def := box2d.DefaultWorldDef()
+			world_def.gravity = box2d.Vec2{0, -10}
+			world_id = box2d.CreateWorld(world_def)
+			map_body := load_box2d_geometry(world_id, vertex_data, index_data)
+		}
+
 		for j in 0 ..< len(index_data) {
 			index_data[j] += u16(combined_vertex_count)
 		}
@@ -371,6 +381,9 @@ main :: proc() {
 		index_datas[Model.Map] = indices
 
 		free_bsp_data(&bsp_data)
+	}
+
+	{
 	}
 
 	combined_vertex_data := make([]VertexData, combined_vertex_count)
@@ -556,14 +569,6 @@ main :: proc() {
 	fragment_uniforms.atlas_height = f32(ATLAS_HEIGHT)
 
 	for texture, i in atlas_textures {
-		log.debugf(
-			"Texture: i: {} x: {} y: {} width: {} height: {}",
-			i,
-			texture.rect.x,
-			texture.rect.y,
-			texture.rect.width,
-			texture.rect.height,
-		)
 		fragment_uniforms.atlas_lookup[i] = {
 			texture.rect.width,
 			texture.rect.height,
@@ -572,11 +577,23 @@ main :: proc() {
 		}
 	}
 
+	time_accumulator: f32 = 0.0
+
 	main_loop: for {
 		new_ticks := sdl.GetTicks()
 		delta_time := f32(new_ticks - last_ticks) / 1000
 		last_ticks = new_ticks
 		total_time += delta_time
+
+		PHYSICS_STEP :: 1 / 60.0
+
+		time_accumulator += delta_time
+		for time_accumulator >= PHYSICS_STEP {
+			box2d.World_Step(world_id, PHYSICS_STEP, 4)
+			time_accumulator -= PHYSICS_STEP
+		}
+
+		entity_update_all()
 
 		// -- events --
 		ev: sdl.Event
