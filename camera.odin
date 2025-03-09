@@ -1,7 +1,9 @@
 package main
 
+import "core:log"
 import "core:math"
 import "core:math/linalg"
+import "vendor:box2d"
 import sdl "vendor:sdl3"
 
 CameraMode :: enum {
@@ -69,15 +71,81 @@ camera_update :: proc(camera: ^Camera, delta_time: f32, movement: Movement) -> m
 			camera.position[1] -= dt_move
 		}
 
-		view_mat = linalg.matrix4_rotate_f32(-camera.yaw, {0, 1, 0}) * view_mat
-		view_mat = linalg.matrix4_rotate_f32(-camera.pitch, {1, 0, 0}) * view_mat
 
-		view_mat =
-			view_mat *
-			linalg.matrix4_translate_f32(
-				{-camera.position[0], -camera.position[1], -camera.position[2]},
+	} else {
+		camera.yaw = 0
+		camera.pitch = 0
+
+		forward_vec := [2]f32{0, 1}
+		right_vec := [2]f32{1, 0}
+
+		move_force := f32(100.0)
+		if movement.shift {
+			move_force = 300.0
+		}
+
+		if movement.forward {
+			box2d.Body_ApplyForce(
+				player.body,
+				box2d.Vec2{forward_vec[0] * move_force, forward_vec[1] * move_force},
+				box2d.Body_GetPosition(player.body),
+				true,
 			)
+		}
+		if movement.backward {
+			box2d.Body_ApplyForce(
+				player.body,
+				box2d.Vec2{-forward_vec[0] * move_force, -forward_vec[1] * move_force},
+				box2d.Body_GetPosition(player.body),
+				true,
+			)
+		}
+		if movement.left {
+			box2d.Body_ApplyForce(
+				player.body,
+				box2d.Vec2{-right_vec[0] * move_force, -right_vec[1] * move_force},
+				box2d.Body_GetPosition(player.body),
+				true,
+			)
+		}
+		if movement.right {
+			box2d.Body_ApplyForce(
+				player.body,
+				box2d.Vec2{right_vec[0] * move_force, right_vec[1] * move_force},
+				box2d.Body_GetPosition(player.body),
+				true,
+			)
+		}
+
+		velocity := box2d.Body_GetLinearVelocity(player.body)
+		max_speed := f32(10.0)
+		if movement.shift {
+			max_speed = 20.0
+		}
+
+		current_speed := linalg.length(velocity)
+		if current_speed > max_speed {
+			scaling_factor := max_speed / current_speed
+			box2d.Body_SetLinearVelocity(
+				player.body,
+				box2d.Vec2{velocity.x * scaling_factor, velocity.y * scaling_factor},
+			)
+		}
+
+		player_position := box2d.Body_GetPosition(player.body)
+		camera.position[0] = player_position.x
+		camera.position[1] = player_position.y
+		camera.position[2] = 10
 	}
+
+	view_mat = linalg.matrix4_rotate_f32(-camera.yaw, {0, 1, 0}) * view_mat
+	view_mat = linalg.matrix4_rotate_f32(-camera.pitch, {1, 0, 0}) * view_mat
+
+	view_mat =
+		view_mat *
+		linalg.matrix4_translate_f32(
+			{-camera.position[0], -camera.position[1], -camera.position[2]},
+		)
 
 	return view_mat
 }

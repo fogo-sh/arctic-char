@@ -60,14 +60,12 @@ model_info_lookup: map[Model]ModelInfo
 
 Model :: enum {
 	Suzanne,
-	Sphere,
-	Plane,
-	Reference,
+	Fish,
 	Collision,
 	Map,
 }
 
-MODEL_COUNT :: 6
+MODEL_COUNT :: 4
 
 create_msaa_textures :: proc(
 	gpu: ^sdl.GPUDevice,

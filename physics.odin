@@ -19,41 +19,49 @@ load_box2d_geometry :: proc(
 ) -> (
 	body: box2d.BodyId,
 ) {
-	body = box2d.CreateBody(world, box2d.BodyDef{type = .staticBody})
+	body_def := box2d.DefaultBodyDef()
+	body_def.type = .staticBody
+	body = box2d.CreateBody(world, body_def)
 
 	if len(vertices) == 0 || len(indices) == 0 {
 		log.error("ModelData has no vertices or indices")
 		return
 	}
 
-	vertices := make([]box2d.Vec2, len(vertices))
-	defer delete(vertices)
+	box2d_vertices := make([]box2d.Vec2, len(vertices))
+	defer delete(box2d_vertices)
 
-	for v, i in vertices {
-		vertices[i] = box2d.Vec2{v[0], v[1]}
+	SCALE :: 2.0
+
+	for i in 0 ..< len(vertices) {
+		box2d_vertices[i] = box2d.Vec2{vertices[i].pos[0] * SCALE, vertices[i].pos[1] * SCALE}
 	}
 
-	for i := 0; i < len(indices); i += 2 {
-		if i + 1 >= len(indices) {
-			break
-		}
+	chain_vertices := make([dynamic]box2d.Vec2, 0, len(indices))
+	defer delete(chain_vertices)
 
-		v1_idx := indices[i]
-		v2_idx := indices[i + 1]
+	for i := 0; i < len(indices); i += 1 {
+		idx := indices[i]
 
-		if int(v1_idx) >= len(vertices) || int(v2_idx) >= len(vertices) {
+		if int(idx) >= len(box2d_vertices) {
 			log.error("Index out of bounds in indices")
 			continue
 		}
 
-		v1 := vertices[v1_idx]
-		v2 := vertices[v2_idx]
-
-		segment := box2d.Segment{v1, v2}
-		shape_def := box2d.ShapeDef{}
-		shape := box2d.CreateSegmentShape(body, shape_def, segment)
+		append(&chain_vertices, box2d_vertices[idx])
 	}
 
-	log.debug("Created Box2D geometry from vertices and indices")
+	if len(chain_vertices) > 1 {
+		chain_def := box2d.DefaultChainDef()
+		chain_def.points = &chain_vertices[0]
+		chain_def.count = i32(len(chain_vertices))
+		chain_def.isLoop = false
+
+		chain := box2d.CreateChain(body, chain_def)
+		log.debug("Created Box2D chain geometry from vertices and indices")
+	} else {
+		log.error("Not enough valid vertices to create a chain")
+	}
+
 	return body
 }
