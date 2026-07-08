@@ -1,16 +1,9 @@
 package main
 
-import "core:log"
+import game "./src"
 
 main :: proc() {
-	context.logger = log.create_console_logger()
-	default_context = context
-
-	config := launch_config_parse()
-	app := app_create(config)
-	defer app_destroy(&app)
-
-	app_run(&app)
+	game.Run()
 }
 
 @(export)

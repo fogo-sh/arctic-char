@@ -7,15 +7,16 @@ how the rendering, physics, and asset pieces fit together.
 
 The code is split by ownership and learning area:
 
-- `main.odin`: tiny entrypoint
-- `app.odin`: SDL lifecycle, event loop, timing, and draw orchestration
-- `assets.odin`: scene asset loading and collision asset policy
-- `mesh.odin`: CPU mesh loading and generated ground mesh
-- `graphics.odin`: platform shader selection and shader creation
-- `renderer.odin`: SDL GPU pipeline, render targets, mesh upload, and draw pass
-- `scene.odin`: scene objects, spawning, and render item extraction
-- `physics.odin`: Box3D world, fixed stepping, body creation, transform conversion
-- `collision_shape.odin`: Suzanne convex hull cooking
+- `main.odin`: tiny executable entrypoint that imports `src/`
+- `src/game.odin`: package-level game startup
+- `src/app.odin`: SDL lifecycle, event loop, timing, and draw orchestration
+- `src/assets.odin`: scene asset loading and collision asset policy
+- `src/mesh.odin`: CPU mesh loading and generated ground mesh
+- `src/graphics.odin`: platform shader selection and shader creation
+- `src/renderer.odin`: SDL GPU pipeline, render targets, mesh upload, and draw pass
+- `src/scene.odin`: scene objects, spawning, and render item extraction
+- `src/physics.odin`: Box3D world, fixed stepping, body creation, transform conversion
+- `src/collision_shape.odin`: Suzanne convex hull cooking
 - `tools/make_collision_mesh.py`: Blender collision mesh generator
 
 Prefer small, named functions that keep ownership clear. Do not hide important

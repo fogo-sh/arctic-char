@@ -1,4 +1,4 @@
-package main
+package game
 
 import "core:c"
 import "core:math/linalg"

@@ -1,4 +1,4 @@
-package main
+package game
 
 import "base:runtime"
 import "core:strings"
@@ -7,18 +7,18 @@ import sdl "vendor:sdl3"
 when ODIN_OS == .Darwin {
 	shader_format := sdl.GPUShaderFormat{.MSL}
 
-	frag_shader_code := #load("shaders/msl/shader.msl.frag")
-	vert_shader_code := #load("shaders/msl/shader.msl.vert")
+	frag_shader_code := #load("../shaders/msl/shader.msl.frag")
+	vert_shader_code := #load("../shaders/msl/shader.msl.vert")
 } else when ODIN_OS == .Windows {
 	shader_format := sdl.GPUShaderFormat{.DXIL}
 
-	frag_shader_code := #load("shaders/dxil/shader.dxil.frag")
-	vert_shader_code := #load("shaders/dxil/shader.dxil.vert")
+	frag_shader_code := #load("../shaders/dxil/shader.dxil.frag")
+	vert_shader_code := #load("../shaders/dxil/shader.dxil.vert")
 } else {
 	shader_format := sdl.GPUShaderFormat{.SPIRV}
 
-	frag_shader_code := #load("shaders/spv/shader.spv.frag")
-	vert_shader_code := #load("shaders/spv/shader.spv.vert")
+	frag_shader_code := #load("../shaders/spv/shader.spv.frag")
+	vert_shader_code := #load("../shaders/spv/shader.spv.vert")
 }
 
 load_shader :: proc(

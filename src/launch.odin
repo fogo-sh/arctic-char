@@ -1,4 +1,4 @@
-package main
+package game
 
 import "core:os"
 import "core:strings"

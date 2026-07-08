@@ -1,4 +1,4 @@
-package main
+package game
 
 PlayerMoveInput :: struct {
 	move_forward: f32,
