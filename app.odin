@@ -13,7 +13,8 @@ App :: struct {
 
 	renderer: Renderer,
 	scene:    Scene,
-	input:    PlayerInput,
+	move_input: PlayerMoveInput,
+	look_input: PlayerLookInput,
 	render_items: [dynamic]RenderItem,
 	win_size: [2]i32,
 
@@ -67,9 +68,10 @@ app_create :: proc() -> App {
 	assert(ok)
 
 	assets := scene_assets_load()
-	app.renderer = renderer_create(app.gpu, app.window, app.win_size.x, app.win_size.y, assets.render_meshes[:])
+	render_meshes := [?]CpuMesh{assets.suzanne_mesh, assets.level.render_mesh}
+	app.renderer = renderer_create(app.gpu, app.window, app.win_size.x, app.win_size.y, render_meshes[:])
 	app.scene = scene_create(&assets)
-	app.render_items = make([dynamic]RenderItem, 0, MAX_SUZANNES + 3)
+	app.render_items = make([dynamic]RenderItem, 0, MAX_SUZANNES + 1)
 	scene_assets_destroy(&assets)
 
 	app.last_ticks = sdl.GetTicks()
@@ -89,7 +91,7 @@ app_destroy :: proc(app: ^App) {
 
 app_run :: proc(app: ^App) {
 	for app.running {
-		input_begin_frame(&app.input)
+		input_begin_frame(&app.look_input)
 		app_handle_events(app)
 		app_update_time(app)
 		app_draw(app)
@@ -104,15 +106,15 @@ app_update_time :: proc(app: ^App) {
 	app.last_ticks = new_ticks
 	app.total_time += delta_time
 	app_update_input(app)
-	scene_update(&app.scene, app.input, delta_time)
+	scene_update(&app.scene, app.move_input, app.look_input, delta_time)
 }
 
 app_update_input :: proc(app: ^App) {
 	num_keys: c.int
 	keys := sdl.GetKeyboardState(&num_keys)
-	app.input.move_forward = app_key_axis(keys, num_keys, .W, .S)
-	app.input.move_right = app_key_axis(keys, num_keys, .D, .A)
-	app.input.jump_held = app_key_down(keys, num_keys, .SPACE)
+	app.move_input.move_forward = app_key_axis(keys, num_keys, .W, .S)
+	app.move_input.move_right = app_key_axis(keys, num_keys, .D, .A)
+	app.move_input.jump_held = app_key_down(keys, num_keys, .SPACE)
 }
 
 app_key_axis :: proc(keys: [^]bool, num_keys: c.int, positive, negative: sdl.Scancode) -> f32 {
@@ -138,8 +140,8 @@ app_handle_events :: proc(app: ^App) {
 			assert(ok)
 			renderer_resize(&app.renderer, app.win_size.x, app.win_size.y)
 		case .MOUSE_MOTION:
-			app.input.look_delta.x += ev.motion.xrel
-			app.input.look_delta.y += ev.motion.yrel
+			app.look_input.look_delta.x += ev.motion.xrel
+			app.look_input.look_delta.y += ev.motion.yrel
 		case .KEY_DOWN:
 			if ev.key.scancode == .Q || ev.key.scancode == .ESCAPE {
 				app.running = false

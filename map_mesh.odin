@@ -10,8 +10,6 @@ MAP_VERTEX_EPSILON :: f32(0.01)
 MAP_HYPERPLANE_SIZE :: f32(512.0)
 
 create_map_mesh :: proc(qmap: ^QuakeMap, allocator := context.allocator) -> CpuMesh {
-	runtime.DEFAULT_TEMP_ALLOCATOR_TEMP_GUARD()
-
 	vertices := make([dynamic]VertexData, 0, 8192, allocator)
 	indices := make([dynamic]u16, 0, 24576, allocator)
 	skipped_faces := 0
@@ -28,8 +26,16 @@ create_map_mesh :: proc(qmap: ^QuakeMap, allocator := context.allocator) -> CpuM
 		}
 	}
 
+	map_mesh_assert_uploadable(vertices[:], indices[:])
 	log.debugf("Built map mesh: vertices=%d indices=%d skipped_faces=%d", len(vertices), len(indices), skipped_faces)
 	return CpuMesh{vertices = vertices[:], indices = indices[:], allocator = allocator}
+}
+
+map_mesh_assert_uploadable :: proc(vertices: []VertexData, indices: []u16) {
+	assert(len(vertices) > 0)
+	assert(len(vertices) <= 65535)
+	assert(len(indices) > 0)
+	assert(len(indices) % 3 == 0)
 }
 
 map_mesh_append_brush :: proc(
@@ -37,6 +43,8 @@ map_mesh_append_brush :: proc(
 	indices: ^[dynamic]u16,
 	brush: ^MapBrush,
 ) -> (skipped_faces: int) {
+	runtime.DEFAULT_TEMP_ALLOCATOR_TEMP_GUARD()
+
 	for face_index in 0 ..< len(brush.faces) {
 		face := &brush.faces[face_index]
 		points := map_mesh_clipped_face(brush, face, face_index)

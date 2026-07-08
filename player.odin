@@ -60,6 +60,8 @@ PLAYER_SPEC :: PlayerSpec{
 	walkable_min_y = 0.7,
 }
 
+PLAYER_DEFAULT_SPAWN :: MapPlayerSpawn{position = PLAYER_SPEC.spawn_position, yaw = 0}
+
 player_create :: proc(position := PLAYER_SPEC.spawn_position, yaw: f32 = 0) -> PlayerController {
 	return PlayerController{
 		position = position,
@@ -70,12 +72,15 @@ player_create :: proc(position := PLAYER_SPEC.spawn_position, yaw: f32 = 0) -> P
 	}
 }
 
-player_update :: proc(player: ^PlayerController, physics: ^PhysicsWorld, input: PlayerInput, delta_time: f32) {
+player_apply_look :: proc(player: ^PlayerController, input: PlayerLookInput) {
 	spec := PLAYER_SPEC
 	player.yaw += input.look_delta.x * spec.mouse_sensitivity
 	player.pitch -= input.look_delta.y * spec.mouse_sensitivity
 	player.pitch = math.clamp(player.pitch, linalg.to_radians(f32(-89)), linalg.to_radians(f32(89)))
+}
 
+player_update :: proc(player: ^PlayerController, physics: ^PhysicsWorld, input: PlayerMoveInput, delta_time: f32) {
+	spec := PLAYER_SPEC
 	forward, right := player_flat_basis(player.yaw)
 	wish_dir := forward * input.move_forward + right * input.move_right
 	wish_dir = linalg.normalize0(wish_dir)

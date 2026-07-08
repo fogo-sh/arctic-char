@@ -208,6 +208,8 @@ renderer_destroy_mesh :: proc(renderer: ^Renderer, mesh: ^GpuMesh) {
 
 // Uploads one immutable mesh by staging vertex/index data through a transfer buffer.
 renderer_upload_mesh :: proc(renderer: ^Renderer, mesh: ^CpuMesh) -> GpuMesh {
+	assert(len(mesh.vertices) > 0)
+	assert(len(mesh.indices) > 0)
 	vertex_data_size := len(mesh.vertices) * size_of(VertexData)
 	index_data_size := len(mesh.indices) * size_of(u16)
 	total_upload_size := vertex_data_size + index_data_size
