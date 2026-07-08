@@ -10,7 +10,7 @@ LaunchConfig :: struct {
 }
 
 launch_config_parse :: proc() -> LaunchConfig {
-	config := LaunchConfig{
+	config := LaunchConfig {
 		base_dir = ".",
 		map_name = "test",
 	}
@@ -40,7 +40,7 @@ launch_config_parse :: proc() -> LaunchConfig {
 }
 
 launch_config_map_qpath :: proc(config: LaunchConfig, allocator := context.allocator) -> string {
-	// Keep the idtech-ish CLI terse: `+map test` resolves to `maps/test.map`.
+	// Make `+map test` resolve to `maps/test.map`
 	qpath, err := strings.concatenate({"maps/", config.map_name, ".map"}, allocator)
 	assert(err == nil)
 	return qpath

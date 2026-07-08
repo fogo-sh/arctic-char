@@ -21,6 +21,7 @@ App :: struct {
 	running:    bool,
 	last_ticks: u64,
 	total_time: f32,
+	stats_log_time: f32,
 }
 
 // Creates SDL's application shell: window, GPU device, and the first renderer.
@@ -71,8 +72,12 @@ app_create :: proc(config: LaunchConfig) -> App {
 	defer game_fs_destroy(&fs)
 
 	assets := scene_assets_load(&fs, config)
-	render_meshes := [?]CpuMesh{assets.suzanne_mesh, assets.level.render_mesh}
-	app.renderer = renderer_create(app.gpu, app.window, app.win_size.x, app.win_size.y, render_meshes[:])
+	app.renderer = renderer_create(app.gpu, app.window, app.win_size.x, app.win_size.y)
+	upload := renderer_begin_upload(&app.renderer)
+	assets.suzanne_handle = renderer_upload_mesh(&upload, &assets.suzanne_mesh)
+	assets.map_handle = renderer_upload_mesh(&upload, &assets.level.render_mesh)
+	renderer_end_upload(&upload)
+	assets.default_material = renderer_default_material()
 	app.scene = scene_create(&assets)
 	app.render_items = make([dynamic]RenderItem, 0, MAX_SUZANNES + 1)
 	scene_assets_destroy(&assets)
@@ -110,6 +115,7 @@ app_update_time :: proc(app: ^App) {
 	app.total_time += delta_time
 	app_update_input(app)
 	scene_update(&app.scene, app.move_input, app.look_input, delta_time)
+	app.stats_log_time += delta_time
 }
 
 app_update_input :: proc(app: ^App) {
@@ -159,8 +165,13 @@ app_draw :: proc(app: ^App) {
 	ok := sdl.WaitAndAcquireGPUSwapchainTexture(cmd_buf, app.window, &swapchain_tex, nil, nil)
 	assert(ok)
 
-	render_items := scene_collect_render_items(&app.scene, app.win_size, &app.render_items)
-	renderer_draw(&app.renderer, cmd_buf, swapchain_tex, render_items)
+	render_items := scene_collect_render_items(&app.scene, &app.render_items)
+	globals := scene_render_globals(&app.scene, app.win_size)
+	renderer_draw(&app.renderer, cmd_buf, swapchain_tex, globals, render_items)
+	if app.stats_log_time >= 2.0 {
+		renderer_log_stats(&app.renderer)
+		app.stats_log_time = 0
+	}
 
 	ok = sdl.SubmitGPUCommandBuffer(cmd_buf)
 	assert(ok)

@@ -17,8 +17,10 @@ Renderer :: struct {
 	depth_texture:      ^sdl.GPUTexture,
 
 	meshes: [dynamic]GpuMesh,
+	materials: [dynamic]Material,
 
 	sample_count: sdl.GPUSampleCount,
+	stats: RendererStats,
 }
 
 GpuMesh :: struct {
@@ -28,10 +30,36 @@ GpuMesh :: struct {
 }
 
 MeshHandle :: distinct int
+MaterialHandle :: distinct int
+
+Material :: struct {
+	name: string,
+}
 
 RenderItem :: struct {
-	mesh: MeshHandle,
-	mvp: matrix[4, 4]f32,
+	mesh:     MeshHandle,
+	material: MaterialHandle,
+	model:    matrix[4, 4]f32,
+}
+
+RenderPassGlobals :: struct {
+	view: matrix[4, 4]f32,
+	proj: matrix[4, 4]f32,
+}
+
+RendererStats :: struct {
+	draw_count:     int,
+	triangle_count: int,
+	mesh_count:     int,
+	material_count: int,
+	pipeline_count: int,
+}
+
+RendererUpload :: struct {
+	renderer:         ^Renderer,
+	cmd_buf:          ^sdl.GPUCommandBuffer,
+	copy_pass:        ^sdl.GPUCopyPass,
+	transfer_buffers: [dynamic]^sdl.GPUTransferBuffer,
 }
 
 // Creates the renderer-owned GPU objects: render targets, pipeline, and mesh buffers.
@@ -40,7 +68,6 @@ renderer_create :: proc(
 	gpu: ^sdl.GPUDevice,
 	window: ^sdl.Window,
 	width, height: i32,
-	meshes: []CpuMesh,
 	allocator := context.allocator,
 ) -> Renderer {
 	renderer := Renderer{
@@ -52,10 +79,10 @@ renderer_create :: proc(
 	log.debugf("Renderer MSAA sample count: %v", renderer.sample_count)
 	renderer_create_render_targets(&renderer, width, height)
 	renderer.pipeline = renderer_create_pipeline(gpu, window, renderer.sample_count)
-	renderer.meshes = make([dynamic]GpuMesh, 0, len(meshes), allocator)
-	for &mesh in meshes {
-		append(&renderer.meshes, renderer_upload_mesh(&renderer, &mesh))
-	}
+	renderer.meshes = make([dynamic]GpuMesh, 0, 16, allocator)
+	renderer.materials = make([dynamic]Material, 0, 16, allocator)
+	_ = renderer_add_material(&renderer, Material{name = "vertex-color"})
+	renderer_update_static_stats(&renderer)
 	return renderer
 }
 
@@ -63,11 +90,23 @@ renderer_destroy :: proc(renderer: ^Renderer) {
 	for &mesh in renderer.meshes {
 		renderer_destroy_mesh(renderer, &mesh)
 	}
+	delete(renderer.materials)
 	delete(renderer.meshes)
 	if renderer.depth_texture != nil do sdl.ReleaseGPUTexture(renderer.gpu, renderer.depth_texture)
 	if renderer.msaa_color_texture != nil do sdl.ReleaseGPUTexture(renderer.gpu, renderer.msaa_color_texture)
 	if renderer.pipeline != nil do sdl.ReleaseGPUGraphicsPipeline(renderer.gpu, renderer.pipeline)
 	renderer^ = {}
+}
+
+renderer_add_material :: proc(renderer: ^Renderer, material: Material) -> MaterialHandle {
+	handle := MaterialHandle(len(renderer.materials))
+	append(&renderer.materials, material)
+	renderer_update_static_stats(renderer)
+	return handle
+}
+
+renderer_default_material :: proc() -> MaterialHandle {
+	return MaterialHandle(0)
 }
 
 renderer_resize :: proc(renderer: ^Renderer, width, height: i32) {
@@ -154,9 +193,11 @@ renderer_create_pipeline :: proc(
 		input_rate         = .VERTEX,
 		instance_step_rate = 0,
 	}
-	vertex_attributes := [2]sdl.GPUVertexAttribute {
+	vertex_attributes := [4]sdl.GPUVertexAttribute {
 		{location = 0, buffer_slot = 0, format = .FLOAT3, offset = 0},
-		{location = 1, buffer_slot = 0, format = .FLOAT4, offset = size_of(Vec3)},
+		{location = 1, buffer_slot = 0, format = .FLOAT3, offset = u32(offset_of(VertexData, normal))},
+		{location = 2, buffer_slot = 0, format = .FLOAT2, offset = u32(offset_of(VertexData, uv))},
+		{location = 3, buffer_slot = 0, format = .FLOAT4, offset = u32(offset_of(VertexData, color))},
 	}
 	target_info := sdl.GPUGraphicsPipelineTargetInfo {
 		num_color_targets         = 1,
@@ -206,8 +247,33 @@ renderer_destroy_mesh :: proc(renderer: ^Renderer, mesh: ^GpuMesh) {
 	mesh^ = {}
 }
 
-// Uploads one immutable mesh by staging vertex/index data through a transfer buffer.
-renderer_upload_mesh :: proc(renderer: ^Renderer, mesh: ^CpuMesh) -> GpuMesh {
+renderer_begin_upload :: proc(renderer: ^Renderer) -> RendererUpload {
+	cmd_buf := sdl.AcquireGPUCommandBuffer(renderer.gpu)
+	assert(cmd_buf != nil)
+	copy_pass := sdl.BeginGPUCopyPass(cmd_buf)
+	assert(copy_pass != nil)
+	return RendererUpload{
+		renderer = renderer,
+		cmd_buf = cmd_buf,
+		copy_pass = copy_pass,
+		transfer_buffers = make([dynamic]^sdl.GPUTransferBuffer, 0, 8, renderer.allocator),
+	}
+}
+
+renderer_end_upload :: proc(upload: ^RendererUpload) {
+	sdl.EndGPUCopyPass(upload.copy_pass)
+	ok := sdl.SubmitGPUCommandBuffer(upload.cmd_buf)
+	assert(ok)
+	for transfer_buffer in upload.transfer_buffers {
+		sdl.ReleaseGPUTransferBuffer(upload.renderer.gpu, transfer_buffer)
+	}
+	delete(upload.transfer_buffers)
+	upload^ = {}
+}
+
+// Uploads one immutable mesh by staging vertex/index data through a shared startup upload pass.
+renderer_upload_mesh :: proc(upload: ^RendererUpload, mesh: ^CpuMesh) -> MeshHandle {
+	renderer := upload.renderer
 	assert(len(mesh.vertices) > 0)
 	assert(len(mesh.indices) > 0)
 	vertex_data_size := len(mesh.vertices) * size_of(VertexData)
@@ -220,7 +286,7 @@ renderer_upload_mesh :: proc(renderer: ^Renderer, mesh: ^CpuMesh) -> GpuMesh {
 		{usage = .UPLOAD, size = u32(total_upload_size), props = 0},
 	)
 	assert(transfer_buffer != nil)
-	defer sdl.ReleaseGPUTransferBuffer(renderer.gpu, transfer_buffer)
+	append(&upload.transfer_buffers, transfer_buffer)
 
 	transfer_ptr := transmute([^]byte)sdl.MapGPUTransferBuffer(renderer.gpu, transfer_buffer, false)
 	mem.copy(transfer_ptr[:], raw_data(mesh.vertices), vertex_data_size)
@@ -240,33 +306,34 @@ renderer_upload_mesh :: proc(renderer: ^Renderer, mesh: ^CpuMesh) -> GpuMesh {
 	assert(gpu_mesh.index_buffer != nil)
 	gpu_mesh.index_count = len(mesh.indices)
 
-	copy_cmd := sdl.AcquireGPUCommandBuffer(renderer.gpu)
-	copy_pass := sdl.BeginGPUCopyPass(copy_cmd)
 	sdl.UploadToGPUBuffer(
-		copy_pass,
+		upload.copy_pass,
 		{transfer_buffer = transfer_buffer, offset = 0},
 		{buffer = gpu_mesh.vertex_buffer, offset = 0, size = u32(vertex_data_size)},
 		false,
 	)
 	sdl.UploadToGPUBuffer(
-		copy_pass,
+		upload.copy_pass,
 		{transfer_buffer = transfer_buffer, offset = u32(vertex_data_size)},
 		{buffer = gpu_mesh.index_buffer, offset = 0, size = u32(index_data_size)},
 		false,
 	)
-	sdl.EndGPUCopyPass(copy_pass)
-	ok := sdl.SubmitGPUCommandBuffer(copy_cmd)
-	assert(ok)
-	return gpu_mesh
+	handle := MeshHandle(len(renderer.meshes))
+	append(&renderer.meshes, gpu_mesh)
+	renderer_update_static_stats(renderer)
+	return handle
 }
 
 renderer_draw :: proc(
 	renderer: ^Renderer,
 	cmd_buf: ^sdl.GPUCommandBuffer,
 	swapchain_tex: ^sdl.GPUTexture,
+	globals: RenderPassGlobals,
 	items: []RenderItem,
 ) {
 	if swapchain_tex == nil do return
+	renderer.stats.draw_count = 0
+	renderer.stats.triangle_count = 0
 
 	color_target := renderer_color_target(renderer, swapchain_tex)
 	depth_target := sdl.GPUDepthStencilTargetInfo {
@@ -283,6 +350,7 @@ renderer_draw :: proc(
 
 	for item in items {
 		mesh := renderer_mesh(renderer, item.mesh)
+		_ = renderer_material(renderer, item.material)
 		vertex_buffer_binding := sdl.GPUBufferBinding{buffer = mesh.vertex_buffer, offset = 0}
 		index_buffer_binding := sdl.GPUBufferBinding{buffer = mesh.index_buffer, offset = 0}
 		sdl.BindGPUVertexBuffers(render_pass, 0, &vertex_buffer_binding, 1)
@@ -290,9 +358,11 @@ renderer_draw :: proc(
 
 		vertex_uniforms := struct {
 			mvp: matrix[4, 4]f32,
-		}{mvp = item.mvp}
+		}{mvp = globals.proj * globals.view * item.model}
 		sdl.PushGPUVertexUniformData(cmd_buf, 0, &vertex_uniforms, size_of(vertex_uniforms))
 		sdl.DrawGPUIndexedPrimitives(render_pass, u32(mesh.index_count), 1, 0, 0, 0)
+		renderer.stats.draw_count += 1
+		renderer.stats.triangle_count += mesh.index_count / 3
 	}
 	sdl.EndGPURenderPass(render_pass)
 }
@@ -301,6 +371,29 @@ renderer_mesh :: proc(renderer: ^Renderer, handle: MeshHandle) -> ^GpuMesh {
 	index := int(handle)
 	assert(0 <= index && index < len(renderer.meshes))
 	return &renderer.meshes[index]
+}
+
+renderer_material :: proc(renderer: ^Renderer, handle: MaterialHandle) -> ^Material {
+	index := int(handle)
+	assert(0 <= index && index < len(renderer.materials))
+	return &renderer.materials[index]
+}
+
+renderer_update_static_stats :: proc(renderer: ^Renderer) {
+	renderer.stats.mesh_count = len(renderer.meshes)
+	renderer.stats.material_count = len(renderer.materials)
+	renderer.stats.pipeline_count = renderer.pipeline != nil ? 1 : 0
+}
+
+renderer_log_stats :: proc(renderer: ^Renderer) {
+	log.debugf(
+		"Renderer stats: draws=%d triangles=%d meshes=%d materials=%d pipelines=%d",
+		renderer.stats.draw_count,
+		renderer.stats.triangle_count,
+		renderer.stats.mesh_count,
+		renderer.stats.material_count,
+		renderer.stats.pipeline_count,
+	)
 }
 
 renderer_color_target :: proc(

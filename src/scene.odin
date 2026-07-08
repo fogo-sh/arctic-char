@@ -13,6 +13,9 @@ Scene :: struct {
 	physics:        PhysicsWorld,
 	player:         PlayerController,
 	objects:        [dynamic]Object,
+	suzanne_mesh:   MeshHandle,
+	map_mesh:       MeshHandle,
+	default_material: MaterialHandle,
 	next_object_id: ObjectId,
 	spawn_timer:    f32,
 	spawned_count:  int,
@@ -31,8 +34,9 @@ Transform :: struct {
 }
 
 RenderObject :: struct {
-	mesh:    MeshHandle,
-	visible: bool,
+	mesh:     MeshHandle,
+	material: MaterialHandle,
+	visible:  bool,
 }
 
 PhysicsObject :: struct {
@@ -56,6 +60,9 @@ scene_create :: proc(assets: ^SceneAssets, allocator := context.allocator) -> Sc
 		physics = physics_create(&assets.collision_mesh, &assets.level.render_mesh),
 		player = player_create(assets.level.player_spawn.position, assets.level.player_spawn.yaw),
 		objects = make([dynamic]Object, 0, MAX_SUZANNES + 1, allocator),
+		suzanne_mesh = assets.suzanne_handle,
+		map_mesh = assets.map_handle,
+		default_material = assets.default_material,
 		next_object_id = 1,
 		spawn_timer = SPAWN_INTERVAL,
 	}
@@ -96,7 +103,7 @@ scene_create_map :: proc(scene: ^Scene) {
 		name = "Map",
 		kind = .Map,
 		transform = {position = {0, 0, 0}},
-		render = {mesh = SCENE_MESH_MAP, visible = true},
+		render = {mesh = scene.map_mesh, material = scene.default_material, visible = true},
 		physics = {enabled = false},
 	})
 }
@@ -116,7 +123,7 @@ scene_spawn_suzanne :: proc(scene: ^Scene) {
 		name = "Suzanne",
 		kind = .Suzanne,
 		transform = {position = position},
-		render = {mesh = SCENE_MESH_SUZANNE, visible = true},
+		render = {mesh = scene.suzanne_mesh, material = scene.default_material, visible = true},
 		physics = {body = body, enabled = true, sync_transform = true},
 	})
 	scene.spawned_count += 1
@@ -150,20 +157,24 @@ scene_remove_object :: proc(scene: ^Scene, id: ObjectId) -> bool {
 	return false
 }
 
-scene_collect_render_items :: proc(scene: ^Scene, window_size: [2]i32, items: ^[dynamic]RenderItem) -> []RenderItem {
+scene_collect_render_items :: proc(scene: ^Scene, items: ^[dynamic]RenderItem) -> []RenderItem {
 	clear(items)
-	aspect := f32(window_size.x) / f32(window_size.y)
-	view := player_view_matrix(&scene.player)
-	proj := linalg.matrix4_perspective_f32(linalg.to_radians(f32(70)), aspect, 0.1, 100)
-
 	for &object in scene.objects {
 		if !object.render.visible {
 			continue
 		}
 		model := scene_object_model_matrix(&object)
-		append(items, RenderItem{mesh = object.render.mesh, mvp = proj * view * model})
+		append(items, RenderItem{mesh = object.render.mesh, material = object.render.material, model = model})
 	}
 	return items[:]
+}
+
+scene_render_globals :: proc(scene: ^Scene, window_size: [2]i32) -> RenderPassGlobals {
+	aspect := f32(window_size.x) / f32(window_size.y)
+	return RenderPassGlobals{
+		view = player_view_matrix(&scene.player),
+		proj = linalg.matrix4_perspective_f32(linalg.to_radians(f32(70)), aspect, 0.1, 100),
+	}
 }
 
 scene_object_model_matrix :: proc(object: ^Object) -> matrix[4, 4]f32 {

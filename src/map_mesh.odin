@@ -103,7 +103,8 @@ map_mesh_append_brush :: proc(
 		base := len(vertices^)
 		color := quake_map_face_color(face)
 		for i in 0 ..< winding.count {
-			append(vertices, VertexData{pos = winding.points[i], color = color})
+			point := winding.points[i]
+			append(vertices, VertexData{pos = point, normal = face.normal, uv = {point.x, point.z}, color = color})
 		}
 
 		reverse_winding := linalg.dot(linalg.cross(winding.points[1] - winding.points[0], winding.points[2] - winding.points[0]), face.normal) < 0

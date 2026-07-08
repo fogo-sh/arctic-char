@@ -3,13 +3,13 @@ package game
 import "base:runtime"
 import "core:log"
 
-SCENE_MESH_SUZANNE :: MeshHandle(0)
-SCENE_MESH_MAP :: MeshHandle(1)
-
 SceneAssets :: struct {
 	suzanne_mesh:   CpuMesh,
 	collision_mesh: CpuMesh,
 	level:          LevelAsset,
+	suzanne_handle: MeshHandle,
+	map_handle:     MeshHandle,
+	default_material: MaterialHandle,
 }
 
 scene_assets_load :: proc(fs: ^GameFS, config: LaunchConfig) -> SceneAssets {
