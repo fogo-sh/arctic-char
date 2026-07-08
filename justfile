@@ -25,7 +25,7 @@ collision-mesh:
     printf '%s\n' "Blender not found. Install Blender or set BLENDER=/path/to/blender."
     exit 1
   fi
-  "$BLENDER" --background --python tools/make_collision_mesh.py -- assets/suzanne.glb assets/suzanne_collision.glb 96
+  "$BLENDER" --background --python tools/make_collision_mesh.py -- assets/suzanne.glb assets/suzanne_collision.glb 48
 
 shaders:
   shadercross shaders/hlsl/shader.hlsl -s HLSL -d SPIRV -t vertex -e VertexMain -o shaders/spv/shader.spv.vert

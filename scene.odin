@@ -50,7 +50,7 @@ Object :: struct {
 scene_create :: proc(assets: ^SceneAssets, allocator := context.allocator) -> Scene {
 	scene := Scene{
 		allocator = allocator,
-		physics = physics_create(scene_assets_collision_mesh(assets), assets.collision_source),
+		physics = physics_create(&assets.collision_mesh),
 		objects = make([dynamic]Object, 0, MAX_SUZANNES + 1, allocator),
 		spawn_timer = SPAWN_INTERVAL,
 	}

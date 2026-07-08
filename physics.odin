@@ -11,13 +11,13 @@ PhysicsWorld :: struct {
 PHYSICS_STEP_TIME :: f32(1.0 / 60.0)
 PHYSICS_SUBSTEPS :: 4
 
-physics_create :: proc(collision_mesh: ^CpuMesh, collision_source: CollisionSource) -> PhysicsWorld {
+physics_create :: proc(collision_mesh: ^CpuMesh) -> PhysicsWorld {
 	world_def := b3.DefaultWorldDef()
 	world_def.gravity = {0, -10, 0}
 
 	physics := PhysicsWorld{
 		id = b3.CreateWorld(world_def),
-		suzanne_hull = collision_create_suzanne_hull(collision_mesh, collision_source),
+		suzanne_hull = collision_create_suzanne_hull(collision_mesh),
 	}
 	return physics
 }
