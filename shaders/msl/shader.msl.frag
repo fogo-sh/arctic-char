@@ -3,19 +3,25 @@
 
 using namespace metal;
 
-struct main0_out
+struct type_VertexUniforms
 {
-    float4 frag_color [[color(0)]];
+    float4x4 mvp;
 };
 
-struct main0_in
+struct FragmentMain_out
 {
-    float4 color [[user(locn0)]];
+    float4 out_var_SV_Target0 [[color(0)]];
 };
 
-fragment main0_out main0(main0_in in [[stage_in]])
+struct FragmentMain_in
 {
-    main0_out out = {};
-    out.frag_color = in.color;
+    float4 in_var_TEXCOORD0 [[user(locn0)]];
+};
+
+fragment FragmentMain_out FragmentMain(FragmentMain_in in [[stage_in]])
+{
+    FragmentMain_out out = {};
+    out.out_var_SV_Target0 = in.in_var_TEXCOORD0;
     return out;
 }
+

@@ -3,27 +3,28 @@
 
 using namespace metal;
 
-struct UBO
+struct type_VertexUniforms
 {
     float4x4 mvp;
 };
 
-struct main0_out
+struct VertexMain_out
 {
-    float4 out_color [[user(locn0)]];
+    float4 out_var_TEXCOORD0 [[user(locn0)]];
     float4 gl_Position [[position]];
 };
 
-struct main0_in
+struct VertexMain_in
 {
-    float3 position [[attribute(0)]];
-    float4 color [[attribute(1)]];
+    float3 in_var_TEXCOORD0 [[attribute(0)]];
+    float4 in_var_TEXCOORD1 [[attribute(1)]];
 };
 
-vertex main0_out main0(main0_in in [[stage_in]], constant UBO& uniforms [[buffer(0)]])
+vertex VertexMain_out VertexMain(VertexMain_in in [[stage_in]], constant type_VertexUniforms& VertexUniforms [[buffer(0)]])
 {
-    main0_out out = {};
-    out.gl_Position = uniforms.mvp * float4(in.position, 1.0);
-    out.out_color = in.color;
+    VertexMain_out out = {};
+    out.gl_Position = VertexUniforms.mvp * float4(in.in_var_TEXCOORD0, 1.0);
+    out.out_var_TEXCOORD0 = in.in_var_TEXCOORD1;
     return out;
 }
+

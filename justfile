@@ -18,23 +18,17 @@ run:
 
 build-and-run: build run
 
-glsl-to-spv shader_name:
-  glslc shaders/glsl/{{shader_name}}.glsl.vert -o shaders/spv/{{shader_name}}.spv.vert
-  glslc shaders/glsl/{{shader_name}}.glsl.frag -o shaders/spv/{{shader_name}}.spv.frag
+shaders:
+  shadercross shaders/hlsl/shader.hlsl -s HLSL -d SPIRV -t vertex -e VertexMain -o shaders/spv/shader.spv.vert
+  shadercross shaders/hlsl/shader.hlsl -s HLSL -d SPIRV -t fragment -e FragmentMain -o shaders/spv/shader.spv.frag
+  shadercross shaders/hlsl/shader.hlsl -s HLSL -d MSL -t vertex -e VertexMain -o shaders/msl/shader.msl.vert
+  shadercross shaders/hlsl/shader.hlsl -s HLSL -d MSL -t fragment -e FragmentMain -o shaders/msl/shader.msl.frag
+  shadercross shaders/hlsl/shader.hlsl -s HLSL -d DXIL -t vertex -e VertexMain -o shaders/dxil/shader.dxil.vert
+  shadercross shaders/hlsl/shader.hlsl -s HLSL -d DXIL -t fragment -e FragmentMain -o shaders/dxil/shader.dxil.frag
 
-spv-to-msl shader_name:
-  shadercross shaders/spv/{{shader_name}}.spv.vert -o shaders/msl/{{shader_name}}.msl.vert
-  shadercross shaders/spv/{{shader_name}}.spv.frag -o shaders/msl/{{shader_name}}.msl.frag
-
-spv-to-dxil shader_name:
+check-shaders:
   #!/usr/bin/env sh
-  if [ "$(uname)" = "Windows_NT" ]; then
-    shadercross shaders/spv/{{shader_name}}.spv.vert -o shaders/dxil/{{shader_name}}.dxil.vert
-    shadercross shaders/spv/{{shader_name}}.spv.frag -o shaders/dxil/{{shader_name}}.dxil.frag
-  else
-    echo "Not rendering DXIL shaders"
-  fi
-
-shader shader_name: (glsl-to-spv shader_name) (spv-to-msl shader_name) (spv-to-dxil shader_name)
-
-shaders: (shader "shader")
+  before="$(shasum shaders/msl/shader.msl.vert shaders/msl/shader.msl.frag shaders/spv/shader.spv.vert shaders/spv/shader.spv.frag shaders/dxil/shader.dxil.vert shaders/dxil/shader.dxil.frag)"
+  just shaders
+  after="$(shasum shaders/msl/shader.msl.vert shaders/msl/shader.msl.frag shaders/spv/shader.spv.vert shaders/spv/shader.spv.frag shaders/dxil/shader.dxil.vert shaders/dxil/shader.dxil.frag)"
+  test "$before" = "$after"
