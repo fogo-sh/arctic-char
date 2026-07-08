@@ -2,6 +2,7 @@ package main
 
 import "core:math"
 import "core:math/linalg"
+import b3 "vendor:box3d"
 
 QU_TO_M :: f32(0.038)
 
@@ -22,9 +23,12 @@ PlayerSpec :: struct {
 	eye_height:           f32,
 	mouse_sensitivity:    f32,
 	kill_plane_y:         f32,
+	hull_mins:            Vec3,
+	hull_maxs:            Vec3,
 	capsule_radius:       f32,
 	capsule_half_height:  f32,
-	ground_snap:          f32,
+	capsule_center_y:     f32,
+	step_height:          f32,
 	walkable_min_y:       f32,
 }
 
@@ -46,17 +50,20 @@ PLAYER_SPEC :: PlayerSpec{
 		stop_speed = 100.0 * QU_TO_M,
 		ground_accel = 10.0,
 		air_accel = 10.0,
-		friction = 4.0,
+		friction = 6.0,
 		jump_velocity = 270.0 * QU_TO_M,
 		air_wishspeed_cap = 30.0 * QU_TO_M,
 	},
 	spawn_position = {0, 0.9, 8.0},
-	eye_height = 0.72,
+	eye_height = 22.0 * QU_TO_M,
 	mouse_sensitivity = 0.0022,
 	kill_plane_y = -10.0,
-	capsule_radius = 0.35,
-	capsule_half_height = 0.55,
-	ground_snap = 0.08,
+	hull_mins = {-16.0 * QU_TO_M, -24.0 * QU_TO_M, -16.0 * QU_TO_M},
+	hull_maxs = {16.0 * QU_TO_M, 32.0 * QU_TO_M, 16.0 * QU_TO_M},
+	capsule_radius = 16.0 * QU_TO_M,
+	capsule_half_height = (56.0 * QU_TO_M) * 0.5 - 16.0 * QU_TO_M,
+	capsule_center_y = 4.0 * QU_TO_M,
+	step_height = 18.0 * QU_TO_M,
 	walkable_min_y = 0.7,
 }
 
@@ -92,7 +99,7 @@ player_update :: proc(player: ^PlayerController, physics: ^PhysicsWorld, input: 
 			player.grounded = false
 			player_air_accelerate(player, wish_dir, config.max_speed, config.air_accel, delta_time, config.air_wishspeed_cap)
 		} else {
-			player_apply_friction(player, config, delta_time)
+			player_apply_friction(player, physics, spec, config, delta_time)
 			player_accelerate(player, wish_dir, config.max_speed, config.ground_accel, delta_time)
 			player.velocity.y = min(player.velocity.y, f32(0))
 		}
@@ -116,7 +123,7 @@ player_update :: proc(player: ^PlayerController, physics: ^PhysicsWorld, input: 
 	}
 }
 
-player_apply_friction :: proc(player: ^PlayerController, config: PlayerMoveConfig, delta_time: f32) {
+player_apply_friction :: proc(player: ^PlayerController, physics: ^PhysicsWorld, spec: PlayerSpec, config: PlayerMoveConfig, delta_time: f32) {
 	horizontal := Vec3{player.velocity.x, 0, player.velocity.z}
 	speed := linalg.length(horizontal)
 	if speed < QU_TO_M {
@@ -125,11 +132,28 @@ player_apply_friction :: proc(player: ^PlayerController, config: PlayerMoveConfi
 		return
 	}
 
+	friction := config.friction
+	if player_ledge_friction_applies(player, physics, spec, horizontal / speed) {
+		friction *= 2
+	}
+
 	control := max(config.stop_speed, speed)
-	drop := control * config.friction * delta_time
+	drop := control * friction * delta_time
 	new_speed := max(speed - drop, f32(0)) / speed
 	player.velocity.x *= new_speed
 	player.velocity.z *= new_speed
+}
+
+player_ledge_friction_applies :: proc(player: ^PlayerController, physics: ^PhysicsWorld, spec: PlayerSpec, direction: Vec3) -> bool {
+	start := player.position + direction * (16.0 * QU_TO_M)
+	start.y += spec.hull_mins.y
+	result := b3.World_CastRayClosest(
+		physics.id,
+		b3.Pos(start),
+		{0, -(34.0 * QU_TO_M), 0},
+		physics_player_query_filter(),
+	)
+	return !result.hit
 }
 
 player_accelerate :: proc(player: ^PlayerController, dir: Vec3, wish_speed, accel, delta_time: f32) {
