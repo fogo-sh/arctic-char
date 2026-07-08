@@ -14,8 +14,7 @@ App :: struct {
 	gpu:    ^sdl.GPUDevice,
 
 	renderer: Renderer,
-	move_input: PlayerMoveInput,
-	look_input: PlayerLookInput,
+	input: InputState,
 	render_items: [dynamic]RenderItem,
 	fs: GameFS,
 	game: rawptr,
@@ -31,7 +30,7 @@ App :: struct {
 Game_API :: struct {
 	init: proc(renderer: ^Renderer, fs: ^GameFS, config: LaunchConfig) -> rawptr,
 	destroy: proc(game: rawptr),
-	update: proc(game: rawptr, move_input: PlayerMoveInput, look_input: PlayerLookInput, delta_time: f32),
+	update: proc(game: rawptr, input: InputState, delta_time: f32),
 	render: proc(game: rawptr, render_items: ^[dynamic]RenderItem, win_size: [2]i32) -> RenderFrame,
 }
 
@@ -113,7 +112,7 @@ app_destroy :: proc(app: ^App) {
 
 app_run :: proc(app: ^App) {
 	for app.running {
-		input_begin_frame(&app.look_input)
+		input_begin_frame(&app.input)
 		app_handle_events(app)
 		app_update_time(app)
 		app_draw(app)
@@ -128,23 +127,18 @@ app_update_time :: proc(app: ^App) {
 	app.last_ticks = new_ticks
 	app.total_time += delta_time
 	app_update_input(app)
-	app.game_api.update(app.game, app.move_input, app.look_input, delta_time)
+	app.game_api.update(app.game, app.input, delta_time)
 	app.stats_log_time += delta_time
 }
 
 app_update_input :: proc(app: ^App) {
 	num_keys: c.int
 	keys := sdl.GetKeyboardState(&num_keys)
-	app.move_input.move_forward = app_key_axis(keys, num_keys, .W, .S)
-	app.move_input.move_right = app_key_axis(keys, num_keys, .D, .A)
-	app.move_input.jump_held = app_key_down(keys, num_keys, .SPACE)
-}
-
-app_key_axis :: proc(keys: [^]bool, num_keys: c.int, positive, negative: sdl.Scancode) -> f32 {
-	axis: f32
-	if app_key_down(keys, num_keys, positive) do axis += 1
-	if app_key_down(keys, num_keys, negative) do axis -= 1
-	return axis
+	app.input.buttons[.W] = app_key_down(keys, num_keys, .W)
+	app.input.buttons[.A] = app_key_down(keys, num_keys, .A)
+	app.input.buttons[.S] = app_key_down(keys, num_keys, .S)
+	app.input.buttons[.D] = app_key_down(keys, num_keys, .D)
+	app.input.buttons[.Space] = app_key_down(keys, num_keys, .SPACE)
 }
 
 app_key_down :: proc(keys: [^]bool, num_keys: c.int, scancode: sdl.Scancode) -> bool {
@@ -163,8 +157,8 @@ app_handle_events :: proc(app: ^App) {
 			assert(ok)
 			renderer_resize(&app.renderer, app.win_size.x, app.win_size.y)
 		case .MOUSE_MOTION:
-			app.look_input.look_delta.x += ev.motion.xrel
-			app.look_input.look_delta.y += ev.motion.yrel
+			app.input.mouse_delta.x += ev.motion.xrel
+			app.input.mouse_delta.y += ev.motion.yrel
 		case .KEY_DOWN:
 			if ev.key.scancode == .Q || ev.key.scancode == .ESCAPE {
 				app.running = false

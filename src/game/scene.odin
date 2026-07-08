@@ -11,6 +11,7 @@ SPAWN_INTERVAL :: f32(0.12)
 Scene :: struct {
 	allocator:      runtime.Allocator,
 	physics:        PhysicsWorld,
+	physics_assets: ScenePhysicsAssets,
 	player:         PlayerController,
 	objects:        [dynamic]Object,
 	suzanne_mesh:   MeshHandle,
@@ -57,7 +58,7 @@ Object :: struct {
 scene_create :: proc(assets: ^SceneAssets, allocator := context.allocator) -> Scene {
 	scene := Scene{
 		allocator = allocator,
-		physics = physics_create(&assets.collision_mesh, &assets.level.render_mesh),
+		physics = physics_create(),
 		player = player_create(assets.level.player_spawn.position, assets.level.player_spawn.yaw),
 		objects = make([dynamic]Object, 0, MAX_SUZANNES + 1, allocator),
 		suzanne_mesh = assets.suzanne_handle,
@@ -66,6 +67,7 @@ scene_create :: proc(assets: ^SceneAssets, allocator := context.allocator) -> Sc
 		next_object_id = 1,
 		spawn_timer = SPAWN_INTERVAL,
 	}
+	scene_physics_assets_create(&scene, &assets.collision_mesh, &assets.level.render_mesh)
 	scene_create_map(&scene)
 	return scene
 }
@@ -73,11 +75,12 @@ scene_create :: proc(assets: ^SceneAssets, allocator := context.allocator) -> Sc
 scene_destroy :: proc(scene: ^Scene) {
 	delete(scene.objects)
 	physics_destroy(&scene.physics)
+	scene_physics_assets_destroy(scene)
 	scene^ = {}
 }
 
 scene_reload_level :: proc(scene: ^Scene, level: ^LevelAsset) {
-	physics_replace_map_mesh(&scene.physics, &level.render_mesh)
+	scene_physics_replace_map_mesh(scene, &level.render_mesh)
 	scene.player = player_create(level.player_spawn.position, level.player_spawn.yaw)
 	scene.accumulator = 0
 }
@@ -124,7 +127,7 @@ scene_spawn_suzanne :: proc(scene: ^Scene) {
 		math.sin(angle) * radius,
 	}
 
-	body := physics_create_suzanne_body(&scene.physics, position, i)
+	body := scene_physics_create_suzanne_body(scene, position, i)
 	scene_add_object(scene, Object{
 		name = "Suzanne",
 		kind = .Suzanne,

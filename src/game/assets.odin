@@ -12,12 +12,11 @@ SceneAssets :: struct {
 	default_material: MaterialHandle,
 }
 
-scene_assets_load :: proc(fs: ^GameFS, config: LaunchConfig) -> SceneAssets {
+scene_assets_load :: proc(fs: ^GameFS, map_qpath: string) -> SceneAssets {
 	runtime.DEFAULT_TEMP_ALLOCATOR_TEMP_GUARD()
 
 	assets: SceneAssets
 	assets.suzanne_mesh = load_glb_mesh(fs, "models/suzanne.glb")
-	map_qpath := launch_config_map_qpath(config, context.temp_allocator)
 	assets.level = level_load(fs, map_qpath)
 
 	assets.collision_mesh = load_glb_mesh(fs, "models/suzanne_collision.glb")

@@ -1,6 +1,8 @@
 package game
 
 import "core:log"
+import "core:os"
+import "core:strings"
 import "core:time"
 import engine "../engine"
 
@@ -25,6 +27,10 @@ Game_State :: struct {
 	scene: Scene,
 }
 
+GameLaunchConfig :: struct {
+	map_name: string,
+}
+
 game_api :: proc() -> engine.Game_API {
 	return {
 		init = game_init,
@@ -38,9 +44,10 @@ game_init :: proc(renderer: ^Renderer, fs: ^GameFS, config: LaunchConfig) -> raw
 	state := new(Game_State)
 	state.renderer = renderer
 	state.fs = fs
-	state.map_qpath = launch_config_map_qpath(config)
+	game_config := game_launch_config_parse()
+	state.map_qpath = game_launch_config_map_qpath(game_config)
 	state.map_mtime, _ = game_fs_modification_time(fs, state.map_qpath)
-	assets := scene_assets_load(fs, config)
+	assets := scene_assets_load(fs, state.map_qpath)
 	upload := renderer_begin_upload(renderer)
 	assets.suzanne_handle = renderer_upload_mesh(&upload, &assets.suzanne_mesh)
 	assets.map_handle = renderer_upload_mesh(&upload, &assets.level.render_mesh)
@@ -58,9 +65,10 @@ game_destroy :: proc(game: rawptr) {
 	free(state)
 }
 
-game_update :: proc(game: rawptr, move_input: PlayerMoveInput, look_input: PlayerLookInput, delta_time: f32) {
+game_update :: proc(game: rawptr, input: InputState, delta_time: f32) {
 	state := cast(^Game_State)game
 	game_reload_map_if_changed(state, delta_time)
+	move_input, look_input := player_input_from_engine(input)
 	scene_update(&state.scene, move_input, look_input, delta_time)
 }
 
@@ -70,6 +78,25 @@ game_render :: proc(game: rawptr, render_items: ^[dynamic]RenderItem, win_size: 
 		globals = scene_render_globals(&state.scene, win_size),
 		items = scene_collect_render_items(&state.scene, render_items),
 	}
+}
+
+game_launch_config_parse :: proc() -> GameLaunchConfig {
+	config := GameLaunchConfig{map_name = "test"}
+	args := os.args[1:]
+	for i := 0; i < len(args); i += 1 {
+		if args[i] == "+map" && i + 1 < len(args) {
+			i += 1
+			config.map_name = args[i]
+		}
+	}
+	return config
+}
+
+game_launch_config_map_qpath :: proc(config: GameLaunchConfig, allocator := context.allocator) -> string {
+	// Make `+map test` resolve to `maps/test.map`.
+	qpath, err := strings.concatenate({"maps/", config.map_name, ".map"}, allocator)
+	assert(err == nil)
+	return qpath
 }
 
 game_reload_map_if_changed :: proc(state: ^Game_State, delta_time: f32) {

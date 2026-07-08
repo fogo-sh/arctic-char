@@ -1,15 +1,18 @@
 package engine
 
-PlayerMoveInput :: struct {
-	move_forward: f32,
-	move_right:   f32,
-	jump_held:    bool,
+InputButton :: enum {
+	W,
+	A,
+	S,
+	D,
+	Space,
 }
 
-PlayerLookInput :: struct {
-	look_delta:   [2]f32,
+InputState :: struct {
+	buttons:    [InputButton]bool,
+	mouse_delta: [2]f32,
 }
 
-input_begin_frame :: proc(look: ^PlayerLookInput) {
-	look.look_delta = {}
+input_begin_frame :: proc(input: ^InputState) {
+	input.mouse_delta = {}
 }

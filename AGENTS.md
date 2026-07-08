@@ -13,11 +13,12 @@ The code is split by ownership and learning area:
 - `src/engine/mesh.odin`: CPU mesh loading and shared vertex data types
 - `src/engine/graphics.odin`: platform shader selection and shader creation
 - `src/engine/renderer.odin`: SDL GPU pipeline, render targets, mesh upload/replacement, and draw pass
-- `src/engine/physics.odin`: Box3D world, fixed stepping, body creation, transform conversion
-- `src/engine/collision_shape.odin`: Suzanne convex hull cooking
+- `src/engine/physics.odin`: generic Box3D world ownership, fixed stepping, mesh cooking, transform conversion
 - `src/game/game.odin`: package-level game startup and engine callback wiring
 - `src/game/assets.odin`: scene asset loading and collision asset policy
 - `src/game/scene.odin`: scene objects, spawning, map reload application, and render item extraction
+- `src/game/scene_physics.odin`: game collision layers, map collision body, and prop body creation
+- `src/game/collision_shape.odin`: Suzanne convex hull cooking
 - `src/game/player.odin`: Quake-style player controller
 - `src/game/player_mover.odin`: Box3D kinematic player mover
 - `src/game/map.odin`, `src/game/map_mesh.odin`, `src/game/level.odin`: Valve 220 map parsing and level compilation

@@ -43,6 +43,16 @@ PlayerController :: struct {
 	ground_normal:  Vec3,
 }
 
+PlayerMoveInput :: struct {
+	move_forward: f32,
+	move_right:   f32,
+	jump_held:    bool,
+}
+
+PlayerLookInput :: struct {
+	look_delta: [2]f32,
+}
+
 PLAYER_SPEC :: PlayerSpec{
 	move = {
 		gravity = 800.0 * QU_TO_M,
@@ -77,6 +87,16 @@ player_create :: proc(position := PLAYER_SPEC.spawn_position, yaw: f32 = 0) -> P
 		spawn_yaw = yaw,
 		ground_normal = {0, 1, 0},
 	}
+}
+
+player_input_from_engine :: proc(input: InputState) -> (move: PlayerMoveInput, look: PlayerLookInput) {
+	if input.buttons[.W] do move.move_forward += 1
+	if input.buttons[.S] do move.move_forward -= 1
+	if input.buttons[.D] do move.move_right += 1
+	if input.buttons[.A] do move.move_right -= 1
+	move.jump_held = input.buttons[.Space]
+	look.look_delta = input.mouse_delta
+	return
 }
 
 player_apply_look :: proc(player: ^PlayerController, input: PlayerLookInput) {
