@@ -1,28 +1,18 @@
-# arctic char\*
+# arctic char*
 
-<img src="./screenshot.webp" width="250" />
+Tiny Odin + SDL3 GPU sandbox.
 
-as much as possible from Odin's core / vendor libaries are being used here:
+Right now this is intentionally just:
 
-- [SDL3](https://pkg.odin-lang.org/vendor/sdl3/): Windows, Audio, GPU, etc.
-- [cgltf](https://pkg.odin-lang.org/vendor/cgltf/): gltf/glb handling
-- [stb/image](https://pkg.odin-lang.org/vendor/stb/image/): reading images from disk into memory
+- SDL3 window/GPU setup
+- `cgltf` loading `assets/suzanne.glb`
+- a color-only shader
+- a rotating Suzanne render loop
 
-however, we are pulling in:
+Build and run:
 
-- [clay](https://github.com/nicbarker/clay/tree/main/bindings/odin): Layout (_heavily WIP SDL3 GPU renderer also in this project_)
+```sh
+just build-and-run
+```
 
-using [SDL_shadercross](https://github.com/libsdl-org/SDL_shadercross) to compile shaders to different platforms.
-
----
-
-todo:
-
-- user interface
-- main menu
-- sounds on button press rather than just looping WAV
-- billboard sprites
-
----
-
-originally based on [nadako](https://github.com/nadako)'s [hello-sdlgpu3-odin](https://github.com/nadako/hello-sdlgpu3-odin), and also many aspects made following their amazing [youtube tutorial](https://www.youtube.com/playlist?list=PLI3kBEQ3yd-CbQfRchF70BPLF9G1HEzhy)!
+The repo is pinned to Odin `dev-2025-03` via `mise` for the current baseline.

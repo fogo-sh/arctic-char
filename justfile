@@ -1,8 +1,5 @@
 set windows-powershell
 
-screenshot:
-  cwebp screenshot.png -o screenshot.webp
-
 clean:
   rm -rf ./build
 
@@ -20,9 +17,6 @@ run:
   ./build/arctic-char
 
 build-and-run: build run
-
-build-and-run-map: build
-  ./build/arctic-char Map
 
 glsl-to-spv shader_name:
   glslc shaders/glsl/{{shader_name}}.glsl.vert -o shaders/spv/{{shader_name}}.spv.vert
@@ -43,14 +37,4 @@ spv-to-dxil shader_name:
 
 shader shader_name: (glsl-to-spv shader_name) (spv-to-msl shader_name) (spv-to-dxil shader_name)
 
-shaders: (shader "shader") (shader "ui")
-
-map map_name:
-  cd ./assets && qbsp -notex ./maps/{{map_name}}.map
-  cd ./assets && vis ./maps/{{map_name}}.bsp
-  cd ./assets && light ./maps/{{map_name}}.bsp
-
-maps: (map "test")
-
-atlas:
-  odin run ./atlas-builder/
+shaders: (shader "shader")
