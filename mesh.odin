@@ -1,5 +1,6 @@
 package main
 
+import "base:runtime"
 import "core:strings"
 import "vendor:cgltf"
 
@@ -12,21 +13,23 @@ VertexData :: struct {
 }
 
 CpuMesh :: struct {
-	vertices: []VertexData,
-	indices:  []u16,
+	vertices:  []VertexData,
+	indices:   []u16,
+	allocator: runtime.Allocator,
 }
 
 cpu_mesh_destroy :: proc(mesh: ^CpuMesh) {
-	delete(mesh.vertices)
-	delete(mesh.indices)
+	delete(mesh.vertices, mesh.allocator)
+	delete(mesh.indices, mesh.allocator)
 	mesh^ = {}
 }
 
 // Reads a GLB file into plain CPU arrays. GPU upload is intentionally separate
 // so the file format step stays easy to inspect while learning the pipeline.
-load_glb_mesh :: proc(model_path: string) -> CpuMesh {
-	model_path_cstr := strings.clone_to_cstring(model_path)
-	defer delete(model_path_cstr)
+load_glb_mesh :: proc(model_path: string, allocator := context.allocator) -> CpuMesh {
+	runtime.DEFAULT_TEMP_ALLOCATOR_TEMP_GUARD()
+
+	model_path_cstr := strings.clone_to_cstring(model_path, context.temp_allocator)
 
 	options: cgltf.options
 	data, result := cgltf.parse_file(options, model_path_cstr)
@@ -60,8 +63,7 @@ load_glb_mesh :: proc(model_path: string) -> CpuMesh {
 	num_pos_components := cgltf.num_components(pos_accessor.type)
 	num_col_components := col_accessor != nil ? cgltf.num_components(col_accessor.type) : 0
 
-	positions := make([]f32, vertex_count * num_pos_components)
-	defer delete(positions)
+	positions := make([]f32, vertex_count * num_pos_components, context.temp_allocator)
 	_ = cgltf.accessor_unpack_floats(
 		pos_accessor,
 		raw_data(positions),
@@ -69,9 +71,8 @@ load_glb_mesh :: proc(model_path: string) -> CpuMesh {
 	)
 
 	colors: []f32
-	defer delete(colors)
 	if col_accessor != nil {
-		colors = make([]f32, vertex_count * num_col_components)
+		colors = make([]f32, vertex_count * num_col_components, context.temp_allocator)
 		_ = cgltf.accessor_unpack_floats(
 			col_accessor,
 			raw_data(colors),
@@ -79,7 +80,7 @@ load_glb_mesh :: proc(model_path: string) -> CpuMesh {
 		)
 	}
 
-	vertices := make([]VertexData, vertex_count)
+	vertices := make([]VertexData, vertex_count, allocator)
 	for i := 0; i < int(vertex_count); i += 1 {
 		pos_idx := i * int(num_pos_components)
 		col_idx := i * int(num_col_components)
@@ -95,22 +96,22 @@ load_glb_mesh :: proc(model_path: string) -> CpuMesh {
 		}
 	}
 
-	indices := make([]u16, index_count)
+	indices := make([]u16, index_count, allocator)
 	for i := 0; i < int(index_count); i += 1 {
 		indices[i] = u16(cgltf.accessor_read_index(idx_accessor, uint(i)))
 	}
 
-	return CpuMesh{vertices = vertices, indices = indices}
+	return CpuMesh{vertices = vertices, indices = indices, allocator = allocator}
 }
 
-create_ground_mesh :: proc() -> CpuMesh {
-	vertices := make([]VertexData, 4)
+create_ground_mesh :: proc(allocator := context.allocator) -> CpuMesh {
+	vertices := make([]VertexData, 4, allocator)
 	vertices[0] = {pos = {-50, 0, -50}, color = {0.18, 0.22, 0.20, 1}}
 	vertices[1] = {pos = {50, 0, -50}, color = {0.18, 0.22, 0.20, 1}}
 	vertices[2] = {pos = {50, 0, 50}, color = {0.16, 0.20, 0.18, 1}}
 	vertices[3] = {pos = {-50, 0, 50}, color = {0.16, 0.20, 0.18, 1}}
 
-	indices := make([]u16, 6)
+	indices := make([]u16, 6, allocator)
 	indices[0] = 0
 	indices[1] = 2
 	indices[2] = 1
@@ -118,5 +119,5 @@ create_ground_mesh :: proc() -> CpuMesh {
 	indices[4] = 3
 	indices[5] = 2
 
-	return CpuMesh{vertices = vertices, indices = indices}
+	return CpuMesh{vertices = vertices, indices = indices, allocator = allocator}
 }

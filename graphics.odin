@@ -1,5 +1,6 @@
 package main
 
+import "base:runtime"
 import "core:strings"
 import sdl "vendor:sdl3"
 
@@ -27,8 +28,8 @@ load_shader :: proc(
 	num_uniform_buffers: u32,
 	entrypoint_name: string,
 ) -> ^sdl.GPUShader {
-	entrypoint := strings.clone_to_cstring(entrypoint_name)
-	defer delete(entrypoint)
+	runtime.DEFAULT_TEMP_ALLOCATOR_TEMP_GUARD()
+	entrypoint := strings.clone_to_cstring(entrypoint_name, context.temp_allocator)
 	return sdl.CreateGPUShader(
 		device,
 		{

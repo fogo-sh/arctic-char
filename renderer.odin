@@ -1,10 +1,13 @@
 package main
 
+import "base:runtime"
 import "core:mem"
 import "core:log"
 import sdl "vendor:sdl3"
 
 Renderer :: struct {
+	allocator: runtime.Allocator,
+
 	gpu:    ^sdl.GPUDevice,
 	window: ^sdl.Window,
 
@@ -38,8 +41,10 @@ renderer_create :: proc(
 	window: ^sdl.Window,
 	width, height: i32,
 	meshes: []CpuMesh,
+	allocator := context.allocator,
 ) -> Renderer {
 	renderer := Renderer{
+		allocator = allocator,
 		gpu = gpu,
 		window = window,
 		sample_count = renderer_choose_sample_count(gpu, window),
@@ -47,7 +52,7 @@ renderer_create :: proc(
 	log.debugf("Renderer MSAA sample count: %v", renderer.sample_count)
 	renderer_create_render_targets(&renderer, width, height)
 	renderer.pipeline = renderer_create_pipeline(gpu, window, renderer.sample_count)
-	renderer.meshes = make([dynamic]GpuMesh, 0, len(meshes))
+	renderer.meshes = make([dynamic]GpuMesh, 0, len(meshes), allocator)
 	for &mesh in meshes {
 		append(&renderer.meshes, renderer_upload_mesh(&renderer, &mesh))
 	}

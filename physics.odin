@@ -19,7 +19,6 @@ physics_create :: proc(collision_mesh: ^CpuMesh, collision_source: CollisionSour
 		id = b3.CreateWorld(world_def),
 		suzanne_hull = collision_create_suzanne_hull(collision_mesh, collision_source),
 	}
-	physics_create_ground(&physics)
 	return physics
 }
 
@@ -41,7 +40,7 @@ physics_step :: proc(physics: ^PhysicsWorld, delta_time: f32) {
 	}
 }
 
-physics_create_ground :: proc(physics: ^PhysicsWorld) {
+physics_create_ground_body :: proc(physics: ^PhysicsWorld) -> b3.BodyId {
 	body_def := b3.DefaultBodyDef()
 	body_def.position = {0, -0.5, 0}
 	body := b3.CreateBody(physics.id, body_def)
@@ -50,6 +49,7 @@ physics_create_ground :: proc(physics: ^PhysicsWorld) {
 	shape_def.baseMaterial.friction = 0.7
 	ground_hull := b3.MakeBoxHull(50, 0.5, 50)
 	_ = b3.CreateHullShape(body, shape_def, &ground_hull.base)
+	return body
 }
 
 physics_create_suzanne_body :: proc(physics: ^PhysicsWorld, position: Vec3, ordinal: int) -> b3.BodyId {

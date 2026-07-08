@@ -1,5 +1,6 @@
 package main
 
+import "base:runtime"
 import "core:c"
 import "core:math"
 import b3 "vendor:box3d"
@@ -8,6 +9,8 @@ SUZANNE_HULL_MAX_VERTICES :: 48
 SUZANNE_HULL_SAMPLE_COUNT :: 48
 
 collision_create_suzanne_hull :: proc(mesh: ^CpuMesh, source: CollisionSource) -> ^b3.HullData {
+	runtime.DEFAULT_TEMP_ALLOCATOR_TEMP_GUARD()
+
 	points := collision_hull_points(mesh, source)
 	hull := b3.CreateHull(raw_data(points), c.int(len(points)), SUZANNE_HULL_MAX_VERTICES)
 	assert(hull != nil)

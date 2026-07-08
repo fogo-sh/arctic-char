@@ -12,6 +12,7 @@ App :: struct {
 
 	renderer: Renderer,
 	scene:    Scene,
+	render_items: [dynamic]RenderItem,
 	win_size: [2]i32,
 
 	running:    bool,
@@ -64,6 +65,7 @@ app_create :: proc() -> App {
 	assets := scene_assets_load()
 	app.renderer = renderer_create(app.gpu, app.window, app.win_size.x, app.win_size.y, assets.render_meshes[:])
 	app.scene = scene_create(&assets)
+	app.render_items = make([dynamic]RenderItem, 0, MAX_SUZANNES + 1)
 	scene_assets_destroy(&assets)
 
 	app.last_ticks = sdl.GetTicks()
@@ -73,6 +75,7 @@ app_create :: proc() -> App {
 app_destroy :: proc(app: ^App) {
 	scene_destroy(&app.scene)
 	renderer_destroy(&app.renderer)
+	delete(app.render_items)
 	if app.gpu != nil && app.window != nil do sdl.ReleaseWindowFromGPUDevice(app.gpu, app.window)
 	if app.gpu != nil do sdl.DestroyGPUDevice(app.gpu)
 	if app.window != nil do sdl.DestroyWindow(app.window)
@@ -122,7 +125,7 @@ app_draw :: proc(app: ^App) {
 	ok := sdl.WaitAndAcquireGPUSwapchainTexture(cmd_buf, app.window, &swapchain_tex, nil, nil)
 	assert(ok)
 
-	render_items := scene_collect_render_items(&app.scene, app.win_size)
+	render_items := scene_collect_render_items(&app.scene, app.win_size, &app.render_items)
 	renderer_draw(&app.renderer, cmd_buf, swapchain_tex, render_items)
 
 	ok = sdl.SubmitGPUCommandBuffer(cmd_buf)
