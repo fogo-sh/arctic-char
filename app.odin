@@ -11,6 +11,7 @@ App :: struct {
 	gpu:    ^sdl.GPUDevice,
 
 	renderer: Renderer,
+	scene:    Scene,
 	win_size: [2]i32,
 
 	running:    bool,
@@ -60,20 +61,17 @@ app_create :: proc() -> App {
 	ok = sdl.GetWindowSize(app.window, &app.win_size.x, &app.win_size.y)
 	assert(ok)
 
-	suzanne_mesh := load_glb_mesh("./assets/suzanne.glb")
-	app.renderer = renderer_create(app.gpu, app.window, app.win_size.x, app.win_size.y, &suzanne_mesh)
-	log.debugf(
-		"Loaded Suzanne: vertices=%d indices=%d",
-		len(suzanne_mesh.vertices),
-		len(suzanne_mesh.indices),
-	)
-	cpu_mesh_destroy(&suzanne_mesh)
+	assets := scene_assets_load()
+	app.renderer = renderer_create(app.gpu, app.window, app.win_size.x, app.win_size.y, assets.render_meshes[:])
+	app.scene = scene_create(&assets)
+	scene_assets_destroy(&assets)
 
 	app.last_ticks = sdl.GetTicks()
 	return app
 }
 
 app_destroy :: proc(app: ^App) {
+	scene_destroy(&app.scene)
 	renderer_destroy(&app.renderer)
 	if app.gpu != nil && app.window != nil do sdl.ReleaseWindowFromGPUDevice(app.gpu, app.window)
 	if app.gpu != nil do sdl.DestroyGPUDevice(app.gpu)
@@ -97,6 +95,7 @@ app_update_time :: proc(app: ^App) {
 	delta_time := f32(new_ticks - app.last_ticks) / 1000
 	app.last_ticks = new_ticks
 	app.total_time += delta_time
+	scene_update(&app.scene, delta_time)
 }
 
 app_handle_events :: proc(app: ^App) {
@@ -123,7 +122,8 @@ app_draw :: proc(app: ^App) {
 	ok := sdl.WaitAndAcquireGPUSwapchainTexture(cmd_buf, app.window, &swapchain_tex, nil, nil)
 	assert(ok)
 
-	renderer_draw(&app.renderer, cmd_buf, swapchain_tex, scene_mvp(app.win_size, app.total_time))
+	render_items := scene_collect_render_items(&app.scene, app.win_size)
+	renderer_draw(&app.renderer, cmd_buf, swapchain_tex, render_items)
 
 	ok = sdl.SubmitGPUCommandBuffer(cmd_buf)
 	assert(ok)

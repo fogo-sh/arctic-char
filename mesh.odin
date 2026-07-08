@@ -102,3 +102,21 @@ load_glb_mesh :: proc(model_path: string) -> CpuMesh {
 
 	return CpuMesh{vertices = vertices, indices = indices}
 }
+
+create_ground_mesh :: proc() -> CpuMesh {
+	vertices := make([]VertexData, 4)
+	vertices[0] = {pos = {-50, 0, -50}, color = {0.18, 0.22, 0.20, 1}}
+	vertices[1] = {pos = {50, 0, -50}, color = {0.18, 0.22, 0.20, 1}}
+	vertices[2] = {pos = {50, 0, 50}, color = {0.16, 0.20, 0.18, 1}}
+	vertices[3] = {pos = {-50, 0, 50}, color = {0.16, 0.20, 0.18, 1}}
+
+	indices := make([]u16, 6)
+	indices[0] = 0
+	indices[1] = 2
+	indices[2] = 1
+	indices[3] = 0
+	indices[4] = 3
+	indices[5] = 2
+
+	return CpuMesh{vertices = vertices, indices = indices}
+}
