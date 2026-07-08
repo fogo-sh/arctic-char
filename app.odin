@@ -25,7 +25,7 @@ App :: struct {
 
 // Creates SDL's application shell: window, GPU device, and the first renderer.
 // Asset loading is still explicit here so startup order is easy to follow.
-app_create :: proc() -> App {
+app_create :: proc(config: LaunchConfig) -> App {
 	when ODIN_DEBUG {
 		_ = sdl.SetHint(sdl.HINT_RENDER_GPU_DEBUG, "1")
 	}
@@ -67,7 +67,10 @@ app_create :: proc() -> App {
 	ok = sdl.GetWindowSize(app.window, &app.win_size.x, &app.win_size.y)
 	assert(ok)
 
-	assets := scene_assets_load()
+	fs := game_fs_create(config.base_dir, config.game)
+	defer game_fs_destroy(&fs)
+
+	assets := scene_assets_load(&fs, config)
 	render_meshes := [?]CpuMesh{assets.suzanne_mesh, assets.level.render_mesh}
 	app.renderer = renderer_create(app.gpu, app.window, app.win_size.x, app.win_size.y, render_meshes[:])
 	app.scene = scene_create(&assets)

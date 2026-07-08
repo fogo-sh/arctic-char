@@ -24,9 +24,16 @@ cpu_mesh_destroy :: proc(mesh: ^CpuMesh) {
 	mesh^ = {}
 }
 
+load_glb_mesh :: proc(fs: ^GameFS, qpath: string, allocator := context.allocator) -> CpuMesh {
+	runtime.DEFAULT_TEMP_ALLOCATOR_TEMP_GUARD()
+	model_path, ok := game_fs_resolve(fs, qpath, context.temp_allocator)
+	assert(ok)
+	return load_glb_mesh_path(model_path, allocator)
+}
+
 // Reads a GLB file into plain CPU arrays. GPU upload is intentionally separate
 // so the file format step stays easy to inspect while learning the pipeline.
-load_glb_mesh :: proc(model_path: string, allocator := context.allocator) -> CpuMesh {
+load_glb_mesh_path :: proc(model_path: string, allocator := context.allocator) -> CpuMesh {
 	runtime.DEFAULT_TEMP_ALLOCATOR_TEMP_GUARD()
 
 	model_path_cstr := strings.clone_to_cstring(model_path, context.temp_allocator)

@@ -4,7 +4,6 @@ import "base:runtime"
 import "core:log"
 import "core:math"
 import "core:math/linalg"
-import "core:os"
 import "core:strconv"
 
 MapProperty :: struct {
@@ -38,9 +37,9 @@ MapPlayerSpawn :: struct {
 	yaw:      f32,
 }
 
-quake_map_load :: proc(path: string, allocator := context.allocator) -> QuakeMap {
-	data, err := os.read_entire_file(path, allocator)
-	assert(err == nil)
+quake_map_load :: proc(fs: ^GameFS, qpath: string, allocator := context.allocator) -> QuakeMap {
+	data, ok := game_fs_read_file(fs, qpath, allocator)
+	assert(ok)
 
 	qmap := QuakeMap{
 		allocator = allocator,
@@ -49,7 +48,7 @@ quake_map_load :: proc(path: string, allocator := context.allocator) -> QuakeMap
 	}
 	quake_map_parse_entities(&qmap)
 	brush_count, face_count := quake_map_count_brush_data(&qmap)
-	log.debugf("Loaded map: %s entities=%d brushes=%d faces=%d", path, len(qmap.entities), brush_count, face_count)
+	log.debugf("Loaded map: %s entities=%d brushes=%d faces=%d", qpath, len(qmap.entities), brush_count, face_count)
 	return qmap
 }
 

@@ -10,7 +10,9 @@ Current features:
 - GLB mesh loading through Odin's `vendor:cgltf`
 - generic renderer mesh handles, depth testing, and 4x MSAA when supported
 - Box3D world with fixed-timestep stepping
-- static ground collision and 100 falling Suzanne bodies spawned over time
+- directory-first game filesystem with `-game` search path overrides
+- Valve 220 `.map` brush rendering and static map collision
+- Quake-style player movement and 100 falling Suzanne bodies spawned over time
 
 The project is pinned to Odin `dev-2026-07` via `mise.toml`.
 
@@ -30,7 +32,20 @@ just build-release
 just run
 ```
 
-`just build` copies `assets/` into `build/assets/` after compiling.
+`just build` copies `base/` into `build/base/` after compiling. Runtime content
+is loaded through qpaths under `base` by default.
+
+Run a different game directory before falling back to `base`:
+
+```sh
+./build/arctic-char -game mymod
+```
+
+Load a different map qpath by name:
+
+```sh
+./build/arctic-char +map test
+```
 
 ## Shaders
 
