@@ -5,16 +5,20 @@ import "core:os"
 
 SCENE_MESH_SUZANNE :: MeshHandle(0)
 SCENE_MESH_GROUND :: MeshHandle(1)
+SCENE_MESH_MAP :: MeshHandle(2)
 
 SceneAssets :: struct {
-	render_meshes:  [2]CpuMesh,
+	render_meshes:  [3]CpuMesh,
 	collision_mesh: CpuMesh,
+	level_map:      QuakeMap,
 }
 
 scene_assets_load :: proc() -> SceneAssets {
 	assets: SceneAssets
 	assets.render_meshes[int(SCENE_MESH_SUZANNE)] = load_glb_mesh("./assets/suzanne.glb")
 	assets.render_meshes[int(SCENE_MESH_GROUND)] = create_ground_mesh()
+	assets.level_map = quake_map_load("./assets/test.map")
+	assets.render_meshes[int(SCENE_MESH_MAP)] = create_map_mesh(&assets.level_map)
 
 	assert(os.is_file("./assets/suzanne_collision.glb"))
 	assets.collision_mesh = load_glb_mesh("./assets/suzanne_collision.glb")
@@ -34,5 +38,6 @@ scene_assets_destroy :: proc(assets: ^SceneAssets) {
 		cpu_mesh_destroy(&mesh)
 	}
 	cpu_mesh_destroy(&assets.collision_mesh)
+	quake_map_destroy(&assets.level_map)
 	assets^ = {}
 }

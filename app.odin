@@ -1,6 +1,7 @@
 package main
 
 import "base:runtime"
+import "core:c"
 import "core:log"
 import sdl "vendor:sdl3"
 
@@ -12,6 +13,7 @@ App :: struct {
 
 	renderer: Renderer,
 	scene:    Scene,
+	input:    PlayerInput,
 	render_items: [dynamic]RenderItem,
 	win_size: [2]i32,
 
@@ -51,6 +53,8 @@ app_create :: proc() -> App {
 
 	app.window = sdl.CreateWindow("arctic char*", 1024, 768, {.RESIZABLE})
 	assert(app.window != nil)
+	ok = sdl.SetWindowRelativeMouseMode(app.window, true)
+	assert(ok)
 
 	gpu_debug := ODIN_DEBUG
 	app.gpu = sdl.CreateGPUDevice(shader_format, gpu_debug, nil)
@@ -65,7 +69,7 @@ app_create :: proc() -> App {
 	assets := scene_assets_load()
 	app.renderer = renderer_create(app.gpu, app.window, app.win_size.x, app.win_size.y, assets.render_meshes[:])
 	app.scene = scene_create(&assets)
-	app.render_items = make([dynamic]RenderItem, 0, MAX_SUZANNES + 1)
+	app.render_items = make([dynamic]RenderItem, 0, MAX_SUZANNES + 3)
 	scene_assets_destroy(&assets)
 
 	app.last_ticks = sdl.GetTicks()
@@ -85,8 +89,9 @@ app_destroy :: proc(app: ^App) {
 
 app_run :: proc(app: ^App) {
 	for app.running {
-		app_update_time(app)
+		input_begin_frame(&app.input)
 		app_handle_events(app)
+		app_update_time(app)
 		app_draw(app)
 	}
 
@@ -98,7 +103,28 @@ app_update_time :: proc(app: ^App) {
 	delta_time := f32(new_ticks - app.last_ticks) / 1000
 	app.last_ticks = new_ticks
 	app.total_time += delta_time
-	scene_update(&app.scene, delta_time)
+	app_update_input(app)
+	scene_update(&app.scene, app.input, delta_time)
+}
+
+app_update_input :: proc(app: ^App) {
+	num_keys: c.int
+	keys := sdl.GetKeyboardState(&num_keys)
+	app.input.move_forward = app_key_axis(keys, num_keys, .W, .S)
+	app.input.move_right = app_key_axis(keys, num_keys, .D, .A)
+	app.input.jump_held = app_key_down(keys, num_keys, .SPACE)
+}
+
+app_key_axis :: proc(keys: [^]bool, num_keys: c.int, positive, negative: sdl.Scancode) -> f32 {
+	axis: f32
+	if app_key_down(keys, num_keys, positive) do axis += 1
+	if app_key_down(keys, num_keys, negative) do axis -= 1
+	return axis
+}
+
+app_key_down :: proc(keys: [^]bool, num_keys: c.int, scancode: sdl.Scancode) -> bool {
+	index := int(scancode)
+	return 0 <= index && index < int(num_keys) && keys[index]
 }
 
 app_handle_events :: proc(app: ^App) {
@@ -111,6 +137,9 @@ app_handle_events :: proc(app: ^App) {
 			ok := sdl.GetWindowSize(app.window, &app.win_size.x, &app.win_size.y)
 			assert(ok)
 			renderer_resize(&app.renderer, app.win_size.x, app.win_size.y)
+		case .MOUSE_MOTION:
+			app.input.look_delta.x += ev.motion.xrel
+			app.input.look_delta.y += ev.motion.yrel
 		case .KEY_DOWN:
 			if ev.key.scancode == .Q || ev.key.scancode == .ESCAPE {
 				app.running = false

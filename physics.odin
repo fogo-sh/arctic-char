@@ -5,11 +5,15 @@ import b3 "vendor:box3d"
 PhysicsWorld :: struct {
 	id:            b3.WorldId,
 	suzanne_hull:  ^b3.HullData,
-	accumulator:   f32,
 }
 
 PHYSICS_STEP_TIME :: f32(1.0 / 60.0)
 PHYSICS_SUBSTEPS :: 4
+
+COLLISION_CATEGORY_WORLD :: u64(1 << 0)
+COLLISION_CATEGORY_PROP :: u64(1 << 1)
+COLLISION_CATEGORY_PLAYER :: u64(1 << 2)
+COLLISION_MASK_ALL :: u64(COLLISION_CATEGORY_WORLD | COLLISION_CATEGORY_PROP | COLLISION_CATEGORY_PLAYER)
 
 physics_create :: proc(collision_mesh: ^CpuMesh) -> PhysicsWorld {
 	world_def := b3.DefaultWorldDef()
@@ -32,12 +36,20 @@ physics_destroy :: proc(physics: ^PhysicsWorld) {
 	physics^ = {}
 }
 
-physics_step :: proc(physics: ^PhysicsWorld, delta_time: f32) {
-	physics.accumulator += min(delta_time, 0.25)
-	for physics.accumulator >= PHYSICS_STEP_TIME {
-		b3.World_Step(physics.id, PHYSICS_STEP_TIME, PHYSICS_SUBSTEPS)
-		physics.accumulator -= PHYSICS_STEP_TIME
-	}
+physics_step :: proc(physics: ^PhysicsWorld) {
+	b3.World_Step(physics.id, PHYSICS_STEP_TIME, PHYSICS_SUBSTEPS)
+}
+
+physics_player_query_filter :: proc() -> b3.QueryFilter {
+	return {categoryBits = COLLISION_CATEGORY_PLAYER, maskBits = COLLISION_CATEGORY_WORLD | COLLISION_CATEGORY_PROP}
+}
+
+physics_world_shape_filter :: proc() -> b3.Filter {
+	return {categoryBits = COLLISION_CATEGORY_WORLD, maskBits = COLLISION_MASK_ALL}
+}
+
+physics_prop_shape_filter :: proc() -> b3.Filter {
+	return {categoryBits = COLLISION_CATEGORY_PROP, maskBits = COLLISION_MASK_ALL}
 }
 
 physics_create_ground_body :: proc(physics: ^PhysicsWorld) -> b3.BodyId {
@@ -47,6 +59,7 @@ physics_create_ground_body :: proc(physics: ^PhysicsWorld) -> b3.BodyId {
 
 	shape_def := b3.DefaultShapeDef()
 	shape_def.baseMaterial.friction = 0.7
+	shape_def.filter = physics_world_shape_filter()
 	ground_hull := b3.MakeBoxHull(50, 0.5, 50)
 	_ = b3.CreateHullShape(body, shape_def, &ground_hull.base)
 	return body
@@ -67,6 +80,7 @@ physics_create_suzanne_body :: proc(physics: ^PhysicsWorld, position: Vec3, ordi
 	shape_def.density = 1.0
 	shape_def.baseMaterial.friction = 0.6
 	shape_def.baseMaterial.restitution = 0.05
+	shape_def.filter = physics_prop_shape_filter()
 	_ = b3.CreateHullShape(body, shape_def, physics.suzanne_hull)
 
 	return body
