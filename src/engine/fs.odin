@@ -1,10 +1,11 @@
-package game
+package engine
 
 import "base:runtime"
 import "core:log"
 import "core:os"
 import path "core:path/filepath"
 import "core:strings"
+import "core:time"
 
 BASE_GAME_DIR :: "base"
 
@@ -68,6 +69,18 @@ game_fs_read_file :: proc(fs: ^GameFS, qpath: string, allocator := context.alloc
 	}
 	contents, err := os.read_entire_file(resolved, allocator)
 	return contents, err == nil
+}
+
+game_fs_modification_time :: proc(fs: ^GameFS, qpath: string) -> (mtime: time.Time, ok: bool) {
+	runtime.DEFAULT_TEMP_ALLOCATOR_TEMP_GUARD()
+
+	resolved, found := game_fs_resolve(fs, qpath, context.temp_allocator)
+	if !found {
+		return {}, false
+	}
+	modified_at, err := os.modification_time_by_path(resolved)
+	mtime = modified_at
+	return mtime, err == nil
 }
 
 game_fs_valid_game_dir :: proc(game: string) -> bool {

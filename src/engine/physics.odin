@@ -1,4 +1,4 @@
-package game
+package engine
 
 import "base:runtime"
 import "core:c"
@@ -47,6 +47,17 @@ physics_destroy :: proc(physics: ^PhysicsWorld) {
 
 physics_step :: proc(physics: ^PhysicsWorld) {
 	b3.World_Step(physics.id, PHYSICS_STEP_TIME, PHYSICS_SUBSTEPS)
+}
+
+physics_replace_map_mesh :: proc(physics: ^PhysicsWorld, level_mesh: ^CpuMesh) {
+	if b3.IS_NON_NULL(physics.map_body) {
+		b3.DestroyBody(physics.map_body)
+	}
+	if physics.map_mesh != nil {
+		b3.DestroyMesh(physics.map_mesh)
+	}
+	physics.map_mesh = physics_create_static_mesh_data(level_mesh)
+	physics.map_body = physics_create_map_body(physics)
 }
 
 physics_player_query_filter :: proc() -> b3.QueryFilter {

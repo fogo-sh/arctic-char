@@ -76,6 +76,12 @@ scene_destroy :: proc(scene: ^Scene) {
 	scene^ = {}
 }
 
+scene_reload_level :: proc(scene: ^Scene, level: ^LevelAsset) {
+	physics_replace_map_mesh(&scene.physics, &level.render_mesh)
+	scene.player = player_create(level.player_spawn.position, level.player_spawn.yaw)
+	scene.accumulator = 0
+}
+
 scene_update :: proc(scene: ^Scene, move_input: PlayerMoveInput, look_input: PlayerLookInput, delta_time: f32) {
 	player_apply_look(&scene.player, look_input)
 

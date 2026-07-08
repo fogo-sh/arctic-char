@@ -1,6 +1,6 @@
 package main
 
-import game "./src"
+import game "./src/game"
 
 main :: proc() {
 	game.Run()

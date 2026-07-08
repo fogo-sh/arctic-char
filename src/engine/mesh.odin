@@ -1,4 +1,4 @@
-package game
+package engine
 
 import "base:runtime"
 import "core:strings"

@@ -7,16 +7,20 @@ how the rendering, physics, and asset pieces fit together.
 
 The code is split by ownership and learning area:
 
-- `main.odin`: tiny executable entrypoint that imports `src/`
-- `src/game.odin`: package-level game startup
-- `src/app.odin`: SDL lifecycle, event loop, timing, and draw orchestration
-- `src/assets.odin`: scene asset loading and collision asset policy
-- `src/mesh.odin`: CPU mesh loading and generated ground mesh
-- `src/graphics.odin`: platform shader selection and shader creation
-- `src/renderer.odin`: SDL GPU pipeline, render targets, mesh upload, and draw pass
-- `src/scene.odin`: scene objects, spawning, and render item extraction
-- `src/physics.odin`: Box3D world, fixed stepping, body creation, transform conversion
-- `src/collision_shape.odin`: Suzanne convex hull cooking
+- `main.odin`: tiny executable entrypoint that imports `src/game/`
+- `src/engine/app.odin`: SDL lifecycle, event loop, timing, input polling, and draw orchestration
+- `src/engine/fs.odin`: qpath search paths, file reads, and modification-time polling
+- `src/engine/mesh.odin`: CPU mesh loading and shared vertex data types
+- `src/engine/graphics.odin`: platform shader selection and shader creation
+- `src/engine/renderer.odin`: SDL GPU pipeline, render targets, mesh upload/replacement, and draw pass
+- `src/engine/physics.odin`: Box3D world, fixed stepping, body creation, transform conversion
+- `src/engine/collision_shape.odin`: Suzanne convex hull cooking
+- `src/game/game.odin`: package-level game startup and engine callback wiring
+- `src/game/assets.odin`: scene asset loading and collision asset policy
+- `src/game/scene.odin`: scene objects, spawning, map reload application, and render item extraction
+- `src/game/player.odin`: Quake-style player controller
+- `src/game/player_mover.odin`: Box3D kinematic player mover
+- `src/game/map.odin`, `src/game/map_mesh.odin`, `src/game/level.odin`: Valve 220 map parsing and level compilation
 - `tools/make_collision_mesh.py`: Blender collision mesh generator
 
 Prefer small, named functions that keep ownership clear. Do not hide important
@@ -56,7 +60,7 @@ Follow Odin-style lifetime management:
   an explicit frame-level reset.
 - Do not per-frame allocate dynamic arrays just because the temp allocator exists.
   Prefer reusable storage when the maximum size is known.
-- `App.render_items` is reusable frame storage preallocated to `MAX_SUZANNES + 1`.
+- `App.render_items` is reusable frame storage preallocated by the engine.
 - `Scene.objects` is preallocated to the known maximum object count.
 - Avoid putting growing dynamic arrays into custom arenas casually; arena-backed
   growth can leave old backing buffers behind. Use arenas when the group of

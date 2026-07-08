@@ -1,4 +1,4 @@
-package game
+package engine
 
 import "base:runtime"
 import "core:c"
@@ -7,21 +7,37 @@ import sdl "vendor:sdl3"
 
 default_context: runtime.Context
 
+APP_RENDER_ITEM_CAPACITY :: 256
+
 App :: struct {
 	window: ^sdl.Window,
 	gpu:    ^sdl.GPUDevice,
 
 	renderer: Renderer,
-	scene:    Scene,
 	move_input: PlayerMoveInput,
 	look_input: PlayerLookInput,
 	render_items: [dynamic]RenderItem,
+	fs: GameFS,
+	game: rawptr,
+	game_api: Game_API,
 	win_size: [2]i32,
 
 	running:    bool,
 	last_ticks: u64,
 	total_time: f32,
 	stats_log_time: f32,
+}
+
+Game_API :: struct {
+	init: proc(renderer: ^Renderer, fs: ^GameFS, config: LaunchConfig) -> rawptr,
+	destroy: proc(game: rawptr),
+	update: proc(game: rawptr, move_input: PlayerMoveInput, look_input: PlayerLookInput, delta_time: f32),
+	render: proc(game: rawptr, render_items: ^[dynamic]RenderItem, win_size: [2]i32) -> RenderFrame,
+}
+
+RenderFrame :: struct {
+	globals: RenderPassGlobals,
+	items: []RenderItem,
 }
 
 // Creates SDL's application shell: window, GPU device, and the first renderer.
@@ -68,28 +84,26 @@ app_create :: proc(config: LaunchConfig) -> App {
 	ok = sdl.GetWindowSize(app.window, &app.win_size.x, &app.win_size.y)
 	assert(ok)
 
-	fs := game_fs_create(config.base_dir, config.game)
-	defer game_fs_destroy(&fs)
-
-	assets := scene_assets_load(&fs, config)
+	app.fs = game_fs_create(config.base_dir, config.game)
 	app.renderer = renderer_create(app.gpu, app.window, app.win_size.x, app.win_size.y)
-	upload := renderer_begin_upload(&app.renderer)
-	assets.suzanne_handle = renderer_upload_mesh(&upload, &assets.suzanne_mesh)
-	assets.map_handle = renderer_upload_mesh(&upload, &assets.level.render_mesh)
-	renderer_end_upload(&upload)
-	assets.default_material = renderer_default_material()
-	app.scene = scene_create(&assets)
-	app.render_items = make([dynamic]RenderItem, 0, MAX_SUZANNES + 1)
-	scene_assets_destroy(&assets)
+	app.render_items = make([dynamic]RenderItem, 0, APP_RENDER_ITEM_CAPACITY)
 
 	app.last_ticks = sdl.GetTicks()
 	return app
 }
 
+app_init_game :: proc(app: ^App, config: LaunchConfig, game_api: Game_API) {
+	app.game_api = game_api
+	app.game = app.game_api.init(&app.renderer, &app.fs, config)
+}
+
 app_destroy :: proc(app: ^App) {
-	scene_destroy(&app.scene)
+	if app.game_api.destroy != nil {
+		app.game_api.destroy(app.game)
+	}
 	renderer_destroy(&app.renderer)
 	delete(app.render_items)
+	game_fs_destroy(&app.fs)
 	if app.gpu != nil && app.window != nil do sdl.ReleaseWindowFromGPUDevice(app.gpu, app.window)
 	if app.gpu != nil do sdl.DestroyGPUDevice(app.gpu)
 	if app.window != nil do sdl.DestroyWindow(app.window)
@@ -114,7 +128,7 @@ app_update_time :: proc(app: ^App) {
 	app.last_ticks = new_ticks
 	app.total_time += delta_time
 	app_update_input(app)
-	scene_update(&app.scene, app.move_input, app.look_input, delta_time)
+	app.game_api.update(app.game, app.move_input, app.look_input, delta_time)
 	app.stats_log_time += delta_time
 }
 
@@ -165,9 +179,8 @@ app_draw :: proc(app: ^App) {
 	ok := sdl.WaitAndAcquireGPUSwapchainTexture(cmd_buf, app.window, &swapchain_tex, nil, nil)
 	assert(ok)
 
-	render_items := scene_collect_render_items(&app.scene, &app.render_items)
-	globals := scene_render_globals(&app.scene, app.win_size)
-	renderer_draw(&app.renderer, cmd_buf, swapchain_tex, globals, render_items)
+	frame := app.game_api.render(app.game, &app.render_items, app.win_size)
+	renderer_draw(&app.renderer, cmd_buf, swapchain_tex, frame.globals, frame.items)
 	if app.stats_log_time >= 2.0 {
 		renderer_log_stats(&app.renderer)
 		app.stats_log_time = 0

@@ -1,4 +1,4 @@
-package game
+package engine
 
 import "base:runtime"
 import "core:mem"
@@ -247,6 +247,16 @@ renderer_destroy_mesh :: proc(renderer: ^Renderer, mesh: ^GpuMesh) {
 	mesh^ = {}
 }
 
+renderer_replace_mesh :: proc(renderer: ^Renderer, handle: MeshHandle, mesh: ^CpuMesh) {
+	index := int(handle)
+	assert(0 <= index && index < len(renderer.meshes))
+	upload := renderer_begin_upload(renderer)
+	new_mesh := renderer_upload_mesh_data(&upload, mesh)
+	renderer_end_upload(&upload)
+	renderer_destroy_mesh(renderer, &renderer.meshes[index])
+	renderer.meshes[index] = new_mesh
+}
+
 renderer_begin_upload :: proc(renderer: ^Renderer) -> RendererUpload {
 	cmd_buf := sdl.AcquireGPUCommandBuffer(renderer.gpu)
 	assert(cmd_buf != nil)
@@ -273,6 +283,15 @@ renderer_end_upload :: proc(upload: ^RendererUpload) {
 
 // Uploads one immutable mesh by staging vertex/index data through a shared startup upload pass.
 renderer_upload_mesh :: proc(upload: ^RendererUpload, mesh: ^CpuMesh) -> MeshHandle {
+	renderer := upload.renderer
+	gpu_mesh := renderer_upload_mesh_data(upload, mesh)
+	handle := MeshHandle(len(renderer.meshes))
+	append(&renderer.meshes, gpu_mesh)
+	renderer_update_static_stats(renderer)
+	return handle
+}
+
+renderer_upload_mesh_data :: proc(upload: ^RendererUpload, mesh: ^CpuMesh) -> GpuMesh {
 	renderer := upload.renderer
 	assert(len(mesh.vertices) > 0)
 	assert(len(mesh.indices) > 0)
@@ -318,10 +337,7 @@ renderer_upload_mesh :: proc(upload: ^RendererUpload, mesh: ^CpuMesh) -> MeshHan
 		{buffer = gpu_mesh.index_buffer, offset = 0, size = u32(index_data_size)},
 		false,
 	)
-	handle := MeshHandle(len(renderer.meshes))
-	append(&renderer.meshes, gpu_mesh)
-	renderer_update_static_stats(renderer)
-	return handle
+	return gpu_mesh
 }
 
 renderer_draw :: proc(
