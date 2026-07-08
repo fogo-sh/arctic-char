@@ -5,6 +5,7 @@ import "core:log"
 import "core:math"
 import "core:math/linalg"
 import "core:strconv"
+import engine "../engine"
 
 MapProperty :: struct {
 	key:   string,
@@ -38,7 +39,7 @@ MapPlayerSpawn :: struct {
 }
 
 quake_map_load :: proc(fs: ^GameFS, qpath: string, allocator := context.allocator) -> QuakeMap {
-	data, ok := game_fs_read_file(fs, qpath, allocator)
+	data, ok := engine.game_fs_read_file(fs, qpath, allocator)
 	assert(ok)
 
 	qmap := QuakeMap{

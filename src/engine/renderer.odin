@@ -17,7 +17,6 @@ Renderer :: struct {
 	depth_texture:      ^sdl.GPUTexture,
 
 	meshes: [dynamic]GpuMesh,
-	materials: [dynamic]Material,
 
 	sample_count: sdl.GPUSampleCount,
 	stats: RendererStats,
@@ -30,16 +29,10 @@ GpuMesh :: struct {
 }
 
 MeshHandle :: distinct int
-MaterialHandle :: distinct int
-
-Material :: struct {
-	name: string,
-}
 
 RenderItem :: struct {
-	mesh:     MeshHandle,
-	material: MaterialHandle,
-	model:    matrix[4, 4]f32,
+	mesh:  MeshHandle,
+	model: matrix[4, 4]f32,
 }
 
 RenderPassGlobals :: struct {
@@ -51,7 +44,6 @@ RendererStats :: struct {
 	draw_count:     int,
 	triangle_count: int,
 	mesh_count:     int,
-	material_count: int,
 	pipeline_count: int,
 }
 
@@ -80,8 +72,6 @@ renderer_create :: proc(
 	renderer_create_render_targets(&renderer, width, height)
 	renderer.pipeline = renderer_create_pipeline(gpu, window, renderer.sample_count)
 	renderer.meshes = make([dynamic]GpuMesh, 0, 16, allocator)
-	renderer.materials = make([dynamic]Material, 0, 16, allocator)
-	_ = renderer_add_material(&renderer, Material{name = "vertex-color"})
 	renderer_update_static_stats(&renderer)
 	return renderer
 }
@@ -90,23 +80,11 @@ renderer_destroy :: proc(renderer: ^Renderer) {
 	for &mesh in renderer.meshes {
 		renderer_destroy_mesh(renderer, &mesh)
 	}
-	delete(renderer.materials)
 	delete(renderer.meshes)
 	if renderer.depth_texture != nil do sdl.ReleaseGPUTexture(renderer.gpu, renderer.depth_texture)
 	if renderer.msaa_color_texture != nil do sdl.ReleaseGPUTexture(renderer.gpu, renderer.msaa_color_texture)
 	if renderer.pipeline != nil do sdl.ReleaseGPUGraphicsPipeline(renderer.gpu, renderer.pipeline)
 	renderer^ = {}
-}
-
-renderer_add_material :: proc(renderer: ^Renderer, material: Material) -> MaterialHandle {
-	handle := MaterialHandle(len(renderer.materials))
-	append(&renderer.materials, material)
-	renderer_update_static_stats(renderer)
-	return handle
-}
-
-renderer_default_material :: proc() -> MaterialHandle {
-	return MaterialHandle(0)
 }
 
 renderer_resize :: proc(renderer: ^Renderer, width, height: i32) {
@@ -366,7 +344,6 @@ renderer_draw :: proc(
 
 	for item in items {
 		mesh := renderer_mesh(renderer, item.mesh)
-		_ = renderer_material(renderer, item.material)
 		vertex_buffer_binding := sdl.GPUBufferBinding{buffer = mesh.vertex_buffer, offset = 0}
 		index_buffer_binding := sdl.GPUBufferBinding{buffer = mesh.index_buffer, offset = 0}
 		sdl.BindGPUVertexBuffers(render_pass, 0, &vertex_buffer_binding, 1)
@@ -389,25 +366,17 @@ renderer_mesh :: proc(renderer: ^Renderer, handle: MeshHandle) -> ^GpuMesh {
 	return &renderer.meshes[index]
 }
 
-renderer_material :: proc(renderer: ^Renderer, handle: MaterialHandle) -> ^Material {
-	index := int(handle)
-	assert(0 <= index && index < len(renderer.materials))
-	return &renderer.materials[index]
-}
-
 renderer_update_static_stats :: proc(renderer: ^Renderer) {
 	renderer.stats.mesh_count = len(renderer.meshes)
-	renderer.stats.material_count = len(renderer.materials)
 	renderer.stats.pipeline_count = renderer.pipeline != nil ? 1 : 0
 }
 
 renderer_log_stats :: proc(renderer: ^Renderer) {
 	log.debugf(
-		"Renderer stats: draws=%d triangles=%d meshes=%d materials=%d pipelines=%d",
+		"Renderer stats: draws=%d triangles=%d meshes=%d pipelines=%d",
 		renderer.stats.draw_count,
 		renderer.stats.triangle_count,
 		renderer.stats.mesh_count,
-		renderer.stats.material_count,
 		renderer.stats.pipeline_count,
 	)
 }

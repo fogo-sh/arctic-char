@@ -2,9 +2,9 @@ package game
 
 import "core:math"
 import "core:math/linalg"
+import engine "../engine"
 import b3 "vendor:box3d"
-
-QU_TO_M :: f32(0.038)
+import sdl "vendor:sdl3"
 
 PlayerMoveConfig :: struct {
 	gravity:            f32,
@@ -90,11 +90,11 @@ player_create :: proc(position := PLAYER_SPEC.spawn_position, yaw: f32 = 0) -> P
 }
 
 player_input_from_engine :: proc(input: InputState) -> (move: PlayerMoveInput, look: PlayerLookInput) {
-	if input.buttons[.W] do move.move_forward += 1
-	if input.buttons[.S] do move.move_forward -= 1
-	if input.buttons[.D] do move.move_right += 1
-	if input.buttons[.A] do move.move_right -= 1
-	move.jump_held = input.buttons[.Space]
+	if engine.input_key_down(input, sdl.Scancode.W) do move.move_forward += 1
+	if engine.input_key_down(input, sdl.Scancode.S) do move.move_forward -= 1
+	if engine.input_key_down(input, sdl.Scancode.D) do move.move_right += 1
+	if engine.input_key_down(input, sdl.Scancode.A) do move.move_right -= 1
+	move.jump_held = engine.input_key_down(input, sdl.Scancode.SPACE)
 	look.look_delta = input.mouse_delta
 	return
 }

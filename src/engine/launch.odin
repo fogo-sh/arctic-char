@@ -1,18 +1,15 @@
 package engine
 
-import "core:os"
-
 LaunchConfig :: struct {
 	base_dir: string,
 	game:     string,
 }
 
-launch_config_parse :: proc() -> LaunchConfig {
+launch_config_parse :: proc(args: []string) -> LaunchConfig {
 	config := LaunchConfig {
 		base_dir = ".",
 	}
 
-	args := os.args[1:]
 	for i := 0; i < len(args); i += 1 {
 		arg := args[i]
 		switch arg {

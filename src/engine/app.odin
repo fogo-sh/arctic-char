@@ -28,7 +28,7 @@ App :: struct {
 }
 
 Game_API :: struct {
-	init: proc(renderer: ^Renderer, fs: ^GameFS, config: LaunchConfig) -> rawptr,
+	init: proc(renderer: ^Renderer, fs: ^GameFS, config: rawptr) -> rawptr,
 	destroy: proc(game: rawptr),
 	update: proc(game: rawptr, input: InputState, delta_time: f32),
 	render: proc(game: rawptr, render_items: ^[dynamic]RenderItem, win_size: [2]i32) -> RenderFrame,
@@ -91,9 +91,9 @@ app_create :: proc(config: LaunchConfig) -> App {
 	return app
 }
 
-app_init_game :: proc(app: ^App, config: LaunchConfig, game_api: Game_API) {
+app_init_game :: proc(app: ^App, game_api: Game_API, game_config: rawptr) {
 	app.game_api = game_api
-	app.game = app.game_api.init(&app.renderer, &app.fs, config)
+	app.game = app.game_api.init(&app.renderer, &app.fs, game_config)
 }
 
 app_destroy :: proc(app: ^App) {
@@ -114,14 +114,14 @@ app_run :: proc(app: ^App) {
 	for app.running {
 		input_begin_frame(&app.input)
 		app_handle_events(app)
-		app_update_time(app)
+		app_tick(app)
 		app_draw(app)
 	}
 
 	log.debug("Goodbye!")
 }
 
-app_update_time :: proc(app: ^App) {
+app_tick :: proc(app: ^App) {
 	new_ticks := sdl.GetTicks()
 	delta_time := f32(new_ticks - app.last_ticks) / 1000
 	app.last_ticks = new_ticks
@@ -134,16 +134,10 @@ app_update_time :: proc(app: ^App) {
 app_update_input :: proc(app: ^App) {
 	num_keys: c.int
 	keys := sdl.GetKeyboardState(&num_keys)
-	app.input.buttons[.W] = app_key_down(keys, num_keys, .W)
-	app.input.buttons[.A] = app_key_down(keys, num_keys, .A)
-	app.input.buttons[.S] = app_key_down(keys, num_keys, .S)
-	app.input.buttons[.D] = app_key_down(keys, num_keys, .D)
-	app.input.buttons[.Space] = app_key_down(keys, num_keys, .SPACE)
-}
-
-app_key_down :: proc(keys: [^]bool, num_keys: c.int, scancode: sdl.Scancode) -> bool {
-	index := int(scancode)
-	return 0 <= index && index < int(num_keys) && keys[index]
+	key_count := min(len(app.input.keys), int(num_keys))
+	for i in 0..<key_count {
+		app.input.keys[i] = keys[i]
+	}
 }
 
 app_handle_events :: proc(app: ^App) {

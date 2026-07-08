@@ -1,5 +1,6 @@
 package game
 
+import engine "../engine"
 import b3 "vendor:box3d"
 
 COLLISION_CATEGORY_WORLD :: u64(1 << 0)
@@ -15,7 +16,7 @@ ScenePhysicsAssets :: struct {
 
 scene_physics_assets_create :: proc(scene: ^Scene, collision_mesh, level_mesh: ^CpuMesh) {
 	scene.physics_assets.suzanne_hull = collision_create_suzanne_hull(collision_mesh)
-	scene.physics_assets.map_mesh = physics_create_static_mesh_data(level_mesh)
+	scene.physics_assets.map_mesh = engine.physics_create_static_mesh_data(level_mesh)
 	scene.physics_assets.map_body = scene_physics_create_map_body(scene)
 }
 
@@ -36,7 +37,7 @@ scene_physics_replace_map_mesh :: proc(scene: ^Scene, level_mesh: ^CpuMesh) {
 	if scene.physics_assets.map_mesh != nil {
 		b3.DestroyMesh(scene.physics_assets.map_mesh)
 	}
-	scene.physics_assets.map_mesh = physics_create_static_mesh_data(level_mesh)
+	scene.physics_assets.map_mesh = engine.physics_create_static_mesh_data(level_mesh)
 	scene.physics_assets.map_body = scene_physics_create_map_body(scene)
 }
 

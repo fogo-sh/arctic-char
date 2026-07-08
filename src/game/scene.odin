@@ -3,6 +3,7 @@ package game
 import "base:runtime"
 import "core:math"
 import "core:math/linalg"
+import engine "../engine"
 import b3 "vendor:box3d"
 
 MAX_SUZANNES :: 100
@@ -16,7 +17,6 @@ Scene :: struct {
 	objects:        [dynamic]Object,
 	suzanne_mesh:   MeshHandle,
 	map_mesh:       MeshHandle,
-	default_material: MaterialHandle,
 	next_object_id: ObjectId,
 	spawn_timer:    f32,
 	spawned_count:  int,
@@ -35,9 +35,8 @@ Transform :: struct {
 }
 
 RenderObject :: struct {
-	mesh:     MeshHandle,
-	material: MaterialHandle,
-	visible:  bool,
+	mesh:    MeshHandle,
+	visible: bool,
 }
 
 PhysicsObject :: struct {
@@ -55,15 +54,14 @@ Object :: struct {
 	physics:   PhysicsObject,
 }
 
-scene_create :: proc(assets: ^SceneAssets, allocator := context.allocator) -> Scene {
+scene_create :: proc(assets: ^LoadedSceneAssets, gpu: SceneGpuResources, allocator := context.allocator) -> Scene {
 	scene := Scene{
 		allocator = allocator,
-		physics = physics_create(),
+		physics = engine.physics_create(),
 		player = player_create(assets.level.player_spawn.position, assets.level.player_spawn.yaw),
 		objects = make([dynamic]Object, 0, MAX_SUZANNES + 1, allocator),
-		suzanne_mesh = assets.suzanne_handle,
-		map_mesh = assets.map_handle,
-		default_material = assets.default_material,
+		suzanne_mesh = gpu.suzanne_handle,
+		map_mesh = gpu.map_handle,
 		next_object_id = 1,
 		spawn_timer = SPAWN_INTERVAL,
 	}
@@ -74,7 +72,7 @@ scene_create :: proc(assets: ^SceneAssets, allocator := context.allocator) -> Sc
 
 scene_destroy :: proc(scene: ^Scene) {
 	delete(scene.objects)
-	physics_destroy(&scene.physics)
+	engine.physics_destroy(&scene.physics)
 	scene_physics_assets_destroy(scene)
 	scene^ = {}
 }
@@ -104,7 +102,7 @@ scene_fixed_update :: proc(scene: ^Scene, input: PlayerMoveInput, step_time: f32
 
 	player_update(&scene.player, &scene.physics, input, step_time)
 
-	physics_step(&scene.physics)
+	engine.physics_step(&scene.physics)
 }
 
 scene_create_map :: proc(scene: ^Scene) {
@@ -112,7 +110,7 @@ scene_create_map :: proc(scene: ^Scene) {
 		name = "Map",
 		kind = .Map,
 		transform = {position = {0, 0, 0}},
-		render = {mesh = scene.map_mesh, material = scene.default_material, visible = true},
+		render = {mesh = scene.map_mesh, visible = true},
 		physics = {enabled = false},
 	})
 }
@@ -132,7 +130,7 @@ scene_spawn_suzanne :: proc(scene: ^Scene) {
 		name = "Suzanne",
 		kind = .Suzanne,
 		transform = {position = position},
-		render = {mesh = scene.suzanne_mesh, material = scene.default_material, visible = true},
+		render = {mesh = scene.suzanne_mesh, visible = true},
 		physics = {body = body, enabled = true, sync_transform = true},
 	})
 	scene.spawned_count += 1
@@ -147,25 +145,6 @@ scene_add_object :: proc(scene: ^Scene, object: Object) -> ObjectId {
 	return id
 }
 
-scene_find_object :: proc(scene: ^Scene, id: ObjectId) -> ^Object {
-	for &object in scene.objects {
-		if object.id == id {
-			return &object
-		}
-	}
-	return nil
-}
-
-scene_remove_object :: proc(scene: ^Scene, id: ObjectId) -> bool {
-	for i := 0; i < len(scene.objects); i += 1 {
-		if scene.objects[i].id == id {
-			unordered_remove(&scene.objects, i)
-			return true
-		}
-	}
-	return false
-}
-
 scene_collect_render_items :: proc(scene: ^Scene, items: ^[dynamic]RenderItem) -> []RenderItem {
 	clear(items)
 	for &object in scene.objects {
@@ -173,7 +152,7 @@ scene_collect_render_items :: proc(scene: ^Scene, items: ^[dynamic]RenderItem) -
 			continue
 		}
 		model := scene_object_model_matrix(&object)
-		append(items, RenderItem{mesh = object.render.mesh, material = object.render.material, model = model})
+		append(items, RenderItem{mesh = object.render.mesh, model = model})
 	}
 	return items[:]
 }
@@ -188,7 +167,7 @@ scene_render_globals :: proc(scene: ^Scene, window_size: [2]i32) -> RenderPassGl
 
 scene_object_model_matrix :: proc(object: ^Object) -> matrix[4, 4]f32 {
 	if object.physics.sync_transform {
-		return physics_body_matrix(object.physics.body)
+		return engine.physics_body_matrix(object.physics.body)
 	}
 	return linalg.matrix4_translate_f32(object.transform.position)
 }

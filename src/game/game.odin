@@ -10,10 +10,12 @@ Run :: proc() {
 	context.logger = log.create_console_logger()
 	engine.default_context = context
 
-	config := engine.launch_config_parse()
-	app := engine.app_create(config)
+	args := os.args[1:]
+	engine_config := engine.launch_config_parse(args)
+	game_config := game_launch_config_parse(args)
+	app := engine.app_create(engine_config)
 	defer engine.app_destroy(&app)
-	engine.app_init_game(&app, config, game_api())
+	engine.app_init_game(&app, game_api(), &game_config)
 
 	engine.app_run(&app)
 }
@@ -40,20 +42,16 @@ game_api :: proc() -> engine.Game_API {
 	}
 }
 
-game_init :: proc(renderer: ^Renderer, fs: ^GameFS, config: LaunchConfig) -> rawptr {
+game_init :: proc(renderer: ^Renderer, fs: ^GameFS, config: rawptr) -> rawptr {
 	state := new(Game_State)
 	state.renderer = renderer
 	state.fs = fs
-	game_config := game_launch_config_parse()
+	game_config := (cast(^GameLaunchConfig)config)^
 	state.map_qpath = game_launch_config_map_qpath(game_config)
-	state.map_mtime, _ = game_fs_modification_time(fs, state.map_qpath)
+	state.map_mtime, _ = engine.game_fs_modification_time(fs, state.map_qpath)
 	assets := scene_assets_load(fs, state.map_qpath)
-	upload := renderer_begin_upload(renderer)
-	assets.suzanne_handle = renderer_upload_mesh(&upload, &assets.suzanne_mesh)
-	assets.map_handle = renderer_upload_mesh(&upload, &assets.level.render_mesh)
-	renderer_end_upload(&upload)
-	assets.default_material = renderer_default_material()
-	state.scene = scene_create(&assets)
+	gpu_resources := scene_gpu_resources_upload(renderer, &assets)
+	state.scene = scene_create(&assets, gpu_resources)
 	scene_assets_destroy(&assets)
 	return state
 }
@@ -80,9 +78,8 @@ game_render :: proc(game: rawptr, render_items: ^[dynamic]RenderItem, win_size: 
 	}
 }
 
-game_launch_config_parse :: proc() -> GameLaunchConfig {
+game_launch_config_parse :: proc(args: []string) -> GameLaunchConfig {
 	config := GameLaunchConfig{map_name = "test"}
-	args := os.args[1:]
 	for i := 0; i < len(args); i += 1 {
 		if args[i] == "+map" && i + 1 < len(args) {
 			i += 1
@@ -106,14 +103,14 @@ game_reload_map_if_changed :: proc(state: ^Game_State, delta_time: f32) {
 	}
 	state.reload_check_timer = 0
 
-	mtime, ok := game_fs_modification_time(state.fs, state.map_qpath)
+	mtime, ok := engine.game_fs_modification_time(state.fs, state.map_qpath)
 	if !ok || mtime == state.map_mtime {
 		return
 	}
 
 	log.debugf("Reloading map: %s", state.map_qpath)
 	level := level_load(state.fs, state.map_qpath)
-	renderer_replace_mesh(state.renderer, state.scene.map_mesh, &level.render_mesh)
+	engine.renderer_replace_mesh(state.renderer, state.scene.map_mesh, &level.render_mesh)
 	scene_reload_level(&state.scene, &level)
 	level_destroy(&level)
 	state.map_mtime = mtime

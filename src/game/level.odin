@@ -1,6 +1,7 @@
 package game
 
 import "core:log"
+import engine "../engine"
 
 LevelAsset :: struct {
 	source:       QuakeMap,
@@ -59,7 +60,7 @@ level_collect_diagnostics :: proc(qmap: ^QuakeMap) -> LevelDiagnostics {
 }
 
 level_destroy :: proc(level: ^LevelAsset) {
-	cpu_mesh_destroy(&level.render_mesh)
+	engine.cpu_mesh_destroy(&level.render_mesh)
 	quake_map_destroy(&level.source)
 	level^ = {}
 }
