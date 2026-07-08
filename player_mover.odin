@@ -41,10 +41,11 @@ player_mover_move :: proc(
 
 	if snap_to_ground {
 		down_frac := b3.World_CastMover(physics.id, origin, mover, {0, -spec.ground_snap, 0}, filter, nil, nil)
-		if down_frac < 1 {
-			snap_dist := spec.ground_snap * down_frac
+		snap_dist := spec.ground_snap * down_frac
+		if down_frac < 1 && snap_dist > spec.ground_snap * 0.25 {
 			mover.center1 += {0, -snap_dist, 0}
 			mover.center2 += {0, -snap_dist, 0}
+			player_mover_collide_and_solve(physics, &mover, origin, filter, &planes)
 		}
 	}
 

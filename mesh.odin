@@ -14,7 +14,7 @@ VertexData :: struct {
 
 CpuMesh :: struct {
 	vertices:  []VertexData,
-	indices:   []u16,
+	indices:   []u32,
 	allocator: runtime.Allocator,
 }
 
@@ -103,9 +103,9 @@ load_glb_mesh_path :: proc(model_path: string, allocator := context.allocator) -
 		}
 	}
 
-	indices := make([]u16, index_count, allocator)
+	indices := make([]u32, index_count, allocator)
 	for i := 0; i < int(index_count); i += 1 {
-		indices[i] = u16(cgltf.accessor_read_index(idx_accessor, uint(i)))
+		indices[i] = u32(cgltf.accessor_read_index(idx_accessor, uint(i)))
 	}
 
 	return CpuMesh{vertices = vertices, indices = indices, allocator = allocator}

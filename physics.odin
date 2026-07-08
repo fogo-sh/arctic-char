@@ -84,6 +84,7 @@ physics_create_static_mesh_data :: proc(mesh: ^CpuMesh) -> ^b3.MeshData {
 
 	indices := make([]i32, len(mesh.indices), context.temp_allocator)
 	for index, i in mesh.indices {
+		assert(index <= u32(max(i32)))
 		indices[i] = i32(index)
 	}
 

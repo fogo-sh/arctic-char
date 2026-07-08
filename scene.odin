@@ -9,13 +9,14 @@ MAX_SUZANNES :: 100
 SPAWN_INTERVAL :: f32(0.12)
 
 Scene :: struct {
-	allocator:    runtime.Allocator,
-	physics:      PhysicsWorld,
-	player:       PlayerController,
-	objects:      [dynamic]Object,
-	spawn_timer:  f32,
-	spawned_count: int,
-	accumulator:  f32,
+	allocator:      runtime.Allocator,
+	physics:        PhysicsWorld,
+	player:         PlayerController,
+	objects:        [dynamic]Object,
+	next_object_id: ObjectId,
+	spawn_timer:    f32,
+	spawned_count:  int,
+	accumulator:    f32,
 }
 
 ObjectKind :: enum {
@@ -23,7 +24,7 @@ ObjectKind :: enum {
 	Suzanne,
 }
 
-ObjectId :: distinct int
+ObjectId :: distinct u32
 
 Transform :: struct {
 	position: Vec3,
@@ -55,6 +56,7 @@ scene_create :: proc(assets: ^SceneAssets, allocator := context.allocator) -> Sc
 		physics = physics_create(&assets.collision_mesh, &assets.level.render_mesh),
 		player = player_create(assets.level.player_spawn.position, assets.level.player_spawn.yaw),
 		objects = make([dynamic]Object, 0, MAX_SUZANNES + 1, allocator),
+		next_object_id = 1,
 		spawn_timer = SPAWN_INTERVAL,
 	}
 	scene_create_map(&scene)
@@ -90,8 +92,7 @@ scene_fixed_update :: proc(scene: ^Scene, input: PlayerMoveInput, step_time: f32
 }
 
 scene_create_map :: proc(scene: ^Scene) {
-	append(&scene.objects, Object{
-		id = ObjectId(len(scene.objects)),
+	scene_add_object(scene, Object{
 		name = "Map",
 		kind = .Map,
 		transform = {position = {0, 0, 0}},
@@ -111,8 +112,7 @@ scene_spawn_suzanne :: proc(scene: ^Scene) {
 	}
 
 	body := physics_create_suzanne_body(&scene.physics, position, i)
-	append(&scene.objects, Object{
-		id = ObjectId(len(scene.objects)),
+	scene_add_object(scene, Object{
 		name = "Suzanne",
 		kind = .Suzanne,
 		transform = {position = position},
@@ -120,6 +120,34 @@ scene_spawn_suzanne :: proc(scene: ^Scene) {
 		physics = {body = body, enabled = true, sync_transform = true},
 	})
 	scene.spawned_count += 1
+}
+
+scene_add_object :: proc(scene: ^Scene, object: Object) -> ObjectId {
+	id := scene.next_object_id
+	scene.next_object_id = ObjectId(u32(scene.next_object_id) + 1)
+	stored := object
+	stored.id = id
+	append(&scene.objects, stored)
+	return id
+}
+
+scene_find_object :: proc(scene: ^Scene, id: ObjectId) -> ^Object {
+	for &object in scene.objects {
+		if object.id == id {
+			return &object
+		}
+	}
+	return nil
+}
+
+scene_remove_object :: proc(scene: ^Scene, id: ObjectId) -> bool {
+	for i := 0; i < len(scene.objects); i += 1 {
+		if scene.objects[i].id == id {
+			unordered_remove(&scene.objects, i)
+			return true
+		}
+	}
+	return false
 }
 
 scene_collect_render_items :: proc(scene: ^Scene, window_size: [2]i32, items: ^[dynamic]RenderItem) -> []RenderItem {

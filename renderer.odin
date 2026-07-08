@@ -211,7 +211,7 @@ renderer_upload_mesh :: proc(renderer: ^Renderer, mesh: ^CpuMesh) -> GpuMesh {
 	assert(len(mesh.vertices) > 0)
 	assert(len(mesh.indices) > 0)
 	vertex_data_size := len(mesh.vertices) * size_of(VertexData)
-	index_data_size := len(mesh.indices) * size_of(u16)
+	index_data_size := len(mesh.indices) * size_of(u32)
 	total_upload_size := vertex_data_size + index_data_size
 	gpu_mesh: GpuMesh
 
@@ -286,7 +286,7 @@ renderer_draw :: proc(
 		vertex_buffer_binding := sdl.GPUBufferBinding{buffer = mesh.vertex_buffer, offset = 0}
 		index_buffer_binding := sdl.GPUBufferBinding{buffer = mesh.index_buffer, offset = 0}
 		sdl.BindGPUVertexBuffers(render_pass, 0, &vertex_buffer_binding, 1)
-		sdl.BindGPUIndexBuffer(render_pass, index_buffer_binding, ._16BIT)
+		sdl.BindGPUIndexBuffer(render_pass, index_buffer_binding, ._32BIT)
 
 		vertex_uniforms := struct {
 			mvp: matrix[4, 4]f32,
