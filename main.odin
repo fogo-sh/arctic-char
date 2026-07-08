@@ -6,8 +6,10 @@ main :: proc() {
 	game.Run()
 }
 
-@(export)
-NvOptimusEnablement: u32 = 1
+when ODIN_OS == .Windows {
+	@(export)
+	NvOptimusEnablement: u32 = 1
 
-@(export)
-AmdPowerXpressRequestHighPerformance: i32 = 1
+	@(export)
+	AmdPowerXpressRequestHighPerformance: u32 = 1
+}
