@@ -1184,3 +1184,35 @@
 "origin" "-424 0 88"
 "angle" "180"
 }
+// entity 3
+{
+"classname" "prop_suzanne"
+"origin" "128 8 72"
+}
+// entity 4
+{
+"classname" "spawner_suzanne"
+"origin" "160 8 96"
+"interval" "0.35"
+"count" "4"
+}
+// entity 5
+{
+"classname" "info_teleport_destination"
+"targetname" "fallback_spawn"
+"origin" "200 8 72"
+"angle" "180"
+}
+// entity 6
+{
+"classname" "trigger_teleport"
+"target" "fallback_spawn"
+{
+( -1024 -1024 -512 ) ( -1024 1024 -512 ) ( -1024 1024 -384 ) trigger [ 0 -1 0 0 ] [ 0 0 -1 0 ] 0 1 1
+( 1024 -1024 -512 ) ( -1024 -1024 -512 ) ( -1024 -1024 -384 ) trigger [ 1 0 0 0 ] [ 0 0 -1 0 ] 0 1 1
+( -1024 -1024 -512 ) ( 1024 -1024 -512 ) ( 1024 1024 -512 ) trigger [ -1 0 0 0 ] [ 0 -1 0 0 ] 0 1 1
+( -1024 1024 -384 ) ( 1024 1024 -384 ) ( 1024 -1024 -384 ) trigger [ 1 0 0 0 ] [ 0 -1 0 0 ] 0 1 1
+( 1024 1024 -512 ) ( -1024 1024 -512 ) ( -1024 1024 -384 ) trigger [ -1 0 0 0 ] [ 0 0 -1 0 ] 0 1 1
+( 1024 -1024 -512 ) ( 1024 1024 -512 ) ( 1024 1024 -384 ) trigger [ 0 1 0 0 ] [ 0 0 -1 0 ] 0 1 1
+}
+}

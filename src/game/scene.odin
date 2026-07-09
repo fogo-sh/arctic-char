@@ -5,8 +5,8 @@ import "base:runtime"
 import "core:math/linalg"
 import b3 "vendor:box3d"
 
-MAX_SUZANNES :: 5
 SPAWN_INTERVAL :: f32(0.12)
+MAX_OBJECTS :: 128
 
 Scene :: struct {
 	allocator:      runtime.Allocator,
@@ -17,14 +17,14 @@ Scene :: struct {
 	suzanne_mesh:   MeshHandle,
 	map_mesh:       MeshHandle,
 	next_object_id: ObjectId,
-	spawn_timer:    f32,
-	spawned_count:  int,
 	accumulator:    f32,
 }
 
 ObjectKind :: enum {
 	Map,
 	Suzanne,
+	Spawner,
+	Trigger,
 }
 
 ObjectId :: distinct u32
@@ -46,6 +46,32 @@ PhysicsObject :: struct {
 	angular_velocity: Vec3,
 }
 
+ThinkKind :: enum {
+	None,
+	SpawnerSuzanne,
+}
+
+ThinkObject :: struct {
+	kind:          ThinkKind,
+	interval:      f32,
+	timer:         f32,
+	max_count:     int,
+	spawned_count: int,
+}
+
+TouchKind :: enum {
+	None,
+	TriggerTeleport,
+}
+
+TouchObject :: struct {
+	kind:            TouchKind,
+	bounds_min:      Vec3,
+	bounds_max:      Vec3,
+	target_position: Vec3,
+	target_yaw:      f32,
+}
+
 Object :: struct {
 	id:        ObjectId,
 	name:      string,
@@ -53,6 +79,8 @@ Object :: struct {
 	transform: Transform,
 	render:    RenderObject,
 	physics:   PhysicsObject,
+	think:     ThinkObject,
+	touch:     TouchObject,
 }
 
 scene_create :: proc(
@@ -67,14 +95,14 @@ scene_create :: proc(
 			assets.level.player_spawn.position,
 			assets.level.player_spawn.yaw,
 		),
-		objects        = make([dynamic]Object, 0, MAX_SUZANNES + 1, allocator),
+		objects        = make([dynamic]Object, 0, MAX_OBJECTS, allocator),
 		suzanne_mesh   = gpu.suzanne_handle,
 		map_mesh       = gpu.map_handle,
 		next_object_id = 1,
-		spawn_timer    = SPAWN_INTERVAL,
 	}
 	scene_physics_assets_create(&scene, &assets.collision_mesh, &assets.level.render_mesh)
 	scene_create_map(&scene)
+	scene_spawn_level_entities(&scene, &assets.level.source)
 	return scene
 }
 
@@ -123,6 +151,8 @@ scene_rebuild_after_hot_reload :: proc(scene: ^Scene, fs: ^GameFS, map_qpath: st
 			object.physics = {
 				enabled = false,
 			}
+		case .Spawner, .Trigger:
+			object.physics = {enabled = false}
 		}
 	}
 	scene.accumulator = 0
@@ -131,6 +161,8 @@ scene_rebuild_after_hot_reload :: proc(scene: ^Scene, fs: ^GameFS, map_qpath: st
 scene_reload_level :: proc(scene: ^Scene, level: ^LevelAsset) {
 	scene_physics_replace_map_mesh(scene, &level.render_mesh)
 	scene.player = player_create(level.player_spawn.position, level.player_spawn.yaw)
+	scene_clear_level_entities(scene)
+	scene_spawn_level_entities(scene, &level.source)
 	scene.accumulator = 0
 }
 
@@ -150,13 +182,10 @@ scene_update :: proc(
 }
 
 scene_fixed_update :: proc(scene: ^Scene, input: PlayerMoveInput, step_time: f32) {
-	scene.spawn_timer += step_time
-	for scene.spawned_count < MAX_SUZANNES && scene.spawn_timer >= SPAWN_INTERVAL {
-		scene_spawn_suzanne(scene)
-		scene.spawn_timer -= SPAWN_INTERVAL
-	}
+	scene_run_think(scene, step_time)
 
-	player_update(&scene.player, &scene.physics, input, step_time)
+	move := player_update(&scene.player, &scene.physics, input, step_time)
+	scene_touch_player(scene, move)
 
 	engine.physics_step(&scene.physics)
 }
@@ -174,13 +203,11 @@ scene_create_map :: proc(scene: ^Scene) {
 	)
 }
 
-scene_spawn_suzanne :: proc(scene: ^Scene) {
-	i := scene.spawned_count
-	forward, right := player_flat_basis(scene.player.yaw)
-	lateral := (f32(i % 7) - 3.0) * 0.35
-	depth := 3.0 + f32(i % 5) * 0.25
-	height := 1.1 + f32((i / 7) % 3) * 0.35
-	position := scene.player.position + forward * depth + right * lateral + Vec3{0, height, 0}
+scene_spawn_suzanne :: proc(scene: ^Scene, position: Vec3) -> bool {
+	i := scene_count_objects(scene, .Suzanne)
+	if len(scene.objects) >= cap(scene.objects) {
+		return false
+	}
 
 	body := scene_physics_create_suzanne_body(scene, position, i)
 	scene_add_object(
@@ -198,16 +225,27 @@ scene_spawn_suzanne :: proc(scene: ^Scene) {
 			},
 		},
 	)
-	scene.spawned_count += 1
+	return true
 }
 
 scene_add_object :: proc(scene: ^Scene, object: Object) -> ObjectId {
+	assert(len(scene.objects) < cap(scene.objects))
 	id := scene.next_object_id
 	scene.next_object_id = ObjectId(u32(scene.next_object_id) + 1)
 	stored := object
 	stored.id = id
 	append(&scene.objects, stored)
 	return id
+}
+
+scene_count_objects :: proc(scene: ^Scene, kind: ObjectKind) -> int {
+	count := 0
+	for object in scene.objects {
+		if object.kind == kind {
+			count += 1
+		}
+	}
+	return count
 }
 
 scene_collect_render_items :: proc(scene: ^Scene, items: ^[dynamic]RenderItem) -> []RenderItem {

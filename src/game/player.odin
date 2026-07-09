@@ -22,7 +22,6 @@ PlayerSpec :: struct {
 	spawn_position:       Vec3,
 	eye_height:           f32,
 	mouse_sensitivity:    f32,
-	kill_plane_y:         f32,
 	hull_mins:            Vec3,
 	hull_maxs:            Vec3,
 	capsule_radius:       f32,
@@ -53,6 +52,13 @@ PlayerLookInput :: struct {
 	look_delta: [2]f32,
 }
 
+PlayerMoveResult :: struct {
+	old_position: Vec3,
+	new_position: Vec3,
+	velocity:     Vec3,
+	grounded:     bool,
+}
+
 PLAYER_SPEC :: PlayerSpec{
 	move = {
 		gravity = 800.0 * QU_TO_M,
@@ -67,7 +73,6 @@ PLAYER_SPEC :: PlayerSpec{
 	spawn_position = {0, 0.9, 8.0},
 	eye_height = 22.0 * QU_TO_M,
 	mouse_sensitivity = 0.0022,
-	kill_plane_y = -10.0,
 	hull_mins = {-16.0 * QU_TO_M, -24.0 * QU_TO_M, -16.0 * QU_TO_M},
 	hull_maxs = {16.0 * QU_TO_M, 32.0 * QU_TO_M, 16.0 * QU_TO_M},
 	capsule_radius = 16.0 * QU_TO_M,
@@ -106,7 +111,8 @@ player_apply_look :: proc(player: ^PlayerController, input: PlayerLookInput) {
 	player.pitch = math.clamp(player.pitch, linalg.to_radians(f32(-89)), linalg.to_radians(f32(89)))
 }
 
-player_update :: proc(player: ^PlayerController, physics: ^PhysicsWorld, input: PlayerMoveInput, delta_time: f32) {
+player_update :: proc(player: ^PlayerController, physics: ^PhysicsWorld, input: PlayerMoveInput, delta_time: f32) -> PlayerMoveResult {
+	old_position := player.position
 	spec := PLAYER_SPEC
 	forward, right := player_flat_basis(player.yaw)
 	wish_dir := forward * input.move_forward + right * input.move_right
@@ -138,9 +144,23 @@ player_update :: proc(player: ^PlayerController, physics: ^PhysicsWorld, input: 
 		player.grounded,
 	)
 
-	if player.position.y < spec.kill_plane_y {
-		player^ = player_create(player.spawn_position, player.spawn_yaw)
+	return {
+		old_position = old_position,
+		new_position = player.position,
+		velocity = player.velocity,
+		grounded = player.grounded,
 	}
+}
+
+player_teleport :: proc(player: ^PlayerController, position: Vec3, yaw: f32) {
+	player.position = position
+	player.spawn_position = position
+	player.velocity = {}
+	player.yaw = yaw
+	player.spawn_yaw = yaw
+	player.pitch = 0
+	player.grounded = false
+	player.ground_normal = {0, 1, 0}
 }
 
 player_apply_friction :: proc(player: ^PlayerController, physics: ^PhysicsWorld, spec: PlayerSpec, config: PlayerMoveConfig, delta_time: f32) {
