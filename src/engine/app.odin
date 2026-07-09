@@ -22,6 +22,7 @@ App :: struct {
 	win_size: [2]i32,
 
 	running:    bool,
+	mouse_captured: bool,
 	last_ticks: u64,
 	total_time: f32,
 	stats_log_time: f32,
@@ -66,7 +67,7 @@ app_create :: proc(config: LaunchConfig) -> App {
 	ok = sdl.Init({.VIDEO})
 	assert(ok)
 
-	app := App{running = true}
+	app := App{running = true, mouse_captured = true}
 
 	app.window = sdl.CreateWindow("arctic char*", 1024, 768, {.RESIZABLE})
 	assert(app.window != nil)
@@ -161,9 +162,19 @@ app_handle_events :: proc(app: ^App) {
 		case .MOUSE_MOTION:
 			app.input.mouse_delta.x += ev.motion.xrel
 			app.input.mouse_delta.y += ev.motion.yrel
+		case .MOUSE_BUTTON_DOWN:
+			if !app.mouse_captured {
+				ok := sdl.SetWindowRelativeMouseMode(app.window, true)
+				assert(ok)
+				app.mouse_captured = true
+			}
 		case .KEY_DOWN:
-			if ev.key.scancode == .Q || ev.key.scancode == .ESCAPE {
+			if ev.key.scancode == .Q {
 				app.running = false
+			} else if ev.key.scancode == .ESCAPE {
+				ok := sdl.SetWindowRelativeMouseMode(app.window, false)
+				assert(ok)
+				app.mouse_captured = false
 			}
 		}
 	}

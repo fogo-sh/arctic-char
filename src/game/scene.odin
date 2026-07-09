@@ -1,12 +1,11 @@
 package game
 
-import "base:runtime"
-import "core:math"
-import "core:math/linalg"
 import engine "../engine"
+import "base:runtime"
+import "core:math/linalg"
 import b3 "vendor:box3d"
 
-MAX_SUZANNES :: 100
+MAX_SUZANNES :: 5
 SPAWN_INTERVAL :: f32(0.12)
 
 Scene :: struct {
@@ -56,16 +55,23 @@ Object :: struct {
 	physics:   PhysicsObject,
 }
 
-scene_create :: proc(assets: ^LoadedSceneAssets, gpu: SceneGpuResources, allocator := context.allocator) -> Scene {
-	scene := Scene{
-		allocator = allocator,
-		physics = engine.physics_create(),
-		player = player_create(assets.level.player_spawn.position, assets.level.player_spawn.yaw),
-		objects = make([dynamic]Object, 0, MAX_SUZANNES + 1, allocator),
-		suzanne_mesh = gpu.suzanne_handle,
-		map_mesh = gpu.map_handle,
+scene_create :: proc(
+	assets: ^LoadedSceneAssets,
+	gpu: SceneGpuResources,
+	allocator := context.allocator,
+) -> Scene {
+	scene := Scene {
+		allocator      = allocator,
+		physics        = engine.physics_create(),
+		player         = player_create(
+			assets.level.player_spawn.position,
+			assets.level.player_spawn.yaw,
+		),
+		objects        = make([dynamic]Object, 0, MAX_SUZANNES + 1, allocator),
+		suzanne_mesh   = gpu.suzanne_handle,
+		map_mesh       = gpu.map_handle,
 		next_object_id = 1,
-		spawn_timer = SPAWN_INTERVAL,
+		spawn_timer    = SPAWN_INTERVAL,
 	}
 	scene_physics_assets_create(&scene, &assets.collision_mesh, &assets.level.render_mesh)
 	scene_create_map(&scene)
@@ -114,7 +120,9 @@ scene_rebuild_after_hot_reload :: proc(scene: ^Scene, fs: ^GameFS, map_qpath: st
 			b3.Body_SetAngularVelocity(body, object.physics.angular_velocity)
 			object.physics.body = body
 		case .Map:
-			object.physics = {enabled = false}
+			object.physics = {
+				enabled = false,
+			}
 		}
 	}
 	scene.accumulator = 0
@@ -126,7 +134,12 @@ scene_reload_level :: proc(scene: ^Scene, level: ^LevelAsset) {
 	scene.accumulator = 0
 }
 
-scene_update :: proc(scene: ^Scene, move_input: PlayerMoveInput, look_input: PlayerLookInput, delta_time: f32) {
+scene_update :: proc(
+	scene: ^Scene,
+	move_input: PlayerMoveInput,
+	look_input: PlayerLookInput,
+	delta_time: f32,
+) {
 	player_apply_look(&scene.player, look_input)
 
 	scene.accumulator += min(delta_time, 0.25)
@@ -149,38 +162,42 @@ scene_fixed_update :: proc(scene: ^Scene, input: PlayerMoveInput, step_time: f32
 }
 
 scene_create_map :: proc(scene: ^Scene) {
-	scene_add_object(scene, Object{
-		name = "Map",
-		kind = .Map,
-		transform = {position = {0, 0, 0}},
-		render = {mesh = scene.map_mesh, visible = true},
-		physics = {enabled = false},
-	})
+	scene_add_object(
+		scene,
+		Object {
+			name = "Map",
+			kind = .Map,
+			transform = {position = {0, 0, 0}},
+			render = {mesh = scene.map_mesh, visible = true},
+			physics = {enabled = false},
+		},
+	)
 }
 
 scene_spawn_suzanne :: proc(scene: ^Scene) {
 	i := scene.spawned_count
-	angle := f32(i) * 2.3999632
-	radius := 0.15 + f32(i % 8) * 0.08
-	position := Vec3{
-		math.cos(angle) * radius,
-		7.0,
-		math.sin(angle) * radius,
-	}
+	forward, right := player_flat_basis(scene.player.yaw)
+	lateral := (f32(i % 7) - 3.0) * 0.35
+	depth := 3.0 + f32(i % 5) * 0.25
+	height := 1.1 + f32((i / 7) % 3) * 0.35
+	position := scene.player.position + forward * depth + right * lateral + Vec3{0, height, 0}
 
 	body := scene_physics_create_suzanne_body(scene, position, i)
-	scene_add_object(scene, Object{
-		name = "Suzanne",
-		kind = .Suzanne,
-		transform = {position = position},
-		render = {mesh = scene.suzanne_mesh, visible = true},
-		physics = {
-			body = body,
-			enabled = true,
-			sync_transform = true,
-			angular_velocity = scene_physics_suzanne_angular_velocity(i),
+	scene_add_object(
+		scene,
+		Object {
+			name = "Suzanne",
+			kind = .Suzanne,
+			transform = {position = position},
+			render = {mesh = scene.suzanne_mesh, visible = true},
+			physics = {
+				body = body,
+				enabled = true,
+				sync_transform = true,
+				angular_velocity = scene_physics_suzanne_angular_velocity(i),
+			},
 		},
-	})
+	)
 	scene.spawned_count += 1
 }
 
@@ -207,7 +224,7 @@ scene_collect_render_items :: proc(scene: ^Scene, items: ^[dynamic]RenderItem) -
 
 scene_render_globals :: proc(scene: ^Scene, window_size: [2]i32) -> RenderPassGlobals {
 	aspect := f32(window_size.x) / f32(window_size.y)
-	return RenderPassGlobals{
+	return RenderPassGlobals {
 		view = player_view_matrix(&scene.player),
 		proj = linalg.matrix4_perspective_f32(linalg.to_radians(f32(70)), aspect, 0.1, 100),
 	}
