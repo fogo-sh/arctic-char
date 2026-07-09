@@ -22,6 +22,7 @@ The code is split by ownership and learning area:
 - `src/game/player.odin`: Quake-style player controller
 - `src/game/player_mover.odin`: Box3D kinematic player mover
 - `src/game/map.odin`, `src/game/map_mesh.odin`, `src/game/level.odin`: Valve 220 map parsing and level compilation
+- `src/hot_reload/main.odin`: development host that loads `build/hot_reload/game.dylib`
 - `tools/make_collision_mesh.py`: Blender collision mesh generator
 
 Prefer small, named functions that keep ownership clear. Do not hide important
@@ -74,6 +75,20 @@ Physics uses Odin's vendored Box3D binding.
 Keep physics world ownership in `PhysicsWorld`. `Object.physics.body` is a handle
 to a Box3D world-owned body, not an independently owned allocation.
 
+## Hot Reload
+
+The normal executable still imports `src/game/`. The development hot-reload host
+imports only `src/engine/`, loads `build/hot_reload/game.dylib`, and resolves the
+exported `game_*` procs.
+
+Current dylib reload policy preserves `Game_State` but rebuilds Box3D state. The
+old dylib receives `game_before_hot_reload`, syncs body transforms/velocities into
+plain scene data, and destroys the old Box3D world/assets. The host keeps old
+dylibs loaded, swaps the function table, then calls `game_hot_reloaded` so the
+new dylib can recreate the Box3D world, map body, and prop bodies from scene data.
+Do not preserve raw Box3D handles across dylib reload while game code still calls
+Box3D directly.
+
 ## Verification
 
 For code changes, run:
@@ -92,4 +107,10 @@ For shader changes, run:
 
 ```sh
 just check-shaders
+```
+
+For hot-reload host changes, run:
+
+```sh
+just hot-build
 ```

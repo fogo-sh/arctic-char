@@ -18,6 +18,23 @@ run:
 
 build-and-run: build run
 
+hot-game:
+  #!/usr/bin/env sh
+  mkdir -p build/hot_reload
+  if [ "$(uname)" = "Darwin" ]; then ext="dylib"; elif [ "$(uname)" = "Linux" ]; then ext="so"; else ext="dll"; fi
+  odin build src/game -debug -build-mode:dll -out:build/hot_reload/game_tmp.$ext
+  mv build/hot_reload/game_tmp.$ext build/hot_reload/game.$ext
+
+hot-host:
+  mkdir -p build/hot_reload
+  odin build src/hot_reload -debug -out:build/hot_reload/arctic-char-hot
+
+hot-build: hot-game hot-host
+  cp -r ./base ./build/hot_reload/base
+
+hot-run: hot-build
+  ./build/hot_reload/arctic-char-hot
+
 collision-mesh:
   #!/usr/bin/env sh
   BLENDER="${BLENDER:-blender}"

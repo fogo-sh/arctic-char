@@ -112,13 +112,21 @@ app_destroy :: proc(app: ^App) {
 
 app_run :: proc(app: ^App) {
 	for app.running {
-		input_begin_frame(&app.input)
-		app_handle_events(app)
-		app_tick(app)
-		app_draw(app)
+		app_frame(app)
 	}
 
 	log.debug("Goodbye!")
+}
+
+app_should_run :: proc(app: ^App) -> bool {
+	return app.running
+}
+
+app_frame :: proc(app: ^App) {
+	input_begin_frame(&app.input)
+	app_handle_events(app)
+	app_tick(app)
+	app_draw(app)
 }
 
 app_tick :: proc(app: ^App) {

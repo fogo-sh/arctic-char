@@ -40,9 +40,11 @@ RenderObject :: struct {
 }
 
 PhysicsObject :: struct {
-	body:           b3.BodyId,
-	enabled:        bool,
-	sync_transform: bool,
+	body:             b3.BodyId,
+	enabled:          bool,
+	sync_transform:   bool,
+	linear_velocity:  Vec3,
+	angular_velocity: Vec3,
 }
 
 Object :: struct {
@@ -75,6 +77,47 @@ scene_destroy :: proc(scene: ^Scene) {
 	engine.physics_destroy(&scene.physics)
 	scene_physics_assets_destroy(scene)
 	scene^ = {}
+}
+
+scene_prepare_hot_reload :: proc(scene: ^Scene) {
+	for &object in scene.objects {
+		if !object.physics.enabled || !b3.IS_NON_NULL(object.physics.body) {
+			continue
+		}
+		if object.physics.sync_transform {
+			transform := b3.Body_GetTransform(object.physics.body)
+			object.transform.position = Vec3(transform.p)
+		}
+		object.physics.linear_velocity = Vec3(b3.Body_GetLinearVelocity(object.physics.body))
+		object.physics.angular_velocity = Vec3(b3.Body_GetAngularVelocity(object.physics.body))
+		object.physics.body = {}
+	}
+	engine.physics_destroy(&scene.physics)
+	scene_physics_assets_destroy(scene)
+}
+
+scene_rebuild_after_hot_reload :: proc(scene: ^Scene, fs: ^GameFS, map_qpath: string) {
+	runtime.DEFAULT_TEMP_ALLOCATOR_TEMP_GUARD()
+
+	level := level_load(fs, map_qpath)
+	defer level_destroy(&level)
+	collision_mesh := engine.load_glb_mesh(fs, "models/suzanne_collision.glb")
+	defer engine.cpu_mesh_destroy(&collision_mesh)
+
+	scene.physics = engine.physics_create()
+	scene_physics_assets_create(scene, &collision_mesh, &level.render_mesh)
+	for &object, index in scene.objects {
+		switch object.kind {
+		case .Suzanne:
+			body := scene_physics_create_suzanne_body(scene, object.transform.position, int(index))
+			b3.Body_SetLinearVelocity(body, object.physics.linear_velocity)
+			b3.Body_SetAngularVelocity(body, object.physics.angular_velocity)
+			object.physics.body = body
+		case .Map:
+			object.physics = {enabled = false}
+		}
+	}
+	scene.accumulator = 0
 }
 
 scene_reload_level :: proc(scene: ^Scene, level: ^LevelAsset) {
@@ -131,7 +174,12 @@ scene_spawn_suzanne :: proc(scene: ^Scene) {
 		kind = .Suzanne,
 		transform = {position = position},
 		render = {mesh = scene.suzanne_mesh, visible = true},
-		physics = {body = body, enabled = true, sync_transform = true},
+		physics = {
+			body = body,
+			enabled = true,
+			sync_transform = true,
+			angular_velocity = scene_physics_suzanne_angular_velocity(i),
+		},
 	})
 	scene.spawned_count += 1
 }

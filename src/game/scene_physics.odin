@@ -56,11 +56,7 @@ scene_physics_create_suzanne_body :: proc(scene: ^Scene, position: Vec3, ordinal
 	body_def := b3.DefaultBodyDef()
 	body_def.type = .dynamicBody
 	body_def.position = {position.x, position.y, position.z}
-	body_def.angularVelocity = {
-		0.25 + f32(ordinal % 5) * 0.12,
-		0.35 + f32(ordinal % 7) * 0.08,
-		0.15 + f32(ordinal % 3) * 0.16,
-	}
+	body_def.angularVelocity = scene_physics_suzanne_angular_velocity(ordinal)
 	body := b3.CreateBody(scene.physics.id, body_def)
 
 	shape_def := b3.DefaultShapeDef()
@@ -70,6 +66,14 @@ scene_physics_create_suzanne_body :: proc(scene: ^Scene, position: Vec3, ordinal
 	shape_def.filter = scene_physics_prop_shape_filter()
 	_ = b3.CreateHullShape(body, shape_def, scene.physics_assets.suzanne_hull)
 	return body
+}
+
+scene_physics_suzanne_angular_velocity :: proc(ordinal: int) -> Vec3 {
+	return {
+		0.25 + f32(ordinal % 5) * 0.12,
+		0.35 + f32(ordinal % 7) * 0.08,
+		0.15 + f32(ordinal % 3) * 0.16,
+	}
 }
 
 physics_player_query_filter :: proc() -> b3.QueryFilter {
