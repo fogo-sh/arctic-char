@@ -9,16 +9,22 @@ when ODIN_OS == .Darwin {
 
 	frag_shader_code := #load("../../shaders/msl/shader.msl.frag")
 	vert_shader_code := #load("../../shaders/msl/shader.msl.vert")
+	sky_frag_shader_code := #load("../../shaders/msl/sky.msl.frag")
+	sky_vert_shader_code := #load("../../shaders/msl/sky.msl.vert")
 } else when ODIN_OS == .Windows {
 	shader_format := sdl.GPUShaderFormat{.DXIL}
 
 	frag_shader_code := #load("../../shaders/dxil/shader.dxil.frag")
 	vert_shader_code := #load("../../shaders/dxil/shader.dxil.vert")
+	sky_frag_shader_code := #load("../../shaders/dxil/sky.dxil.frag")
+	sky_vert_shader_code := #load("../../shaders/dxil/sky.dxil.vert")
 } else {
 	shader_format := sdl.GPUShaderFormat{.SPIRV}
 
 	frag_shader_code := #load("../../shaders/spv/shader.spv.frag")
 	vert_shader_code := #load("../../shaders/spv/shader.spv.vert")
+	sky_frag_shader_code := #load("../../shaders/spv/sky.spv.frag")
+	sky_vert_shader_code := #load("../../shaders/spv/sky.spv.vert")
 }
 
 load_shader :: proc(

@@ -11,7 +11,8 @@ Renderer :: struct {
 	gpu:    ^sdl.GPUDevice,
 	window: ^sdl.Window,
 
-	pipeline: ^sdl.GPUGraphicsPipeline,
+	pipeline:     ^sdl.GPUGraphicsPipeline,
+	sky_pipeline: ^sdl.GPUGraphicsPipeline,
 
 	msaa_color_texture: ^sdl.GPUTexture,
 	depth_texture:      ^sdl.GPUTexture,
@@ -36,8 +37,28 @@ RenderItem :: struct {
 }
 
 RenderPassGlobals :: struct {
-	view: matrix[4, 4]f32,
-	proj: matrix[4, 4]f32,
+	view:        matrix[4, 4]f32,
+	proj:        matrix[4, 4]f32,
+	environment: RenderEnvironment,
+}
+
+RenderEnvironment :: struct {
+	fog_color:         [4]f32,
+	sky_top_color:     [4]f32,
+	sky_horizon_color: [4]f32,
+	fog_distances:     [4]f32,
+}
+
+WorldVertexUniforms :: struct {
+	mvp:        matrix[4, 4]f32,
+	model_view: matrix[4, 4]f32,
+}
+
+FragmentUniforms :: struct {
+	fog_color:         [4]f32,
+	sky_top_color:     [4]f32,
+	sky_horizon_color: [4]f32,
+	fog_distances:     [4]f32,
 }
 
 RendererStats :: struct {
@@ -71,6 +92,7 @@ renderer_create :: proc(
 	log.debugf("Renderer MSAA sample count: %v", renderer.sample_count)
 	renderer_create_render_targets(&renderer, width, height)
 	renderer.pipeline = renderer_create_pipeline(gpu, window, renderer.sample_count)
+	renderer.sky_pipeline = renderer_create_sky_pipeline(gpu, window, renderer.sample_count)
 	renderer.meshes = make([dynamic]GpuMesh, 0, 16, allocator)
 	renderer_update_static_stats(&renderer)
 	return renderer
@@ -84,6 +106,7 @@ renderer_destroy :: proc(renderer: ^Renderer) {
 	if renderer.depth_texture != nil do sdl.ReleaseGPUTexture(renderer.gpu, renderer.depth_texture)
 	if renderer.msaa_color_texture != nil do sdl.ReleaseGPUTexture(renderer.gpu, renderer.msaa_color_texture)
 	if renderer.pipeline != nil do sdl.ReleaseGPUGraphicsPipeline(renderer.gpu, renderer.pipeline)
+	if renderer.sky_pipeline != nil do sdl.ReleaseGPUGraphicsPipeline(renderer.gpu, renderer.sky_pipeline)
 	renderer^ = {}
 }
 
@@ -157,7 +180,7 @@ renderer_create_pipeline :: proc(
 		gpu,
 		frag_shader_code,
 		.FRAGMENT,
-		num_uniform_buffers = 0,
+		num_uniform_buffers = 1,
 		entrypoint_name = "FragmentMain",
 	)
 	assert(vert_shader != nil)
@@ -177,12 +200,13 @@ renderer_create_pipeline :: proc(
 		{location = 2, buffer_slot = 0, format = .FLOAT2, offset = u32(offset_of(VertexData, uv))},
 		{location = 3, buffer_slot = 0, format = .FLOAT4, offset = u32(offset_of(VertexData, color))},
 	}
+	color_target_description := sdl.GPUColorTargetDescription {
+		format = sdl.GetGPUSwapchainTextureFormat(gpu, window),
+		blend_state = sdl.GPUColorTargetBlendState{},
+	}
 	target_info := sdl.GPUGraphicsPipelineTargetInfo {
 		num_color_targets         = 1,
-		color_target_descriptions = &sdl.GPUColorTargetDescription {
-			format = sdl.GetGPUSwapchainTextureFormat(gpu, window),
-			blend_state = sdl.GPUColorTargetBlendState{},
-		},
+		color_target_descriptions = &color_target_description,
 		depth_stencil_format      = .D32_FLOAT,
 		has_depth_stencil_target  = true,
 	}
@@ -330,7 +354,7 @@ renderer_draw :: proc(
 	renderer.stats.draw_count = 0
 	renderer.stats.triangle_count = 0
 
-	color_target := renderer_color_target(renderer, swapchain_tex)
+	color_target := renderer_color_target(renderer, swapchain_tex, globals.environment)
 	depth_target := sdl.GPUDepthStencilTargetInfo {
 		texture          = renderer.depth_texture,
 		clear_depth      = 1.0,
@@ -341,7 +365,11 @@ renderer_draw :: proc(
 	}
 
 	render_pass := sdl.BeginGPURenderPass(cmd_buf, &color_target, 1, &depth_target)
+	renderer_draw_sky(renderer, cmd_buf, render_pass, globals)
+
 	sdl.BindGPUGraphicsPipeline(render_pass, renderer.pipeline)
+	fragment_uniforms := renderer_fragment_uniforms(globals.environment)
+	sdl.PushGPUFragmentUniformData(cmd_buf, 0, &fragment_uniforms, size_of(fragment_uniforms))
 
 	for item in items {
 		mesh := renderer_mesh(renderer, item.mesh)
@@ -350,15 +378,25 @@ renderer_draw :: proc(
 		sdl.BindGPUVertexBuffers(render_pass, 0, &vertex_buffer_binding, 1)
 		sdl.BindGPUIndexBuffer(render_pass, index_buffer_binding, ._32BIT)
 
-		vertex_uniforms := struct {
-			mvp: matrix[4, 4]f32,
-		}{mvp = globals.proj * globals.view * item.model}
+		vertex_uniforms := WorldVertexUniforms {
+			mvp = globals.proj * globals.view * item.model,
+			model_view = globals.view * item.model,
+		}
 		sdl.PushGPUVertexUniformData(cmd_buf, 0, &vertex_uniforms, size_of(vertex_uniforms))
 		sdl.DrawGPUIndexedPrimitives(render_pass, u32(mesh.index_count), 1, 0, 0, 0)
 		renderer.stats.draw_count += 1
 		renderer.stats.triangle_count += mesh.index_count / 3
 	}
 	sdl.EndGPURenderPass(render_pass)
+}
+
+renderer_fragment_uniforms :: proc(environment: RenderEnvironment) -> FragmentUniforms {
+	return {
+		fog_color = environment.fog_color,
+		sky_top_color = environment.sky_top_color,
+		sky_horizon_color = environment.sky_horizon_color,
+		fog_distances = environment.fog_distances,
+	}
 }
 
 renderer_mesh :: proc(renderer: ^Renderer, handle: MeshHandle) -> ^GpuMesh {
@@ -369,7 +407,7 @@ renderer_mesh :: proc(renderer: ^Renderer, handle: MeshHandle) -> ^GpuMesh {
 
 renderer_update_static_stats :: proc(renderer: ^Renderer) {
 	renderer.stats.mesh_count = len(renderer.meshes)
-	renderer.stats.pipeline_count = renderer.pipeline != nil ? 1 : 0
+	renderer.stats.pipeline_count = int(renderer.pipeline != nil) + int(renderer.sky_pipeline != nil)
 }
 
 renderer_log_stats :: proc(renderer: ^Renderer) {
@@ -385,10 +423,11 @@ renderer_log_stats :: proc(renderer: ^Renderer) {
 renderer_color_target :: proc(
 	renderer: ^Renderer,
 	swapchain_tex: ^sdl.GPUTexture,
+	environment: RenderEnvironment,
 ) -> sdl.GPUColorTargetInfo {
 	color_target := sdl.GPUColorTargetInfo {
 		load_op     = .CLEAR,
-		clear_color = {0.04, 0.05, 0.07, 1.0},
+		clear_color = sdl.FColor(environment.fog_color),
 	}
 
 	if renderer.sample_count == ._1 {

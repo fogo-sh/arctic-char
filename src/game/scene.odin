@@ -263,8 +263,18 @@ scene_collect_render_items :: proc(scene: ^Scene, items: ^[dynamic]RenderItem) -
 scene_render_globals :: proc(scene: ^Scene, window_size: [2]i32) -> RenderPassGlobals {
 	aspect := f32(window_size.x) / f32(window_size.y)
 	return RenderPassGlobals {
-		view = player_view_matrix(&scene.player),
-		proj = engine.matrix4_perspective_z0_f32(linalg.to_radians(f32(70)), aspect, 0.1, 100),
+		view        = player_view_matrix(&scene.player),
+		proj        = engine.matrix4_perspective_z0_f32(linalg.to_radians(f32(70)), aspect, 0.1, 100),
+		environment = scene_render_environment(),
+	}
+}
+
+scene_render_environment :: proc() -> RenderEnvironment {
+	return {
+		fog_color         = {0.776471, 0.866667, 0.909804, 1.0}, // Flexoki blue-100
+		sky_top_color     = {0.262745, 0.521569, 0.745098, 1.0}, // Flexoki blue-400
+		sky_horizon_color = {0.776471, 0.866667, 0.909804, 1.0}, // Flexoki blue-100
+		fog_distances     = {55.0, 95.0, 0.0, 0.0},
 	}
 }
 

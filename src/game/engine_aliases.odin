@@ -10,6 +10,7 @@ InputState :: engine.InputState
 MeshHandle :: engine.MeshHandle
 PhysicsWorld :: engine.PhysicsWorld
 RenderItem :: engine.RenderItem
+RenderEnvironment :: engine.RenderEnvironment
 RenderPassGlobals :: engine.RenderPassGlobals
 Renderer :: engine.Renderer
 Vec2 :: engine.Vec2

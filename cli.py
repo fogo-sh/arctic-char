@@ -22,6 +22,20 @@ BASE = ROOT / "base"
 APP_NAME = "arctic-char"
 HOT_DIR = BUILD / "hot_reload"
 TRENCHBROOM_PROFILE_DIR = ROOT / "tools" / "trenchbroom" / "ArcticChar"
+SHADER_OUTPUTS = [
+    ("SPIRV", "vertex", "VertexMain", ROOT / "shaders" / "spv" / "shader.spv.vert"),
+    ("SPIRV", "fragment", "FragmentMain", ROOT / "shaders" / "spv" / "shader.spv.frag"),
+    ("SPIRV", "vertex", "SkyVertexMain", ROOT / "shaders" / "spv" / "sky.spv.vert"),
+    ("SPIRV", "fragment", "SkyFragmentMain", ROOT / "shaders" / "spv" / "sky.spv.frag"),
+    ("MSL", "vertex", "VertexMain", ROOT / "shaders" / "msl" / "shader.msl.vert"),
+    ("MSL", "fragment", "FragmentMain", ROOT / "shaders" / "msl" / "shader.msl.frag"),
+    ("MSL", "vertex", "SkyVertexMain", ROOT / "shaders" / "msl" / "sky.msl.vert"),
+    ("MSL", "fragment", "SkyFragmentMain", ROOT / "shaders" / "msl" / "sky.msl.frag"),
+    ("DXIL", "vertex", "VertexMain", ROOT / "shaders" / "dxil" / "shader.dxil.vert"),
+    ("DXIL", "fragment", "FragmentMain", ROOT / "shaders" / "dxil" / "shader.dxil.frag"),
+    ("DXIL", "vertex", "SkyVertexMain", ROOT / "shaders" / "dxil" / "sky.dxil.vert"),
+    ("DXIL", "fragment", "SkyFragmentMain", ROOT / "shaders" / "dxil" / "sky.dxil.frag"),
+]
 
 
 def main() -> int:
@@ -168,30 +182,25 @@ def cmd_collision_mesh() -> None:
 
 
 def cmd_shaders() -> None:
-    shader = ROOT / "shaders" / "hlsl" / "shader.hlsl"
-    outputs = [
-        ("SPIRV", "vertex", "VertexMain", ROOT / "shaders" / "spv" / "shader.spv.vert"),
-        ("SPIRV", "fragment", "FragmentMain", ROOT / "shaders" / "spv" / "shader.spv.frag"),
-        ("MSL", "vertex", "VertexMain", ROOT / "shaders" / "msl" / "shader.msl.vert"),
-        ("MSL", "fragment", "FragmentMain", ROOT / "shaders" / "msl" / "shader.msl.frag"),
-        ("DXIL", "vertex", "VertexMain", ROOT / "shaders" / "dxil" / "shader.dxil.vert"),
-        ("DXIL", "fragment", "FragmentMain", ROOT / "shaders" / "dxil" / "shader.dxil.frag"),
-    ]
-    for _, _, _, output in outputs:
-        output.parent.mkdir(parents=True, exist_ok=True)
-    for dest, stage, entry, output in outputs:
-        run(["shadercross", shader, "-s", "HLSL", "-d", dest, "-t", stage, "-e", entry, "-o", output])
+	shader = ROOT / "shaders" / "hlsl" / "shader.hlsl"
+	for _, _, _, output in SHADER_OUTPUTS:
+		output.parent.mkdir(parents=True, exist_ok=True)
+	for dest, stage, entry, output in SHADER_OUTPUTS:
+		run(["shadercross", shader, "-s", "HLSL", "-d", dest, "-t", stage, "-e", entry, "-o", output])
+		normalize_shader_output(output)
+
+
+def normalize_shader_output(path: Path) -> None:
+	if path.suffix not in {".vert", ".frag"} or path.parent.name != "msl":
+		return
+	lines = path.read_text(encoding="utf-8").splitlines()
+	while lines and lines[-1] == "":
+		lines.pop()
+	path.write_text("\n".join(line.rstrip() for line in lines) + "\n", encoding="utf-8")
 
 
 def shader_outputs() -> list[Path]:
-    return [
-        ROOT / "shaders" / "msl" / "shader.msl.vert",
-        ROOT / "shaders" / "msl" / "shader.msl.frag",
-        ROOT / "shaders" / "spv" / "shader.spv.vert",
-        ROOT / "shaders" / "spv" / "shader.spv.frag",
-        ROOT / "shaders" / "dxil" / "shader.dxil.vert",
-        ROOT / "shaders" / "dxil" / "shader.dxil.frag",
-    ]
+	return [output for _, _, _, output in SHADER_OUTPUTS]
 
 
 def file_hashes(paths: list[Path]) -> dict[Path, str]:

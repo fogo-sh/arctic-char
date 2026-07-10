@@ -8,8 +8,12 @@ choice changes.
 
 - Engine world space uses meters internally and +Y as up.
 - Player/camera forward is currently -Z at yaw 0.
+- Quake units are converted into meters at load/compile boundaries. The current
+  scale is `QU_TO_M = 0.038`.
 - Imported assets, authored maps, and generated collision should be converted at
   load/import boundaries into engine world space.
+- Do not make gameplay or physics code think in graphics API clip-space terms.
+  Keep API-specific conventions at the renderer/projection boundary.
 - Renderer projection must output SDL GPU-compatible clip coordinates.
 - SDL GPU clip/NDC depth is [0, 1], so engine projection helpers should say this
   explicitly in their names, e.g. `matrix4_perspective_z0_f32`.
@@ -27,6 +31,25 @@ Current findings:
 - SDL GPU's rasterizer state has `enable_depth_clip`; set it explicitly for the
   main pipeline so far/near plane intersections clip instead of depth-clamping.
 
+## Map And Asset Loading
+
+- Editable source assets stay authoritative during development.
+- Valve 220 `.map` files are the current level-authoring source format.
+- Map loading is split into parsing and compilation:
+  - `map.odin` parses entities, brushes, faces, properties, and texture axes.
+  - `map_mesh.odin` turns brush faces into renderable mesh data.
+  - `level.odin` owns the compiled level asset used by game startup/reload.
+- Runtime code should consume compiled level data instead of reparsing source
+  text in unrelated systems.
+- TrenchBroom support is generated from canonical Odin entity metadata, not from
+  ad-hoc FGD files. Update `src/game/entity_definitions.odin` first, then
+  regenerate the profile.
+- Collision assets may use separate authored meshes when that keeps physics
+  simpler and more stable than deriving collision from visual meshes.
+- Future compiled/binary asset formats should be disposable build products. The
+  source text/assets remain the inspectable truth unless we explicitly change
+  that policy.
+
 ## Renderer Boundary
 
 - Scene code decides what should be drawn and emits `RenderItem` values.
@@ -34,3 +57,64 @@ Current findings:
   recording.
 - Renderer code should stay generic: it knows about meshes, render items, and
   matrices, not semantic game objects.
+- `RenderItem` currently carries a `MeshHandle` and model matrix. Keep semantic
+  object names, entity kinds, and gameplay decisions outside the renderer.
+- The renderer owns SDL GPU depth target creation, MSAA target creation,
+  immutable mesh upload/replacement, and draw pass recording.
+- The current main pass uses a `D32_FLOAT` depth target, clears depth to `1.0`,
+  and uses `.LESS` depth testing/writes.
+- Shader-side coordinate fixups should be avoided unless they are clearly local
+  to a shader feature. Prefer explicit engine math helpers so projection choices
+  remain visible in Odin code.
+
+## Sky And Fog
+
+- The current art direction favors simple, non-textured graphics.
+- The sky is procedural: a fullscreen gradient pass using Flexoki-inspired blues
+  instead of a cubemap or sky texture.
+- Distant world geometry fades into the sky/fog color in the world fragment
+  shader. This hides hard far-plane clipping and gives distance cues.
+- Keep the fog color matched to the sky horizon/clear color. If these diverge,
+  the far-plane fade illusion becomes obvious.
+- Prefer simple distance fog first. Cubemaps, image skyboxes, and atmospheric
+  scattering are intentionally deferred until there is a concrete need.
+
+## Physics Ownership
+
+- Physics uses Odin's vendored Box3D binding.
+- `PhysicsWorld` owns the Box3D world. Scene objects store `b3.BodyId` handles;
+  they do not own Box3D body allocations.
+- Game collision layers and object-specific body creation live in game code, not
+  the generic engine physics wrapper.
+- Fixed stepping is owned by the scene/game update path. Do not advance Box3D
+  opportunistically from rendering code.
+- Physics transforms crossing into renderer data should use explicit conversion
+  helpers, e.g. `physics_body_matrix`.
+
+## Hot Reload
+
+- The normal executable imports `src/game` directly.
+- The development host imports only `src/engine` and loads the game dynamic
+  library from `build/hot_reload/game` with the platform extension.
+- Hot reload preserves `Game_State` memory when the game memory size still
+  matches and the game does not request a forced restart.
+- Raw Box3D handles are not preserved across dynamic-library reloads while game
+  code still calls Box3D directly.
+- Before reload, the old game library syncs runtime physics state back into plain
+  scene data, then destroys the old Box3D world/assets.
+- The host keeps old libraries loaded, swaps the resolved function table, and
+  calls the new library's hot-reload hook to rebuild Box3D world state, map body,
+  collision assets, and prop bodies from plain scene data.
+- If hot reload policy changes, update both the host/game code and this document.
+
+## Tooling And Verification
+
+- `cli.py` is the canonical local task runner. Do not reintroduce parallel task
+  definitions in a `justfile` or shell scripts unless there is a specific need.
+- `mise.toml` pins the expected Odin and Python tool versions.
+- For code changes, run `python cli.py build`.
+- For rendering or physics-affecting changes, also run `python cli.py smoke`.
+- For shader changes, run `python cli.py check-shaders`.
+- For hot-reload host changes, run `python cli.py hot-build`.
+- For entity metadata or TrenchBroom profile changes, regenerate with
+  `python cli.py trenchbroom-profile`.
