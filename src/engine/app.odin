@@ -14,8 +14,10 @@ App :: struct {
 	gpu:    ^sdl.GPUDevice,
 
 	renderer: Renderer,
+	ui:       UiContext,
 	input: InputState,
 	render_items: [dynamic]RenderItem,
+	ui_commands:  [dynamic]UiCommand,
 	fs: GameFS,
 	game: rawptr,
 	game_api: Game_API,
@@ -38,6 +40,7 @@ Game_API :: struct {
 RenderFrame :: struct {
 	globals: RenderPassGlobals,
 	items: []RenderItem,
+	ui_items: []UiCommand,
 }
 
 // Creates SDL's application shell: window, GPU device, and the first renderer.
@@ -86,7 +89,9 @@ app_create :: proc(config: LaunchConfig) -> App {
 
 	app.fs = game_fs_create(config.base_dir, config.game)
 	app.renderer = renderer_create(app.gpu, app.window, app.win_size.x, app.win_size.y)
+	app.ui = ui_create(app.win_size.x, app.win_size.y)
 	app.render_items = make([dynamic]RenderItem, 0, APP_RENDER_ITEM_CAPACITY)
+	app.ui_commands = make([dynamic]UiCommand, 0, UI_COMMAND_CAPACITY)
 
 	app.last_ticks = sdl.GetTicks()
 	return app
@@ -101,7 +106,9 @@ app_destroy :: proc(app: ^App) {
 	if app.game_api.destroy != nil {
 		app.game_api.destroy(app.game)
 	}
+	ui_destroy(&app.ui)
 	renderer_destroy(&app.renderer)
+	delete(app.ui_commands)
 	delete(app.render_items)
 	game_fs_destroy(&app.fs)
 	if app.gpu != nil && app.window != nil do sdl.ReleaseWindowFromGPUDevice(app.gpu, app.window)
@@ -187,7 +194,12 @@ app_draw :: proc(app: ^App) {
 	assert(ok)
 
 	frame := app.game_api.render(app.game, &app.render_items, app.win_size)
-	renderer_draw(&app.renderer, cmd_buf, swapchain_tex, frame.globals, frame.items)
+	clear(&app.ui_commands)
+	for item in frame.ui_items {
+		append(&app.ui_commands, item)
+	}
+	ui_placeholder_append_commands(&app.ui, app.win_size, &app.ui_commands)
+	renderer_draw(&app.renderer, cmd_buf, swapchain_tex, frame.globals, frame.items, app.ui_commands[:], app.win_size)
 	if app.stats_log_time >= 2.0 {
 		renderer_log_stats(&app.renderer)
 		app.stats_log_time = 0

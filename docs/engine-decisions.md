@@ -66,6 +66,23 @@ Current findings:
 - Shader-side coordinate fixups should be avoided unless they are clearly local
   to a shader feature. Prefer explicit engine math helpers so projection choices
   remain visible in Odin code.
+- Clay UI is vendored as source in `vendor/clay` and `vendor/clay-odin`; generated
+  Clay static libraries are local build products under `build/clay` created by
+  `python cli.py clay-lib`.
+- The first Clay renderer path is deliberately minimal: SDL GPU rectangles,
+  borders, scissors, and text. Images and custom commands are deferred until
+  there is a concrete UI need.
+- Clay render commands should be translated into engine-owned `UiCommand` values
+  before they reach the generic renderer. Keep Clay types out of `renderer.odin`.
+- UI drawing currently happens at the end of the main render pass, using the same
+  color/depth target setup as the world pass but with depth testing disabled.
+- UI text uses engine-owned Slug-style TTF/glyph packing code in `src/engine`;
+  renderer-owned SDL GPU code uploads the curve/band textures and draws text from
+  engine-owned `UiCommand.Text` values.
+- Text shader source stays in HLSL under `shaders/hlsl/text.hlsl` and is compiled
+  through `shadercross` like the other shader domains.
+- The placeholder UI is currently part of the normal render path. Replace it with
+  game-owned UI commands when real HUD/menu needs become concrete.
 
 ## Sky And Fog
 
@@ -112,9 +129,14 @@ Current findings:
 - `cli.py` is the canonical local task runner. Do not reintroduce parallel task
   definitions in a `justfile` or shell scripts unless there is a specific need.
 - `mise.toml` pins the expected Odin and Python tool versions.
+- `python cli.py build`, `build-release`, and hot-reload game builds regenerate
+  the current platform's Clay static library before invoking Odin.
 - For code changes, run `python cli.py build`.
 - For rendering or physics-affecting changes, also run `python cli.py smoke`.
 - For shader changes, run `python cli.py check-shaders`.
+- Shader source files are split by domain under `shaders/hlsl`. Avoid adding
+  unrelated entrypoints to a shared shader source if it causes generated-artifact
+  churn in other pipelines.
 - For hot-reload host changes, run `python cli.py hot-build`.
 - For entity metadata or TrenchBroom profile changes, regenerate with
   `python cli.py trenchbroom-profile`.

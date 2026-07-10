@@ -13,6 +13,8 @@ Renderer :: struct {
 
 	pipeline:     ^sdl.GPUGraphicsPipeline,
 	sky_pipeline: ^sdl.GPUGraphicsPipeline,
+	ui_pipeline: ^sdl.GPUGraphicsPipeline,
+	text:        ^TextRenderer,
 
 	msaa_color_texture: ^sdl.GPUTexture,
 	depth_texture:      ^sdl.GPUTexture,
@@ -93,6 +95,8 @@ renderer_create :: proc(
 	renderer_create_render_targets(&renderer, width, height)
 	renderer.pipeline = renderer_create_pipeline(gpu, window, renderer.sample_count)
 	renderer.sky_pipeline = renderer_create_sky_pipeline(gpu, window, renderer.sample_count)
+	renderer.ui_pipeline = renderer_create_ui_pipeline(gpu, window, renderer.sample_count)
+	renderer.text = renderer_create_text(gpu, window, renderer.sample_count)
 	renderer.meshes = make([dynamic]GpuMesh, 0, 16, allocator)
 	renderer_update_static_stats(&renderer)
 	return renderer
@@ -107,6 +111,8 @@ renderer_destroy :: proc(renderer: ^Renderer) {
 	if renderer.msaa_color_texture != nil do sdl.ReleaseGPUTexture(renderer.gpu, renderer.msaa_color_texture)
 	if renderer.pipeline != nil do sdl.ReleaseGPUGraphicsPipeline(renderer.gpu, renderer.pipeline)
 	if renderer.sky_pipeline != nil do sdl.ReleaseGPUGraphicsPipeline(renderer.gpu, renderer.sky_pipeline)
+	if renderer.ui_pipeline != nil do sdl.ReleaseGPUGraphicsPipeline(renderer.gpu, renderer.ui_pipeline)
+	renderer_destroy_text(renderer.gpu, renderer.text)
 	renderer^ = {}
 }
 
@@ -349,10 +355,13 @@ renderer_draw :: proc(
 	swapchain_tex: ^sdl.GPUTexture,
 	globals: RenderPassGlobals,
 	items: []RenderItem,
+	ui_commands: []UiCommand,
+	viewport: [2]i32,
 ) {
 	if swapchain_tex == nil do return
 	renderer.stats.draw_count = 0
 	renderer.stats.triangle_count = 0
+	renderer_prepare_text(renderer, cmd_buf, ui_commands)
 
 	color_target := renderer_color_target(renderer, swapchain_tex, globals.environment)
 	depth_target := sdl.GPUDepthStencilTargetInfo {
@@ -387,6 +396,8 @@ renderer_draw :: proc(
 		renderer.stats.draw_count += 1
 		renderer.stats.triangle_count += mesh.index_count / 3
 	}
+	renderer_draw_ui(renderer, cmd_buf, render_pass, ui_commands, viewport)
+	renderer_draw_text(renderer, cmd_buf, render_pass, viewport)
 	sdl.EndGPURenderPass(render_pass)
 }
 
@@ -407,7 +418,7 @@ renderer_mesh :: proc(renderer: ^Renderer, handle: MeshHandle) -> ^GpuMesh {
 
 renderer_update_static_stats :: proc(renderer: ^Renderer) {
 	renderer.stats.mesh_count = len(renderer.meshes)
-	renderer.stats.pipeline_count = int(renderer.pipeline != nil) + int(renderer.sky_pipeline != nil)
+	renderer.stats.pipeline_count = int(renderer.pipeline != nil) + int(renderer.sky_pipeline != nil) + int(renderer.ui_pipeline != nil) + int(renderer.text != nil && renderer.text.pipeline != nil)
 }
 
 renderer_log_stats :: proc(renderer: ^Renderer) {

@@ -22,19 +22,32 @@ BASE = ROOT / "base"
 APP_NAME = "arctic-char"
 HOT_DIR = BUILD / "hot_reload"
 TRENCHBROOM_PROFILE_DIR = ROOT / "tools" / "trenchbroom" / "ArcticChar"
+CLAY_DIR = ROOT / "vendor" / "clay"
 SHADER_OUTPUTS = [
-    ("SPIRV", "vertex", "VertexMain", ROOT / "shaders" / "spv" / "shader.spv.vert"),
-    ("SPIRV", "fragment", "FragmentMain", ROOT / "shaders" / "spv" / "shader.spv.frag"),
-    ("SPIRV", "vertex", "SkyVertexMain", ROOT / "shaders" / "spv" / "sky.spv.vert"),
-    ("SPIRV", "fragment", "SkyFragmentMain", ROOT / "shaders" / "spv" / "sky.spv.frag"),
-    ("MSL", "vertex", "VertexMain", ROOT / "shaders" / "msl" / "shader.msl.vert"),
-    ("MSL", "fragment", "FragmentMain", ROOT / "shaders" / "msl" / "shader.msl.frag"),
-    ("MSL", "vertex", "SkyVertexMain", ROOT / "shaders" / "msl" / "sky.msl.vert"),
-    ("MSL", "fragment", "SkyFragmentMain", ROOT / "shaders" / "msl" / "sky.msl.frag"),
-    ("DXIL", "vertex", "VertexMain", ROOT / "shaders" / "dxil" / "shader.dxil.vert"),
-    ("DXIL", "fragment", "FragmentMain", ROOT / "shaders" / "dxil" / "shader.dxil.frag"),
-    ("DXIL", "vertex", "SkyVertexMain", ROOT / "shaders" / "dxil" / "sky.dxil.vert"),
-    ("DXIL", "fragment", "SkyFragmentMain", ROOT / "shaders" / "dxil" / "sky.dxil.frag"),
+    (ROOT / "shaders" / "hlsl" / "shader.hlsl", "SPIRV", "vertex", "VertexMain", ROOT / "shaders" / "spv" / "shader.spv.vert"),
+    (ROOT / "shaders" / "hlsl" / "shader.hlsl", "SPIRV", "fragment", "FragmentMain", ROOT / "shaders" / "spv" / "shader.spv.frag"),
+    (ROOT / "shaders" / "hlsl" / "shader.hlsl", "SPIRV", "vertex", "SkyVertexMain", ROOT / "shaders" / "spv" / "sky.spv.vert"),
+    (ROOT / "shaders" / "hlsl" / "shader.hlsl", "SPIRV", "fragment", "SkyFragmentMain", ROOT / "shaders" / "spv" / "sky.spv.frag"),
+    (ROOT / "shaders" / "hlsl" / "ui.hlsl", "SPIRV", "vertex", "UiVertexMain", ROOT / "shaders" / "spv" / "ui.spv.vert"),
+    (ROOT / "shaders" / "hlsl" / "ui.hlsl", "SPIRV", "fragment", "UiFragmentMain", ROOT / "shaders" / "spv" / "ui.spv.frag"),
+    (ROOT / "shaders" / "hlsl" / "text.hlsl", "SPIRV", "vertex", "TextVertexMain", ROOT / "shaders" / "spv" / "text.spv.vert"),
+    (ROOT / "shaders" / "hlsl" / "text.hlsl", "SPIRV", "fragment", "TextFragmentMain", ROOT / "shaders" / "spv" / "text.spv.frag"),
+    (ROOT / "shaders" / "hlsl" / "shader.hlsl", "MSL", "vertex", "VertexMain", ROOT / "shaders" / "msl" / "shader.msl.vert"),
+    (ROOT / "shaders" / "hlsl" / "shader.hlsl", "MSL", "fragment", "FragmentMain", ROOT / "shaders" / "msl" / "shader.msl.frag"),
+    (ROOT / "shaders" / "hlsl" / "shader.hlsl", "MSL", "vertex", "SkyVertexMain", ROOT / "shaders" / "msl" / "sky.msl.vert"),
+    (ROOT / "shaders" / "hlsl" / "shader.hlsl", "MSL", "fragment", "SkyFragmentMain", ROOT / "shaders" / "msl" / "sky.msl.frag"),
+    (ROOT / "shaders" / "hlsl" / "ui.hlsl", "MSL", "vertex", "UiVertexMain", ROOT / "shaders" / "msl" / "ui.msl.vert"),
+    (ROOT / "shaders" / "hlsl" / "ui.hlsl", "MSL", "fragment", "UiFragmentMain", ROOT / "shaders" / "msl" / "ui.msl.frag"),
+    (ROOT / "shaders" / "hlsl" / "text.hlsl", "MSL", "vertex", "TextVertexMain", ROOT / "shaders" / "msl" / "text.msl.vert"),
+    (ROOT / "shaders" / "hlsl" / "text.hlsl", "MSL", "fragment", "TextFragmentMain", ROOT / "shaders" / "msl" / "text.msl.frag"),
+    (ROOT / "shaders" / "hlsl" / "shader.hlsl", "DXIL", "vertex", "VertexMain", ROOT / "shaders" / "dxil" / "shader.dxil.vert"),
+    (ROOT / "shaders" / "hlsl" / "shader.hlsl", "DXIL", "fragment", "FragmentMain", ROOT / "shaders" / "dxil" / "shader.dxil.frag"),
+    (ROOT / "shaders" / "hlsl" / "shader.hlsl", "DXIL", "vertex", "SkyVertexMain", ROOT / "shaders" / "dxil" / "sky.dxil.vert"),
+    (ROOT / "shaders" / "hlsl" / "shader.hlsl", "DXIL", "fragment", "SkyFragmentMain", ROOT / "shaders" / "dxil" / "sky.dxil.frag"),
+    (ROOT / "shaders" / "hlsl" / "ui.hlsl", "DXIL", "vertex", "UiVertexMain", ROOT / "shaders" / "dxil" / "ui.dxil.vert"),
+    (ROOT / "shaders" / "hlsl" / "ui.hlsl", "DXIL", "fragment", "UiFragmentMain", ROOT / "shaders" / "dxil" / "ui.dxil.frag"),
+    (ROOT / "shaders" / "hlsl" / "text.hlsl", "DXIL", "vertex", "TextVertexMain", ROOT / "shaders" / "dxil" / "text.dxil.vert"),
+    (ROOT / "shaders" / "hlsl" / "text.hlsl", "DXIL", "fragment", "TextFragmentMain", ROOT / "shaders" / "dxil" / "text.dxil.frag"),
 ]
 
 
@@ -54,6 +67,7 @@ def main() -> int:
     hot_run_parser = sub.add_parser("hot-run", help="Build and run hot-reload host")
     hot_run_parser.add_argument("args", nargs=argparse.REMAINDER)
     sub.add_parser("collision-mesh", help="Regenerate Suzanne collision mesh with Blender")
+    sub.add_parser("clay-lib", help="Build vendored Clay static library for Odin")
     sub.add_parser("shaders", help="Regenerate checked-in shaders")
     sub.add_parser("check-shaders", help="Verify generated shaders are in sync")
     sub.add_parser("trenchbroom-profile", help="Generate TrenchBroom GameConfig and FGD")
@@ -73,6 +87,7 @@ def main() -> int:
         "hot-build": cmd_hot_build,
         "hot-run": lambda: (cmd_hot_build(), cmd_hot_run(args.args)),
         "collision-mesh": cmd_collision_mesh,
+        "clay-lib": cmd_clay_lib,
         "shaders": cmd_shaders,
         "check-shaders": cmd_check_shaders,
         "trenchbroom-profile": cmd_trenchbroom_profile,
@@ -123,6 +138,7 @@ def cmd_clean() -> None:
 
 def cmd_build() -> None:
     cmd_clean()
+    cmd_clay_lib()
     BUILD.mkdir(parents=True, exist_ok=True)
     run(["odin", "build", ".", "-debug", f"-out:{app_path()}"])
     copy_base_to(BUILD)
@@ -130,16 +146,20 @@ def cmd_build() -> None:
 
 def cmd_build_release() -> None:
     cmd_clean()
+    cmd_clay_lib()
     BUILD.mkdir(parents=True, exist_ok=True)
     run(["odin", "build", ".", f"-out:{app_path()}"])
     copy_base_to(BUILD)
 
 
 def cmd_run(extra_args: list[str]) -> None:
+    if extra_args[:1] == ["--"]:
+        extra_args = extra_args[1:]
     run([app_path(), *extra_args])
 
 
 def cmd_hot_game() -> None:
+    cmd_clay_lib()
     HOT_DIR.mkdir(parents=True, exist_ok=True)
     ext = dylib_ext()
     tmp = HOT_DIR / f"game_tmp{ext}"
@@ -160,6 +180,8 @@ def cmd_hot_build() -> None:
 
 
 def cmd_hot_run(extra_args: list[str]) -> None:
+    if extra_args[:1] == ["--"]:
+        extra_args = extra_args[1:]
     run([hot_host_path(), *extra_args])
 
 
@@ -181,12 +203,64 @@ def cmd_collision_mesh() -> None:
     ])
 
 
+def clay_library_path() -> Path:
+    system = platform.system()
+    machine = platform.machine().lower()
+    if system == "Darwin":
+        return BUILD / "clay" / ("macos-arm64" if machine == "arm64" else "macos") / "clay.a"
+    if system == "Linux":
+        return BUILD / "clay" / "linux" / "clay.a"
+    if system == "Windows":
+        return BUILD / "clay" / "windows" / "clay.lib"
+    raise SystemExit(f"Unsupported platform for Clay static library: {system}")
+
+
+def cmd_clay_lib() -> None:
+    clay_h = CLAY_DIR / "clay.h"
+    if not clay_h.exists():
+        raise SystemExit(f"Missing vendored Clay header: {clay_h}")
+
+    BUILD.mkdir(parents=True, exist_ok=True)
+    output = clay_library_path()
+    output.parent.mkdir(parents=True, exist_ok=True)
+    obj = BUILD / "clay.o"
+    source = BUILD / "clay.c"
+    shutil.copyfile(clay_h, source)
+
+    system = platform.system()
+    if system == "Windows":
+        run([
+            "clang",
+            "-c",
+            "-DCLAY_IMPLEMENTATION",
+            "-o",
+            output,
+            "-ffreestanding",
+            "-target",
+            "x86_64-pc-windows-msvc",
+            "-fuse-ld=llvm-lib",
+            "-static",
+            "-O3",
+            source,
+        ])
+        return
+
+    compile_cmd = ["clang", "-c", "-DCLAY_IMPLEMENTATION", "-o", obj, "-ffreestanding", "-static", "-fPIC", "-O3", source]
+    if system == "Darwin" and platform.machine().lower() != "arm64":
+        compile_cmd[5:5] = ["-target", "x86_64-apple-darwin"]
+    elif system == "Linux":
+        compile_cmd[5:5] = ["-target", "x86_64-unknown-linux-gnu"]
+    run(compile_cmd)
+    if output.exists():
+        output.unlink()
+    run(["ar", "r", output, obj])
+
+
 def cmd_shaders() -> None:
-	shader = ROOT / "shaders" / "hlsl" / "shader.hlsl"
-	for _, _, _, output in SHADER_OUTPUTS:
+	for _, _, _, _, output in SHADER_OUTPUTS:
 		output.parent.mkdir(parents=True, exist_ok=True)
-	for dest, stage, entry, output in SHADER_OUTPUTS:
-		run(["shadercross", shader, "-s", "HLSL", "-d", dest, "-t", stage, "-e", entry, "-o", output])
+	for source, dest, stage, entry, output in SHADER_OUTPUTS:
+		run(["shadercross", source, "-s", "HLSL", "-d", dest, "-t", stage, "-e", entry, "-o", output])
 		normalize_shader_output(output)
 
 
@@ -200,7 +274,7 @@ def normalize_shader_output(path: Path) -> None:
 
 
 def shader_outputs() -> list[Path]:
-	return [output for _, _, _, output in SHADER_OUTPUTS]
+	return [output for _, _, _, _, output in SHADER_OUTPUTS]
 
 
 def file_hashes(paths: list[Path]) -> dict[Path, str]:

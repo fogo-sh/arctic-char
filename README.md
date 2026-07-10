@@ -9,6 +9,7 @@ Current features:
 - color-only HLSL shader compiled with `SDL_shadercross`
 - GLB mesh loading through Odin's `vendor:cgltf`
 - generic renderer mesh handles, depth testing, and 4x MSAA when supported
+- minimal Clay UI path for SDL GPU rectangles, borders, scissors, and text
 - Box3D world with fixed-timestep stepping
 - directory-first game filesystem with `--game` search path overrides
 - Valve 220 `.map` brush rendering and static map collision
@@ -49,7 +50,7 @@ python cli.py run -- --map test
 
 ## Shaders
 
-`shaders/hlsl/shader.hlsl` is the source of truth. The generated MSL, SPIR-V,
+`shaders/hlsl/*.hlsl` files are the source of truth. The generated MSL, SPIR-V,
 and DXIL outputs are checked in so the project can build without running the
 shader compiler every time.
 
