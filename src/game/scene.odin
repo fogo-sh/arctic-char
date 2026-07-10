@@ -2,8 +2,10 @@ package game
 
 import engine "../engine"
 import "base:runtime"
+import "core:log"
 import "core:math/linalg"
 import b3 "vendor:box3d"
+import sdl "vendor:sdl3"
 
 SPAWN_INTERVAL :: f32(0.12)
 MAX_OBJECTS :: 2048
@@ -18,6 +20,20 @@ Scene :: struct {
 	map_mesh:       MeshHandle,
 	next_object_id: ObjectId,
 	accumulator:    f32,
+	profile:        SceneProfile,
+	profile_log_timer: f32,
+}
+
+SceneProfile :: struct {
+	update_ms: f32,
+	fixed_update_ms: f32,
+	think_ms: f32,
+	player_ms: f32,
+	touch_ms: f32,
+	box3d_step_ms: f32,
+	fixed_steps: int,
+	box3d: b3.Profile,
+	counters: b3.Counters,
 }
 
 ObjectKind :: enum {
@@ -172,22 +188,42 @@ scene_update :: proc(
 	look_input: PlayerLookInput,
 	delta_time: f32,
 ) {
+	update_start := scene_profile_counter_now()
+	scene.profile = {}
+
 	player_apply_look(&scene.player, look_input)
 
 	scene.accumulator += min(delta_time, 0.25)
 	for scene.accumulator >= PHYSICS_STEP_TIME {
+		fixed_start := scene_profile_counter_now()
 		scene_fixed_update(scene, move_input, PHYSICS_STEP_TIME)
+		scene.profile.fixed_update_ms += scene_profile_elapsed_ms(fixed_start)
+		scene.profile.fixed_steps += 1
 		scene.accumulator -= PHYSICS_STEP_TIME
 	}
+
+	scene.profile.update_ms = scene_profile_elapsed_ms(update_start)
+	scene_profile_log_if_needed(scene, delta_time)
 }
 
 scene_fixed_update :: proc(scene: ^Scene, input: PlayerMoveInput, step_time: f32) {
+	think_start := scene_profile_counter_now()
 	scene_run_think(scene, step_time)
+	scene.profile.think_ms += scene_profile_elapsed_ms(think_start)
 
+	player_start := scene_profile_counter_now()
 	move := player_update(&scene.player, &scene.physics, input, step_time)
-	scene_touch_player(scene, move)
+	scene.profile.player_ms += scene_profile_elapsed_ms(player_start)
 
+	touch_start := scene_profile_counter_now()
+	scene_touch_player(scene, move)
+	scene.profile.touch_ms += scene_profile_elapsed_ms(touch_start)
+
+	physics_start := scene_profile_counter_now()
 	engine.physics_step(&scene.physics)
+	scene.profile.box3d_step_ms += scene_profile_elapsed_ms(physics_start)
+	scene.profile.box3d = b3.World_GetProfile(scene.physics.id)
+	scene.profile.counters = b3.World_GetCounters(scene.physics.id)
 }
 
 scene_create_map :: proc(scene: ^Scene) {
@@ -246,6 +282,65 @@ scene_count_objects :: proc(scene: ^Scene, kind: ObjectKind) -> int {
 		}
 	}
 	return count
+}
+
+scene_debug_hud_data :: proc(scene: ^Scene) -> DebugHudData {
+	return {
+		enabled = true,
+		object_count = len(scene.objects),
+		suzanne_count = scene_count_objects(scene, .Suzanne),
+		object_capacity = cap(scene.objects),
+		player_position = scene.player.position,
+		player_velocity = scene.player.velocity,
+		player_grounded = scene.player.grounded,
+		fixed_steps = scene.profile.fixed_steps,
+		physics_step_ms = scene.profile.box3d.step,
+		physics_collide_ms = scene.profile.box3d.collide,
+		physics_solve_ms = scene.profile.box3d.solve,
+		physics_pairs_ms = scene.profile.box3d.pairs,
+		physics_contacts = int(scene.profile.counters.contactCount),
+		physics_awake_contacts = int(scene.profile.counters.awakeContactCount),
+		physics_tree_height = int(scene.profile.counters.treeHeight),
+	}
+}
+
+scene_profile_log_if_needed :: proc(scene: ^Scene, delta_time: f32) {
+	scene.profile_log_timer += delta_time
+	if scene.profile_log_timer < 1.0 || len(scene.objects) < 200 {
+		return
+	}
+	scene.profile_log_timer = 0
+	p := scene.profile
+	log.debugf(
+		"profile objects=%d suzannes=%d update=%.2fms fixed=%.2fms steps=%d think=%.2fms player=%.2fms touch=%.2fms box3d_wall=%.2fms box3d_step=%.2fms pairs=%.2fms collide=%.2fms solve=%.2fms contacts=%d awake_contacts=%d tree=%d sat=%d",
+		len(scene.objects),
+		scene_count_objects(scene, .Suzanne),
+		p.update_ms,
+		p.fixed_update_ms,
+		p.fixed_steps,
+		p.think_ms,
+		p.player_ms,
+		p.touch_ms,
+		p.box3d_step_ms,
+		p.box3d.step,
+		p.box3d.pairs,
+		p.box3d.collide,
+		p.box3d.solve,
+		p.counters.contactCount,
+		p.counters.awakeContactCount,
+		p.counters.treeHeight,
+		p.counters.satCallCount,
+	)
+}
+
+scene_profile_counter_now :: proc() -> u64 {
+	return sdl.GetPerformanceCounter()
+}
+
+scene_profile_elapsed_ms :: proc(start_counter: u64) -> f32 {
+	end_counter := sdl.GetPerformanceCounter()
+	frequency := sdl.GetPerformanceFrequency()
+	return f32(end_counter - start_counter) * 1000.0 / f32(frequency)
 }
 
 scene_collect_render_items :: proc(scene: ^Scene, items: ^[dynamic]RenderItem) -> []RenderItem {

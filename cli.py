@@ -20,7 +20,9 @@ ROOT = Path(__file__).resolve().parent
 BUILD = ROOT / "build"
 BASE = ROOT / "base"
 APP_NAME = "arctic-char"
+MACOS_BUNDLE_NAME = "ArcticChar"
 HOT_DIR = BUILD / "hot_reload"
+ODIN_TEST_PACKAGES = ["src/engine", "src/game"]
 TRENCHBROOM_PROFILE_DIR = ROOT / "tools" / "trenchbroom" / "ArcticChar"
 CLAY_DIR = ROOT / "vendor" / "clay"
 SHADER_OUTPUTS = [
@@ -58,6 +60,8 @@ def main() -> int:
     sub.add_parser("clean", help="Remove build outputs")
     sub.add_parser("build", help="Debug build and copy base assets")
     sub.add_parser("build-release", help="Release build and copy base assets")
+    sub.add_parser("test", help="Run Odin unit tests")
+    sub.add_parser("macos-app", help="Build a macOS .app bundle for Xcode Metal capture")
     run_parser = sub.add_parser("run", help="Run the normal executable")
     run_parser.add_argument("args", nargs=argparse.REMAINDER)
     sub.add_parser("build-and-run", help="Build then run")
@@ -80,6 +84,8 @@ def main() -> int:
         "clean": cmd_clean,
         "build": cmd_build,
         "build-release": cmd_build_release,
+        "test": cmd_test,
+        "macos-app": cmd_macos_app,
         "run": lambda: cmd_run(args.args),
         "build-and-run": lambda: (cmd_build(), cmd_run([])),
         "hot-game": cmd_hot_game,
@@ -120,6 +126,10 @@ def app_path() -> Path:
     return BUILD / f"{APP_NAME}{exe_suffix()}"
 
 
+def macos_app_path() -> Path:
+    return BUILD / f"{MACOS_BUNDLE_NAME}.app"
+
+
 def hot_host_path() -> Path:
     return HOT_DIR / f"{APP_NAME}-hot{exe_suffix()}"
 
@@ -150,6 +160,83 @@ def cmd_build_release() -> None:
     BUILD.mkdir(parents=True, exist_ok=True)
     run(["odin", "build", ".", f"-out:{app_path()}"])
     copy_base_to(BUILD)
+
+
+def cmd_test() -> None:
+    for package in ODIN_TEST_PACKAGES:
+        run(["odin", "test", package, "-debug"])
+
+
+def cmd_macos_app() -> None:
+    if platform.system() != "Darwin":
+        raise SystemExit("macos-app is only supported on macOS")
+    cmd_build()
+    bundle = macos_app_path()
+    contents = bundle / "Contents"
+    macos = contents / "MacOS"
+    resources = contents / "Resources"
+    macos.mkdir(parents=True, exist_ok=True)
+    resources.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(app_path(), macos / APP_NAME)
+    shutil.copytree(BUILD / "base", resources / "base", dirs_exist_ok=True)
+    (contents / "Info.plist").write_text(macos_info_plist(), encoding="utf-8")
+    run(["plutil", "-lint", contents / "Info.plist"])
+    run(["chmod", "+x", macos / APP_NAME])
+    run(["codesign", "-fs", "-", bundle])
+    print(f"Built macOS app bundle: {bundle.relative_to(ROOT)}")
+
+
+def macos_info_plist() -> str:
+    return f"""<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleName</key>
+    <string>{MACOS_BUNDLE_NAME}</string>
+    <key>CFBundleDisplayName</key>
+    <string>Arctic Char</string>
+    <key>CFBundleIdentifier</key>
+    <string>sh.fogo.arctic-char.dev</string>
+    <key>CFBundleExecutable</key>
+    <string>{APP_NAME}</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>CFBundleVersion</key>
+    <string>1</string>
+    <key>CFBundleShortVersionString</key>
+    <string>0.1.0-dev</string>
+    <key>NSPrincipalClass</key>
+    <string>NSApplication</string>
+    <key>NSHighResolutionCapable</key>
+    <true/>
+    <key>NSAppSleepDisabled</key>
+    <true/>
+    <key>METAL_DEVICE_WRAPPER_TYPE</key>
+    <integer>1</integer>
+    <key>MTL_ENABLE_GPU_CAPTURE</key>
+    <true/>
+    <key>LSEnvironment</key>
+    <dict>
+        <key>MTL_CAPTURE_ENABLED</key>
+        <string>1</string>
+        <key>MTL_DEBUG_LAYER</key>
+        <string>1</string>
+        <key>MTL_ENABLE_DEBUG_INFO</key>
+        <string>1</string>
+        <key>MTL_HUD_ENABLED</key>
+        <string>1</string>
+    </dict>
+    <key>LSApplicationCategoryType</key>
+    <string>public.app-category.games</string>
+    <key>LSSupportsGameMode</key>
+    <true/>
+    <key>MTLDevicePreference</key>
+    <string>HighPerformance</string>
+    <key>LSMinimumSystemVersion</key>
+    <string>12.0</string>
+</dict>
+</plist>
+"""
 
 
 def cmd_run(extra_args: list[str]) -> None:
@@ -199,7 +286,7 @@ def cmd_collision_mesh() -> None:
         "--",
         BASE / "models" / "suzanne.glb",
         BASE / "models" / "suzanne_collision.glb",
-        "48",
+        "5",
     ])
 
 

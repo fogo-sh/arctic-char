@@ -5,19 +5,21 @@ import flags "core:flags"
 LaunchConfig :: struct {
 	base_dir: string,
 	game:     string,
+	fullscreen: bool,
 }
 
 LaunchOptions :: struct {
 	basedir: string `usage:"Base directory containing game data directories."`,
 	game:    string `usage:"Primary game directory to search before base."`,
 	map_name: string `args:"name=map" usage:"Map name consumed by game code."`,
+	fullscreen: bool `usage:"Start the window in fullscreen mode."`,
 }
 
 launch_config_parse :: proc(args: []string) -> LaunchConfig {
 	options := launch_options_parse(args)
 	config := LaunchConfig {
-		base_dir = ".",
 		game = options.game,
+		fullscreen = options.fullscreen,
 	}
 	if options.basedir != "" {
 		config.base_dir = options.basedir

@@ -4,6 +4,7 @@ import engine "../engine"
 
 Color :: engine.Color
 CpuMesh :: engine.CpuMesh
+DebugHudData :: engine.DebugHudData
 GameFS :: engine.GameFS
 LaunchConfig :: engine.LaunchConfig
 InputState :: engine.InputState

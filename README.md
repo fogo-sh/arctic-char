@@ -30,11 +30,17 @@ Other useful commands:
 ```sh
 python cli.py build
 python cli.py build-release
+python cli.py test
+python cli.py macos-app
 python cli.py run
 ```
 
 `python cli.py build` copies `base/` into `build/base/` after compiling. Runtime content
 is loaded through qpaths under `base` by default.
+
+`python cli.py test` runs Odin unit tests for pure package logic. The smoke test
+is separate: it launches the real app for a fixed duration and catches startup or
+runtime crashes, but it does not assert gameplay state by itself.
 
 Run a different game directory before falling back to `base`:
 
@@ -46,6 +52,28 @@ Load a different map qpath by name:
 
 ```sh
 python cli.py run -- --map test
+```
+
+## Xcode Metal Debugger
+
+On macOS, open the launcher project:
+
+```sh
+open xcode/ArcticCharMetal.xcodeproj
+```
+
+The shared `ArcticCharMetal` scheme builds `build/ArcticChar.app` with
+`python cli.py macos-app`, launches it with the repo root as the working
+directory, passes `--fullscreen`, and enables Xcode GPU Frame Capture for Metal.
+The bundle also declares `LSApplicationCategoryType=public.app-category.games`
+and `LSSupportsGameMode=true`; macOS Game Mode can activate when the app is the
+frontmost fullscreen game. Press Run in Xcode, then use the Metal capture button
+in the debug bar.
+
+You can also build the bundle manually:
+
+```sh
+python cli.py macos-app
 ```
 
 ## Shaders

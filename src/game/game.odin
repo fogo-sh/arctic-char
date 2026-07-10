@@ -40,6 +40,7 @@ GameLaunchOptions :: struct {
 	basedir: string `usage:"Base directory consumed by engine code."`,
 	game:    string `usage:"Game directory consumed by engine code."`,
 	map_name: string `args:"name=map" usage:"Map name to load from maps/<name>.map."`,
+	fullscreen: bool `usage:"Engine fullscreen flag consumed by engine code."`,
 }
 
 game_api :: proc() -> engine.Game_API {
@@ -92,6 +93,7 @@ game_render :: proc(game: rawptr, render_items: ^[dynamic]RenderItem, win_size: 
 	return {
 		globals = scene_render_globals(&state.scene, win_size),
 		items = scene_collect_render_items(&state.scene, render_items),
+		debug = scene_debug_hud_data(&state.scene),
 	}
 }
 

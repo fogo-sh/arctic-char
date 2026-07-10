@@ -99,6 +99,7 @@ Box3D directly.
 For code changes, run:
 
 ```sh
+python cli.py test
 python cli.py build
 ```
 
@@ -119,3 +120,77 @@ For hot-reload host changes, run:
 ```sh
 python cli.py hot-build
 ```
+
+## Debugging The Running App
+
+Prefer measurements from the real executable over guesses. The app logs through
+`core:log` and SDL's log callback, so CLI runs and smoke tests capture useful
+startup, renderer, asset, map, and profiling messages.
+
+Use the normal executable for direct runs:
+
+```sh
+python cli.py build
+python cli.py run -- --map test
+```
+
+Use longer smoke runs to reproduce time-based problems such as spawning cliffs,
+physics spirals, or hot-path regressions:
+
+```sh
+python cli.py smoke --seconds 20
+```
+
+When adding temporary performance diagnostics, keep them narrow and named. Useful
+runtime counters include object count, draw count, triangle count, fixed-step
+count, per-system wall time, and Box3D's own `World_GetProfile` and
+`World_GetCounters` values. For physics cliffs, log object/contact counts next to
+`Profile.step`, `Profile.collide`, `Profile.solve`, and the number of fixed steps
+processed in the frame. A spike where fixed steps climb above one usually means a
+spiral-of-death: one fixed step exceeded the frame budget, so the accumulator is
+trying to catch up by doing more physics work per frame.
+
+On macOS, use Xcode Instruments from the CLI with `xcrun xctrace`. First inspect
+available templates if needed:
+
+```sh
+xcrun xctrace list templates
+```
+
+Capture a Time Profiler trace by launching the built executable directly:
+
+```sh
+xcrun xctrace record \
+  --template "Time Profiler" \
+  --time-limit 20s \
+  --no-prompt \
+  --output "build/arctic-char-time-profile.trace" \
+  --target-stdout - \
+  --launch -- "build/arctic-char" --map test
+```
+
+Export the table of contents and then the time-profile rows for headless grepping
+or offline analysis:
+
+```sh
+xcrun xctrace export \
+  --input "build/arctic-char-time-profile.trace" \
+  --toc \
+  --output "build/arctic-char-time-profile-toc.xml"
+
+xcrun xctrace export \
+  --input "build/arctic-char-time-profile.trace" \
+  --xpath '/trace-toc/run[@number="1"]/data/table[@schema="time-profile"]' \
+  --output "build/arctic-char-time-profile.xml"
+```
+
+Open the `.trace` in Instruments when call-tree navigation is useful:
+
+```sh
+open build/arctic-char-time-profile.trace
+```
+
+For GPU investigations, the same workflow works with templates such as
+`Game Performance`, `Game Performance Overview`, or `Metal System Trace`. Keep GPU
+and CPU conclusions separate: a low GPU time with high frame time usually means
+the app is CPU-bound or blocking on synchronization, not shader/raster work.

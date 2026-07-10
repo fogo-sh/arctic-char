@@ -1,0 +1,121 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 56;
+	objects = {
+
+/* Begin PBXLegacyTarget section */
+		AC0000000000000000000001 /* Build ArcticChar.app */ = {
+			isa = PBXLegacyTarget;
+			buildArgumentsString = "-lc \"python cli.py macos-app\"";
+			buildConfigurationList = AC0000000000000000000004 /* Build configuration list for PBXLegacyTarget \"Build ArcticChar.app\" */;
+			buildPhases = (
+			);
+			buildToolPath = /bin/zsh;
+			buildWorkingDirectory = ..;
+			dependencies = (
+			);
+			name = "Build ArcticChar.app";
+			passBuildSettingsInEnvironment = 0;
+			productName = "ArcticChar.app";
+		};
+/* End PBXLegacyTarget section */
+
+/* Begin PBXProject section */
+		AC0000000000000000000002 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastUpgradeCheck = 1600;
+				TargetAttributes = {
+					AC0000000000000000000001 = {
+						CreatedOnToolsVersion = 16.0;
+					};
+				};
+			};
+			buildConfigurationList = AC0000000000000000000003 /* Build configuration list for PBXProject \"ArcticCharMetal\" */;
+			compatibilityVersion = "Xcode 14.0";
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+			);
+			mainGroup = AC0000000000000000000007;
+			productRefGroup = AC0000000000000000000008;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				AC0000000000000000000001 /* Build ArcticChar.app */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXGroup section */
+		AC0000000000000000000007 = {
+			isa = PBXGroup;
+			children = (
+				AC0000000000000000000008 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		AC0000000000000000000008 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin XCBuildConfiguration section */
+		AC0000000000000000000009 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+			};
+			name = Debug;
+		};
+		AC000000000000000000000A /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+			};
+			name = Release;
+		};
+		AC000000000000000000000B /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+			};
+			name = Debug;
+		};
+		AC000000000000000000000C /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		AC0000000000000000000003 /* Build configuration list for PBXProject \"ArcticCharMetal\" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				AC0000000000000000000009 /* Debug */,
+				AC000000000000000000000A /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		AC0000000000000000000004 /* Build configuration list for PBXLegacyTarget \"Build ArcticChar.app\" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				AC000000000000000000000B /* Debug */,
+				AC000000000000000000000C /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = AC0000000000000000000002 /* Project object */;
+}

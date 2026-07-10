@@ -11,10 +11,21 @@ PhysicsWorld :: struct {
 
 PHYSICS_STEP_TIME :: f32(1.0 / 60.0)
 PHYSICS_SUBSTEPS :: 4
+PHYSICS_DYNAMIC_BODY_CAPACITY :: 4096
+PHYSICS_STATIC_BODY_CAPACITY :: 64
+PHYSICS_STATIC_SHAPE_CAPACITY :: 512
+PHYSICS_CONTACT_CAPACITY :: 160000
 
 physics_create :: proc() -> PhysicsWorld {
 	world_def := b3.DefaultWorldDef()
 	world_def.gravity = {0, -10, 0}
+	world_def.capacity = {
+		staticShapeCount = PHYSICS_STATIC_SHAPE_CAPACITY,
+		dynamicShapeCount = PHYSICS_DYNAMIC_BODY_CAPACITY,
+		staticBodyCount = PHYSICS_STATIC_BODY_CAPACITY,
+		dynamicBodyCount = PHYSICS_DYNAMIC_BODY_CAPACITY,
+		contactCount = PHYSICS_CONTACT_CAPACITY,
+	}
 	return PhysicsWorld{id = b3.CreateWorld(world_def)}
 }
 

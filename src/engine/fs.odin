@@ -4,6 +4,7 @@ import "base:runtime"
 import "core:log"
 import "core:os"
 import path "core:path/filepath"
+import "core:strings"
 import "core:time"
 
 BASE_GAME_DIR :: "base"
@@ -18,8 +19,8 @@ GameFS :: struct {
 game_fs_create :: proc(base_dir, game: string, allocator := context.allocator) -> GameFS {
 	fs := GameFS{
 		allocator = allocator,
-		base_dir = base_dir,
-		game = game,
+		base_dir = strings.clone(base_dir, allocator),
+		game = strings.clone(game, allocator),
 		search_paths = make([dynamic]string, 0, 2, allocator),
 	}
 
@@ -35,6 +36,8 @@ game_fs_destroy :: proc(fs: ^GameFS) {
 	for search_path in fs.search_paths {
 		delete(search_path, fs.allocator)
 	}
+	delete(fs.base_dir, fs.allocator)
+	delete(fs.game, fs.allocator)
 	delete(fs.search_paths)
 	fs^ = {}
 }

@@ -1,6 +1,7 @@
 package engine
 
 import "base:runtime"
+import "core:fmt"
 import "core:log"
 import clay "../../vendor/clay-odin"
 
@@ -30,6 +31,24 @@ UiContext :: struct {
 	ctx:       ^clay.Context,
 }
 
+DebugHudData :: struct {
+	enabled: bool,
+	object_count: int,
+	suzanne_count: int,
+	object_capacity: int,
+	player_position: Vec3,
+	player_velocity: Vec3,
+	player_grounded: bool,
+	fixed_steps: int,
+	physics_step_ms: f32,
+	physics_collide_ms: f32,
+	physics_solve_ms: f32,
+	physics_pairs_ms: f32,
+	physics_contacts: int,
+	physics_awake_contacts: int,
+	physics_tree_height: int,
+}
+
 ui_create :: proc(width, height: i32, allocator := context.allocator) -> UiContext {
 	min_memory_size := clay.MinMemorySize()
 	memory := make([]u8, int(min_memory_size), allocator)
@@ -45,7 +64,11 @@ ui_destroy :: proc(ui: ^UiContext) {
 	ui^ = {}
 }
 
-ui_placeholder_append_commands :: proc(ui: ^UiContext, win_size: [2]i32, out: ^[dynamic]UiCommand) {
+ui_debug_hud_append_commands :: proc(ui: ^UiContext, win_size: [2]i32, debug: DebugHudData, timing: FrameTimingStats, out: ^[dynamic]UiCommand) {
+	if !debug.enabled {
+		return
+	}
+
 	clay.SetCurrentContext(ui.ctx)
 	clay.SetLayoutDimensions({f32(win_size.x), f32(win_size.y)})
 	clay.BeginLayout()
@@ -59,36 +82,33 @@ ui_placeholder_append_commands :: proc(ui: ^UiContext, win_size: [2]i32, out: ^[
 		if clay.UI(clay.ID("HudPanel"))({
 			layout = {
 				layoutDirection = .TopToBottom,
-				sizing = {width = clay.SizingFixed(260), height = clay.SizingFixed(148)},
+				sizing = {width = clay.SizingFixed(336), height = clay.SizingFit({})},
 				padding = clay.PaddingAll(12),
-				childGap = 10,
+				childGap = 7,
 			},
 			backgroundColor = {35, 31, 27, 210},
 			cornerRadius = clay.CornerRadiusAll(12),
 			border = {color = {206, 162, 98, 230}, width = clay.BorderOutside(2)},
 		}) {
-			clay.TextStatic("Arctic Char", {
+			clay.TextStatic("Debug", {
 				textColor = {243, 226, 188, 255},
-				fontSize = 24,
+				fontSize = 22,
 			})
 
-			ui_placeholder_bar("BarA", 0, 196, 167, 91)
-			ui_placeholder_bar("BarB", 1, 102, 128, 121)
-
-			if clay.UI(clay.ID("ClippedStrip"))({
-				layout = {
-					sizing = {width = clay.SizingGrow({}), height = clay.SizingFixed(42)},
-				},
-				backgroundColor = {28, 28, 26, 220},
-				cornerRadius = clay.CornerRadiusAll(8),
-				clip = {horizontal = true, vertical = true},
-			}) {
-				if clay.UI(clay.ID("OverflowBlob"))({
-					layout = {sizing = {width = clay.SizingFixed(340), height = clay.SizingFixed(42)}},
-					backgroundColor = {157, 48, 59, 175},
-					cornerRadius = clay.CornerRadiusAll(8),
-				}) {}
-			}
+			ui_debug_hud_row("Objects", 0, fmt.tprintf("%d / %d", debug.object_count, debug.object_capacity))
+			ui_debug_hud_row("Suzannes", 1, fmt.tprintf("%d", debug.suzanne_count))
+			ui_debug_hud_row("Player", 2, fmt.tprintf("%.2f %.2f %.2f", debug.player_position.x, debug.player_position.y, debug.player_position.z))
+			ui_debug_hud_row("Velocity", 3, fmt.tprintf("%.2f %.2f %.2f", debug.player_velocity.x, debug.player_velocity.y, debug.player_velocity.z))
+			ui_debug_hud_row("Grounded", 4, fmt.tprintf("%v", debug.player_grounded))
+			ui_debug_hud_row("CPU frame", 5, fmt.tprintf("%.1f ms", timing.frame_ms))
+			ui_debug_hud_row("Update", 6, fmt.tprintf("%.1f ms", timing.update_ms))
+			ui_debug_hud_row("Render", 7, fmt.tprintf("%.1f ms", timing.render_ms))
+			ui_debug_hud_row("Fixed steps", 8, fmt.tprintf("%d", debug.fixed_steps))
+			ui_debug_hud_row("Box3D step", 9, fmt.tprintf("%.2f ms", debug.physics_step_ms))
+			ui_debug_hud_row("Collide/solve", 10, fmt.tprintf("%.2f / %.2f", debug.physics_collide_ms, debug.physics_solve_ms))
+			ui_debug_hud_row("Pairs", 11, fmt.tprintf("%.2f ms", debug.physics_pairs_ms))
+			ui_debug_hud_row("Contacts", 12, fmt.tprintf("%d awake %d", debug.physics_contacts, debug.physics_awake_contacts))
+			ui_debug_hud_row("Tree height", 13, fmt.tprintf("%d", debug.physics_tree_height))
 		}
 	}
 
@@ -96,15 +116,25 @@ ui_placeholder_append_commands :: proc(ui: ^UiContext, win_size: [2]i32, out: ^[
 	ui_append_clay_commands(&commands, out)
 }
 
-ui_placeholder_bar :: proc(id: string, index: u32, r, g, b: f32) {
-	if clay.UI(clay.ID(id, index))({
+ui_debug_hud_row :: proc(label: string, index: u32, value: string) {
+	if clay.UI(clay.ID("DebugRow", index))({
 		layout = {
+			layoutDirection = .LeftToRight,
 			sizing = {width = clay.SizingGrow({}), height = clay.SizingFixed(26)},
+			childGap = 10,
 		},
-		backgroundColor = {r, g, b, 210},
-		cornerRadius = clay.CornerRadiusAll(7),
-		border = {color = {255, 252, 240, 80}, width = clay.BorderOutside(1)},
-	}) {}
+	}) {
+		if clay.UI(clay.ID("DebugLabel", index))({
+			layout = {sizing = {width = clay.SizingFixed(96), height = clay.SizingFixed(24)}},
+		}) {
+			clay.Text(label, {textColor = {180, 170, 150, 255}, fontSize = 16})
+		}
+		if clay.UI(clay.ID("DebugValue", index))({
+			layout = {sizing = {width = clay.SizingGrow({}), height = clay.SizingFixed(24)}},
+		}) {
+			clay.Text(value, {textColor = {243, 226, 188, 255}, fontSize = 16})
+		}
+	}
 }
 
 ui_error_handler :: proc "c" (error_data: clay.ErrorData) {

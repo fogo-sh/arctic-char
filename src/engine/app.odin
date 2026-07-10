@@ -3,6 +3,7 @@ package engine
 import "base:runtime"
 import "core:c"
 import "core:log"
+import "core:strings"
 import sdl "vendor:sdl3"
 
 default_context: runtime.Context
@@ -28,6 +29,9 @@ App :: struct {
 	last_ticks: u64,
 	total_time: f32,
 	stats_log_time: f32,
+	last_frame_ms: f32,
+	last_update_ms: f32,
+	last_render_ms: f32,
 }
 
 Game_API :: struct {
@@ -41,6 +45,13 @@ RenderFrame :: struct {
 	globals: RenderPassGlobals,
 	items: []RenderItem,
 	ui_items: []UiCommand,
+	debug: DebugHudData,
+}
+
+FrameTimingStats :: struct {
+	frame_ms: f32,
+	update_ms: f32,
+	render_ms: f32,
 }
 
 // Creates SDL's application shell: window, GPU device, and the first renderer.
@@ -72,7 +83,11 @@ app_create :: proc(config: LaunchConfig) -> App {
 
 	app := App{running = true, mouse_captured = true}
 
-	app.window = sdl.CreateWindow("arctic char*", 1024, 768, {.RESIZABLE})
+	window_flags := sdl.WindowFlags{.RESIZABLE}
+	if config.fullscreen {
+		window_flags += sdl.WindowFlags{.FULLSCREEN}
+	}
+	app.window = sdl.CreateWindow("arctic char*", 1024, 768, window_flags)
 	assert(app.window != nil)
 	ok = sdl.SetWindowRelativeMouseMode(app.window, true)
 	assert(ok)
@@ -87,7 +102,8 @@ app_create :: proc(config: LaunchConfig) -> App {
 	ok = sdl.GetWindowSize(app.window, &app.win_size.x, &app.win_size.y)
 	assert(ok)
 
-	app.fs = game_fs_create(config.base_dir, config.game)
+	base_dir := app_resolve_base_dir(config.base_dir)
+	app.fs = game_fs_create(base_dir, config.game)
 	app.renderer = renderer_create(app.gpu, app.window, app.win_size.x, app.win_size.y)
 	app.ui = ui_create(app.win_size.x, app.win_size.y)
 	app.render_items = make([dynamic]RenderItem, 0, APP_RENDER_ITEM_CAPACITY)
@@ -95,6 +111,24 @@ app_create :: proc(config: LaunchConfig) -> App {
 
 	app.last_ticks = sdl.GetTicks()
 	return app
+}
+
+app_resolve_base_dir :: proc(config_base_dir: string) -> string {
+	if config_base_dir != "" {
+		return config_base_dir
+	}
+
+	when ODIN_OS == .Darwin {
+		base_path_c := sdl.GetBasePath()
+		if base_path_c != nil {
+			base_path := string(base_path_c)
+			if strings.contains(base_path, ".app/Contents/Resources") {
+				return base_path
+			}
+		}
+	}
+
+	return "."
 }
 
 app_init_game :: proc(app: ^App, game_api: Game_API, game_config: rawptr) {
@@ -131,10 +165,12 @@ app_should_run :: proc(app: ^App) -> bool {
 }
 
 app_frame :: proc(app: ^App) {
+	frame_start := sdl.GetPerformanceCounter()
 	input_begin_frame(&app.input)
 	app_handle_events(app)
 	app_tick(app)
 	app_draw(app)
+	app.last_frame_ms = app_elapsed_ms(frame_start)
 }
 
 app_tick :: proc(app: ^App) {
@@ -143,7 +179,9 @@ app_tick :: proc(app: ^App) {
 	app.last_ticks = new_ticks
 	app.total_time += delta_time
 	app_update_input(app)
+	update_start := sdl.GetPerformanceCounter()
 	app.game_api.update(app.game, app.input, delta_time)
+	app.last_update_ms = app_elapsed_ms(update_start)
 	app.stats_log_time += delta_time
 }
 
@@ -188,6 +226,7 @@ app_handle_events :: proc(app: ^App) {
 }
 
 app_draw :: proc(app: ^App) {
+	render_start := sdl.GetPerformanceCounter()
 	cmd_buf := sdl.AcquireGPUCommandBuffer(app.gpu)
 	swapchain_tex: ^sdl.GPUTexture
 	ok := sdl.WaitAndAcquireGPUSwapchainTexture(cmd_buf, app.window, &swapchain_tex, nil, nil)
@@ -198,7 +237,11 @@ app_draw :: proc(app: ^App) {
 	for item in frame.ui_items {
 		append(&app.ui_commands, item)
 	}
-	ui_placeholder_append_commands(&app.ui, app.win_size, &app.ui_commands)
+	ui_debug_hud_append_commands(&app.ui, app.win_size, frame.debug, {
+		frame_ms = app.last_frame_ms,
+		update_ms = app.last_update_ms,
+		render_ms = app.last_render_ms,
+	}, &app.ui_commands)
 	renderer_draw(&app.renderer, cmd_buf, swapchain_tex, frame.globals, frame.items, app.ui_commands[:], app.win_size)
 	if app.stats_log_time >= 2.0 {
 		renderer_log_stats(&app.renderer)
@@ -207,4 +250,11 @@ app_draw :: proc(app: ^App) {
 
 	ok = sdl.SubmitGPUCommandBuffer(cmd_buf)
 	assert(ok)
+	app.last_render_ms = app_elapsed_ms(render_start)
+}
+
+app_elapsed_ms :: proc(start_counter: u64) -> f32 {
+	end_counter := sdl.GetPerformanceCounter()
+	frequency := sdl.GetPerformanceFrequency()
+	return f32(end_counter - start_counter) * 1000.0 / f32(frequency)
 }
