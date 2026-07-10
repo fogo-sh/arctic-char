@@ -10,6 +10,7 @@ The code is split by ownership and learning area:
 - `main.odin`: tiny executable entrypoint that imports `src/game/`
 - `src/engine/app.odin`: SDL lifecycle, event loop, timing, input polling, and draw orchestration
 - `src/engine/fs.odin`: qpath search paths, file reads, and modification-time polling
+- `src/engine/math.odin`: renderer-facing math helpers with explicit graphics API conventions
 - `src/engine/mesh.odin`: CPU mesh loading and shared vertex data types
 - `src/engine/graphics.odin`: platform shader selection and shader creation
 - `src/engine/renderer.odin`: SDL GPU pipeline, render targets, mesh upload/replacement, and draw pass
@@ -27,6 +28,10 @@ The code is split by ownership and learning area:
 
 Prefer small, named functions that keep ownership clear. Do not hide important
 engine steps behind generic abstractions too early.
+
+Engine-level choices and conventions live in `docs/engine-decisions.md`. Read and
+update it when changing coordinate systems, renderer math, asset import policy,
+or other cross-cutting decisions.
 
 ## Object Model
 

@@ -207,6 +207,7 @@ renderer_create_pipeline :: proc(
 			rasterizer_state = {
 				cull_mode = .BACK,
 				front_face = .COUNTER_CLOCKWISE,
+				enable_depth_clip = true,
 			},
 			multisample_state = {
 				sample_count = sample_count,

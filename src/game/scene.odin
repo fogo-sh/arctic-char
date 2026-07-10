@@ -264,7 +264,7 @@ scene_render_globals :: proc(scene: ^Scene, window_size: [2]i32) -> RenderPassGl
 	aspect := f32(window_size.x) / f32(window_size.y)
 	return RenderPassGlobals {
 		view = player_view_matrix(&scene.player),
-		proj = linalg.matrix4_perspective_f32(linalg.to_radians(f32(70)), aspect, 0.1, 100),
+		proj = engine.matrix4_perspective_z0_f32(linalg.to_radians(f32(70)), aspect, 0.1, 100),
 	}
 }
 
