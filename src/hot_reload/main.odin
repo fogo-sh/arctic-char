@@ -2,6 +2,7 @@ package main
 
 import "core:dynlib"
 import "core:fmt"
+import flags "core:flags"
 import "core:log"
 import "core:os"
 import "core:time"
@@ -147,15 +148,31 @@ GameLaunchConfig :: struct {
 	map_name: string,
 }
 
+GameLaunchOptions :: struct {
+	basedir: string `usage:"Base directory consumed by engine code."`,
+	game:    string `usage:"Game directory consumed by engine code."`,
+	map_name: string `args:"name=map" usage:"Map name to load from maps/<name>.map."`,
+}
+
 game_launch_config_parse :: proc(args: []string) -> GameLaunchConfig {
 	config := GameLaunchConfig{map_name = "test"}
-	for i := 0; i < len(args); i += 1 {
-		if args[i] == "+map" && i + 1 < len(args) {
-			i += 1
-			config.map_name = args[i]
-		}
+	options := game_launch_options_parse(args)
+	if options.map_name != "" {
+		config.map_name = options.map_name
 	}
 	return config
+}
+
+game_launch_options_parse :: proc(args: []string) -> GameLaunchOptions {
+	runtime_args := make([dynamic]string, 0, len(args) + 1, context.temp_allocator)
+	append(&runtime_args, "arctic-char-hot")
+	for arg in args {
+		append(&runtime_args, arg)
+	}
+
+	options: GameLaunchOptions
+	flags.parse_or_exit(&options, runtime_args[:], .Unix)
+	return options
 }
 
 when ODIN_OS == .Windows {

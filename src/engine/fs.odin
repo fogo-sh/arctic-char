@@ -4,7 +4,6 @@ import "base:runtime"
 import "core:log"
 import "core:os"
 import path "core:path/filepath"
-import "core:strings"
 import "core:time"
 
 BASE_GAME_DIR :: "base"
@@ -84,9 +83,49 @@ game_fs_modification_time :: proc(fs: ^GameFS, qpath: string) -> (mtime: time.Ti
 }
 
 game_fs_valid_game_dir :: proc(game: string) -> bool {
-	return game != "" && !strings.contains(game, "..") && !strings.contains(game, "/") && !strings.contains(game, "\\") && !strings.contains(game, ":")
+	runtime.DEFAULT_TEMP_ALLOCATOR_TEMP_GUARD()
+	if game == "" || path.is_abs(game) || path.volume_name(game) != "" || game_fs_path_has_separator(game) {
+		return false
+	}
+	cleaned, err := path.clean(game, context.temp_allocator)
+	if err != nil {
+		return false
+	}
+	defer delete(cleaned, context.temp_allocator)
+	return cleaned == game && cleaned != "." && cleaned != ".."
 }
 
 game_fs_valid_qpath :: proc(qpath: string) -> bool {
-	return qpath != "" && qpath[0] != '/' && qpath[0] != '\\' && !strings.contains(qpath, "..") && !strings.contains(qpath, ":")
+	runtime.DEFAULT_TEMP_ALLOCATOR_TEMP_GUARD()
+	if qpath == "" || path.is_abs(qpath) || path.volume_name(qpath) != "" || game_fs_path_has_parent_component(qpath) {
+		return false
+	}
+	cleaned, err := path.clean(qpath, context.temp_allocator)
+	if err != nil {
+		return false
+	}
+	defer delete(cleaned, context.temp_allocator)
+	return cleaned != "." && cleaned != ".."
+}
+
+game_fs_path_has_separator :: proc(text: string) -> bool {
+	for i in 0..<len(text) {
+		if path.is_separator(text[i]) {
+			return true
+		}
+	}
+	return false
+}
+
+game_fs_path_has_parent_component :: proc(text: string) -> bool {
+	component_start := 0
+	for i in 0..<len(text) {
+		if path.is_separator(text[i]) {
+			if text[component_start:i] == ".." {
+				return true
+			}
+			component_start = i + 1
+		}
+	}
+	return text[component_start:] == ".."
 }

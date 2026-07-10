@@ -5,6 +5,7 @@ import "core:log"
 import "core:math"
 import "core:math/linalg"
 import "core:strconv"
+import "core:strings"
 import engine "../engine"
 
 MapProperty :: struct {
@@ -55,11 +56,7 @@ quake_map_load :: proc(fs: ^GameFS, qpath: string, allocator := context.allocato
 
 quake_map_destroy :: proc(qmap: ^QuakeMap) {
 	for &entity in qmap.entities {
-		delete(entity.properties)
-		for &brush in entity.brushes {
-			delete(brush.faces)
-		}
-		delete(entity.brushes)
+		quake_map_destroy_entity(&entity)
 	}
 	delete(qmap.entities)
 	delete(qmap.source)
@@ -105,10 +102,19 @@ map_entity_property :: proc(entity: ^MapEntity, key: string) -> (value: string, 
 }
 
 quake_map_parse_origin :: proc(text: string) -> (position: Vec3, ok: bool) {
-	x, n0, ok_x := quake_map_parse_f32_token(text, 0)
-	y, n1, ok_y := quake_map_parse_f32_token(text, n0)
-	z, _, ok_z := quake_map_parse_f32_token(text, n1)
-	if !(ok_x && ok_y && ok_z) {
+	fields := text
+	x_text, ok_x := strings.fields_iterator(&fields)
+	y_text, ok_y := strings.fields_iterator(&fields)
+	z_text, ok_z := strings.fields_iterator(&fields)
+	_, has_extra := strings.fields_iterator(&fields)
+	if !(ok_x && ok_y && ok_z) || has_extra {
+		return {}, false
+	}
+
+	x, parse_x := strconv.parse_f32(x_text)
+	y, parse_y := strconv.parse_f32(y_text)
+	z, parse_z := strconv.parse_f32(z_text)
+	if !(parse_x && parse_y && parse_z) {
 		return {}, false
 	}
 
@@ -139,6 +145,16 @@ quake_map_parse_entities :: proc(qmap: ^QuakeMap) {
 	depth := 0
 	entity: MapEntity
 	brush: MapBrush
+	entity_open := false
+	brush_open := false
+	defer {
+		if brush_open {
+			delete(brush.faces)
+		}
+		if entity_open {
+			quake_map_destroy_entity(&entity)
+		}
+	}
 
 	for i < len(source) {
 		i = quake_map_skip_ignored(source, i)
@@ -150,22 +166,30 @@ quake_map_parse_entities :: proc(qmap: ^QuakeMap) {
 		case '{':
 			depth += 1
 			if depth == 1 {
+				entity_open = true
 				entity = MapEntity{
 					properties = make([dynamic]MapProperty, 0, 8, qmap.allocator),
 					brushes = make([dynamic]MapBrush, 0, 8, qmap.allocator),
 				}
 			} else if depth == 2 {
+				brush_open = true
 				brush = MapBrush{faces = make([dynamic]MapFace, 0, 6, qmap.allocator)}
 			}
 			i += 1
 
 		case '}':
+			if depth <= 0 {
+				i += 1
+				continue
+			}
 			if depth == 2 {
 				append(&entity.brushes, brush)
 				brush = {}
+				brush_open = false
 			} else if depth == 1 {
 				append(&qmap.entities, entity)
 				entity = {}
+				entity_open = false
 			}
 			depth -= 1
 			i += 1
@@ -197,6 +221,15 @@ quake_map_parse_entities :: proc(qmap: ^QuakeMap) {
 			i = quake_map_skip_line(source, i)
 		}
 	}
+}
+
+quake_map_destroy_entity :: proc(entity: ^MapEntity) {
+	delete(entity.properties)
+	for &brush in entity.brushes {
+		delete(brush.faces)
+	}
+	delete(entity.brushes)
+	entity^ = {}
 }
 
 quake_map_count_brush_data :: proc(qmap: ^QuakeMap) -> (brush_count, face_count: int) {
@@ -259,14 +292,12 @@ quake_map_parse_quoted :: proc(source: string, start: int) -> (value: string, ne
 	}
 
 	begin := start + 1
-	i := begin
-	for i < len(source) {
-		if source[i] == '"' {
-			return source[begin:i], i + 1, true
-		}
-		i += 1
+	offset := strings.index_byte(source[begin:], '"')
+	if offset < 0 {
+		return "", len(source), false
 	}
-	return "", i, false
+	end := begin + offset
+	return source[begin:end], end + 1, true
 }
 
 quake_map_skip_ignored :: proc(source: string, start: int) -> int {
@@ -286,11 +317,11 @@ quake_map_skip_ignored :: proc(source: string, start: int) -> int {
 }
 
 quake_map_skip_line :: proc(source: string, start: int) -> int {
-	i := start
-	for i < len(source) && source[i] != '\n' {
-		i += 1
+	offset := strings.index_byte(source[start:], '\n')
+	if offset < 0 {
+		return len(source)
 	}
-	return i
+	return start + offset
 }
 
 quake_map_skip_inline_space :: proc(source: string, start: int) -> int {
@@ -302,5 +333,5 @@ quake_map_skip_inline_space :: proc(source: string, start: int) -> int {
 }
 
 quake_map_is_space :: proc(c: u8) -> bool {
-	return c == ' ' || c == '\t' || c == '\r' || c == '\n'
+	return strings.is_ascii_space(rune(c))
 }

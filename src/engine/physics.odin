@@ -2,6 +2,7 @@ package engine
 
 import "base:runtime"
 import "core:c"
+import "core:math/linalg"
 import b3 "vendor:box3d"
 
 PhysicsWorld :: struct {
@@ -61,24 +62,5 @@ physics_create_static_mesh_data :: proc(mesh: ^CpuMesh) -> ^b3.MeshData {
 
 physics_body_matrix :: proc(body: b3.BodyId) -> matrix[4, 4]f32 {
 	transform := b3.Body_GetTransform(body)
-	rotation := b3.MakeMatrixFromQuat(transform.q)
-
-	model: matrix[4, 4]f32
-	model[0][0] = 1
-	model[1][1] = 1
-	model[2][2] = 1
-	model[3][3] = 1
-	model[0][0] = rotation[0][0]
-	model[0][1] = rotation[0][1]
-	model[0][2] = rotation[0][2]
-	model[1][0] = rotation[1][0]
-	model[1][1] = rotation[1][1]
-	model[1][2] = rotation[1][2]
-	model[2][0] = rotation[2][0]
-	model[2][1] = rotation[2][1]
-	model[2][2] = rotation[2][2]
-	model[3][0] = f32(transform.p.x)
-	model[3][1] = f32(transform.p.y)
-	model[3][2] = f32(transform.p.z)
-	return model
+	return linalg.matrix4_from_trs_f32(b3.ToVec3(transform.p), transform.q, {1, 1, 1})
 }

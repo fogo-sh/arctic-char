@@ -3,6 +3,7 @@ package game
 import "core:log"
 import "core:os"
 import "core:strings"
+import flags "core:flags"
 import "core:time"
 import engine "../engine"
 
@@ -33,6 +34,12 @@ g: ^Game_State
 
 GameLaunchConfig :: struct {
 	map_name: string,
+}
+
+GameLaunchOptions :: struct {
+	basedir: string `usage:"Base directory consumed by engine code."`,
+	game:    string `usage:"Game directory consumed by engine code."`,
+	map_name: string `args:"name=map" usage:"Map name to load from maps/<name>.map."`,
 }
 
 game_api :: proc() -> engine.Game_API {
@@ -117,17 +124,27 @@ game_force_restart :: proc() -> bool {
 
 game_launch_config_parse :: proc(args: []string) -> GameLaunchConfig {
 	config := GameLaunchConfig{map_name = "test"}
-	for i := 0; i < len(args); i += 1 {
-		if args[i] == "+map" && i + 1 < len(args) {
-			i += 1
-			config.map_name = args[i]
-		}
+	options := game_launch_options_parse(args)
+	if options.map_name != "" {
+		config.map_name = options.map_name
 	}
 	return config
 }
 
+game_launch_options_parse :: proc(args: []string) -> GameLaunchOptions {
+	runtime_args := make([dynamic]string, 0, len(args) + 1, context.temp_allocator)
+	append(&runtime_args, "arctic-char")
+	for arg in args {
+		append(&runtime_args, arg)
+	}
+
+	options: GameLaunchOptions
+	flags.parse_or_exit(&options, runtime_args[:], .Unix)
+	return options
+}
+
 game_launch_config_map_qpath :: proc(config: GameLaunchConfig, allocator := context.allocator) -> string {
-	// Make `+map test` resolve to `maps/test.map`.
+	// Make `--map test` resolve to `maps/test.map`.
 	qpath, err := strings.concatenate({"maps/", config.map_name, ".map"}, allocator)
 	assert(err == nil)
 	return qpath

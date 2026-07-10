@@ -7,22 +7,25 @@ import b3 "vendor:box3d"
 
 scene_spawn_level_entities :: proc(scene: ^Scene, qmap: ^QuakeMap) {
 	for &entity in qmap.entities {
-		classname, ok := map_entity_property(&entity, "classname")
-		if !ok {
+		classname, has_classname := map_entity_property(&entity, "classname")
+		if !has_classname {
+			continue
+		}
+		def, known := entity_def_find(classname)
+		if !known {
+			log.warnf("Skipping unknown map entity classname: %s", classname)
 			continue
 		}
 
-		switch classname {
-		case "worldspawn", "player", "direction_light", "info_teleport_destination":
+		switch def.runtime_kind {
+		case .Ignore:
 			continue
-		case "prop_suzanne":
+		case .PropSuzanne:
 			scene_spawn_entity_prop_suzanne(scene, &entity)
-		case "spawner_suzanne":
+		case .SpawnerSuzanne:
 			scene_spawn_entity_spawner_suzanne(scene, &entity)
-		case "trigger_teleport":
+		case .TriggerTeleport:
 			scene_spawn_entity_trigger_teleport(scene, qmap, &entity)
-		case:
-			log.warnf("Skipping unknown map entity classname: %s", classname)
 		}
 	}
 }
@@ -208,9 +211,10 @@ scene_entity_angle :: proc(entity: ^MapEntity, key: string, default_value: f32) 
 }
 
 scene_aabb_overlaps :: proc(a_min, a_max, b_min, b_max: Vec3) -> bool {
-	return a_min.x <= b_max.x && a_max.x >= b_min.x &&
-		a_min.y <= b_max.y && a_max.y >= b_min.y &&
-		a_min.z <= b_max.z && a_max.z >= b_min.z
+	return b3.AABB_Overlaps(
+		{lowerBound = a_min, upperBound = a_max},
+		{lowerBound = b_min, upperBound = b_max},
+	)
 }
 
 map_entity_brush_bounds :: proc(entity: ^MapEntity) -> (bounds_min: Vec3, bounds_max: Vec3, ok: bool) {
