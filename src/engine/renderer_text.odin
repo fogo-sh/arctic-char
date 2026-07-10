@@ -15,8 +15,8 @@ TextFragmentUniforms :: struct {
 }
 
 TextRenderer :: struct {
-	ctx:             TextContext,
-	font_pack:       TextTexturePack,
+	ctx:             Text_Context,
+	font_pack:       Text_Texture_Pack,
 	pipeline:        ^sdl.GPUGraphicsPipeline,
 	curve_texture:   ^sdl.GPUTexture,
 	band_texture:    ^sdl.GPUTexture,
@@ -34,9 +34,9 @@ renderer_create_text :: proc(
 	text := new(TextRenderer)
 	assert(text != nil)
 	text.pipeline = renderer_create_text_pipeline(gpu, window, sample_count)
-	text.vertex_buffer = sdl.CreateGPUBuffer(gpu, {usage = {.VERTEX}, size = u32(TEXT_MAX_GLYPH_VERTICES * size_of(TextVertex))})
+	text.vertex_buffer = sdl.CreateGPUBuffer(gpu, {usage = {.VERTEX}, size = u32(TEXT_MAX_GLYPH_VERTICES * size_of(Text_Vertex))})
 	text.index_buffer = sdl.CreateGPUBuffer(gpu, {usage = {.INDEX}, size = u32(TEXT_MAX_GLYPH_INDICES * size_of(u32))})
-	text.transfer_buffer = sdl.CreateGPUTransferBuffer(gpu, {usage = .UPLOAD, size = u32(TEXT_MAX_GLYPH_VERTICES * size_of(TextVertex))})
+	text.transfer_buffer = sdl.CreateGPUTransferBuffer(gpu, {usage = .UPLOAD, size = u32(TEXT_MAX_GLYPH_VERTICES * size_of(Text_Vertex))})
 	assert(text.pipeline != nil)
 	assert(text.vertex_buffer != nil)
 	assert(text.index_buffer != nil)
@@ -49,8 +49,8 @@ renderer_create_text :: proc(
 		return text
 	}
 	text_font_load_ascii(&font)
-	text_register_font(&text.ctx, 0, font)
-	text.font_pack = text_font_process(&text.ctx.fonts[0])
+	text_register_font(&text.ctx, font)
+	text.font_pack = text_font_process(&text.ctx.font)
 	text.curve_texture = renderer_create_text_texture(gpu, .R16G16B16A16_FLOAT, text.font_pack.curve_width, text.font_pack.curve_height)
 	text.band_texture = renderer_create_text_texture(gpu, .R16G16_UINT, text.font_pack.band_width, text.font_pack.band_height)
 	assert(text.curve_texture != nil)
@@ -88,15 +88,15 @@ renderer_create_text_pipeline :: proc(
 
 	vertex_buffer_description := sdl.GPUVertexBufferDescription {
 		slot = 0,
-		pitch = size_of(TextVertex),
+		pitch = size_of(Text_Vertex),
 		input_rate = .VERTEX,
 	}
 	vertex_attributes := [5]sdl.GPUVertexAttribute {
-		{location = 0, buffer_slot = 0, format = .FLOAT4, offset = u32(offset_of(TextVertex, pos))},
-		{location = 1, buffer_slot = 0, format = .FLOAT4, offset = u32(offset_of(TextVertex, tex))},
-		{location = 2, buffer_slot = 0, format = .FLOAT4, offset = u32(offset_of(TextVertex, jac))},
-		{location = 3, buffer_slot = 0, format = .FLOAT4, offset = u32(offset_of(TextVertex, bnd))},
-		{location = 4, buffer_slot = 0, format = .FLOAT4, offset = u32(offset_of(TextVertex, col))},
+		{location = 0, buffer_slot = 0, format = .FLOAT4, offset = u32(offset_of(Text_Vertex, pos))},
+		{location = 1, buffer_slot = 0, format = .FLOAT4, offset = u32(offset_of(Text_Vertex, tex))},
+		{location = 2, buffer_slot = 0, format = .FLOAT4, offset = u32(offset_of(Text_Vertex, jac))},
+		{location = 3, buffer_slot = 0, format = .FLOAT4, offset = u32(offset_of(Text_Vertex, bnd))},
+		{location = 4, buffer_slot = 0, format = .FLOAT4, offset = u32(offset_of(Text_Vertex, col))},
 	}
 	color_target_description := sdl.GPUColorTargetDescription {
 		format = sdl.GetGPUSwapchainTextureFormat(gpu, window),
@@ -190,17 +190,16 @@ renderer_prepare_text :: proc(renderer: ^Renderer, cmd_buf: ^sdl.GPUCommandBuffe
 	if renderer.text == nil || !renderer.text.loaded do return
 	text := renderer.text
 	text_begin(&text.ctx)
-	font := &text.ctx.fonts[0]
+	font := &text.ctx.font
 	for command in commands {
 		if command.kind != .Text || command.text == "" do continue
 		baseline_y := command.bounds.y + font.ascent * command.font_size
 		text_draw(&text.ctx, command.text, command.bounds.x, baseline_y, command.font_size, command.color)
 	}
-	text_end(&text.ctx)
 	vertex_count := text_vertex_count(&text.ctx)
 	if vertex_count == 0 do return
 
-	vertex_data_size := int(vertex_count) * size_of(TextVertex)
+	vertex_data_size := int(vertex_count) * size_of(Text_Vertex)
 	transfer_ptr := transmute([^]byte)sdl.MapGPUTransferBuffer(renderer.gpu, text.transfer_buffer, true)
 	mem.copy(transfer_ptr[:], raw_data(text.ctx.vertices[:vertex_count]), vertex_data_size)
 	sdl.UnmapGPUTransferBuffer(renderer.gpu, text.transfer_buffer)

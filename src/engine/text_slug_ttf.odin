@@ -14,7 +14,7 @@ import stbtt "vendor:stb/truetype"
 // ===================================================
 
 // Load a TTF font file from disk.
-font_load :: proc(path: string) -> (font: Font, ok: bool) {
+text_font_load :: proc(path: string) -> (font: Text_Font, ok: bool) {
 	data, read_err := os.read_entire_file(path, context.allocator)
 	if read_err != nil {
 		return {}, false
@@ -43,7 +43,7 @@ font_load :: proc(path: string) -> (font: Font, ok: bool) {
 }
 
 // Load a single glyph's outline and metrics.
-font_load_glyph :: proc(font: ^Font, codepoint: rune) -> bool {
+text_font_load_glyph :: proc(font: ^Text_Font, codepoint: rune) -> bool {
 	// Already loaded?
 	if existing, ok := &font.glyphs[codepoint]; ok && existing.valid {
 		return true
@@ -51,7 +51,7 @@ font_load_glyph :: proc(font: ^Font, codepoint: rune) -> bool {
 
 	// Initialize map on first use
 	if font.glyphs == nil {
-		font.glyphs = make(map[rune]Glyph_Data, INITIAL_GLYPH_CAPACITY)
+		font.glyphs = make(map[rune]Text_Glyph, TEXT_INITIAL_GLYPH_CAPACITY)
 	}
 
 	font.glyphs[codepoint] = {}
@@ -108,7 +108,7 @@ font_load_glyph :: proc(font: ^Font, codepoint: rune) -> bool {
 			p1 := [2]f32{f32(prev.x) * font.em_scale, f32(prev.y) * font.em_scale}
 			p3 := [2]f32{f32(v.x) * font.em_scale, f32(v.y) * font.em_scale}
 			p2 := [2]f32{(p1.x + p3.x) * 0.5, (p1.y + p3.y) * 0.5}
-			append(&g.curves, Bezier_Curve{p1, p2, p3})
+			append(&g.curves, Text_Bezier_Curve{p1, p2, p3})
 
 		case STBTT_VCURVE:
 			if i == 0 do continue
@@ -116,7 +116,7 @@ font_load_glyph :: proc(font: ^Font, codepoint: rune) -> bool {
 			p1 := [2]f32{f32(prev.x) * font.em_scale, f32(prev.y) * font.em_scale}
 			p2 := [2]f32{f32(v.cx) * font.em_scale, f32(v.cy) * font.em_scale}
 			p3 := [2]f32{f32(v.x) * font.em_scale, f32(v.y) * font.em_scale}
-			append(&g.curves, Bezier_Curve{p1, p2, p3})
+			append(&g.curves, Text_Bezier_Curve{p1, p2, p3})
 
 		case STBTT_VCUBIC:
 			if i == 0 do continue
@@ -125,7 +125,7 @@ font_load_glyph :: proc(font: ^Font, codepoint: rune) -> bool {
 			cp1 := [2]f32{f32(v.cx) * font.em_scale, f32(v.cy) * font.em_scale}
 			cp2 := [2]f32{f32(v.cx1) * font.em_scale, f32(v.cy1) * font.em_scale}
 			cp3 := [2]f32{f32(v.x) * font.em_scale, f32(v.y) * font.em_scale}
-			cubic_to_quadratics(cp0, cp1, cp2, cp3, &g.curves, CUBIC_TO_QUAD_TOLERANCE)
+			text_cubic_to_quadratics(cp0, cp1, cp2, cp3, &g.curves, TEXT_CUBIC_TO_QUAD_TOLERANCE)
 
 		case STBTT_VMOVE:
 			continue
@@ -137,9 +137,9 @@ font_load_glyph :: proc(font: ^Font, codepoint: rune) -> bool {
 }
 
 // Get kerning adjustment between two glyphs (in em-space units).
-font_get_kerning :: proc(font: ^Font, left, right: rune) -> f32 {
-	gl := get_glyph(font, left)
-	gr := get_glyph(font, right)
+text_font_get_kerning :: proc(font: ^Text_Font, left, right: rune) -> f32 {
+	gl := text_glyph(font, left)
+	gr := text_glyph(font, right)
 	if gl == nil || gr == nil do return 0
 
 	kern_raw := stbtt.GetGlyphKernAdvance(&font.info, c.int(gl.glyph_index), c.int(gr.glyph_index))
@@ -147,8 +147,8 @@ font_get_kerning :: proc(font: ^Font, left, right: rune) -> f32 {
 }
 
 // Load all ASCII printable glyphs (32-126).
-font_load_ascii :: proc(font: ^Font) -> int {
-	return font_load_range(font, 32, 126)
+text_font_load_ascii :: proc(font: ^Text_Font) -> int {
+	return text_font_load_range(font, 32, 126)
 }
 
 // Load all glyphs in a codepoint range (inclusive).
@@ -159,10 +159,10 @@ font_load_ascii :: proc(font: ^Font) -> int {
 //   Greek:              880–1023
 //   Cyrillic:           1024–1279
 //   Box Drawing:        9472–9599
-font_load_range :: proc(font: ^Font, first, last: rune) -> int {
+text_font_load_range :: proc(font: ^Text_Font, first, last: rune) -> int {
 	loaded := 0
 	for cp := first; cp <= last; cp += 1 {
-		if font_load_glyph(font, cp) {
+		if text_font_load_glyph(font, cp) {
 			loaded += 1
 		}
 	}
@@ -173,9 +173,9 @@ font_load_range :: proc(font: ^Font, first, last: rune) -> int {
 // Cubic-to-quadratic Bezier conversion
 // ===================================================
 
-cubic_to_quadratics :: proc(
+text_cubic_to_quadratics :: proc(
 	p0, p1, p2, p3: [2]f32,
-	output: ^[dynamic]Bezier_Curve,
+	output: ^[dynamic]Text_Bezier_Curve,
 	tolerance: f32,
 	depth: int = 0,
 ) {
@@ -195,12 +195,12 @@ cubic_to_quadratics :: proc(
 	error_sq := err.x * err.x + err.y * err.y
 
 	if error_sq <= tolerance * tolerance || depth >= MAX_DEPTH {
-		append(output, Bezier_Curve{p0, q1, p3})
+		append(output, Text_Bezier_Curve{p0, q1, p3})
 		return
 	}
 
-	cubic_to_quadratics(p0, mid01, mid012, cubic_mid, output, tolerance, depth + 1)
-	cubic_to_quadratics(cubic_mid, mid123, mid23, p3, output, tolerance, depth + 1)
+	text_cubic_to_quadratics(p0, mid01, mid012, cubic_mid, output, tolerance, depth + 1)
+	text_cubic_to_quadratics(cubic_mid, mid123, mid23, p3, output, tolerance, depth + 1)
 }
 
 // ===================================================
@@ -216,7 +216,7 @@ cubic_to_quadratics :: proc(
 //
 // dpi: scale factor for HiDPI displays (1.0 = standard, 2.0 = Retina).
 // The snap is computed in device pixels, then divided back by dpi.
-font_snap_size :: proc(font: ^Font, target_size: f32, dpi: f32 = 1.0) -> f32 {
+text_font_snap_size :: proc(font: ^Text_Font, target_size: f32, dpi: f32 = 1.0) -> f32 {
 	if font.cap_height <= 0 do return target_size
 	effective_dpi := dpi if dpi > 0 else 1.0
 
