@@ -6,7 +6,7 @@ import "core:math/linalg"
 import b3 "vendor:box3d"
 
 SPAWN_INTERVAL :: f32(0.12)
-MAX_OBJECTS :: 128
+MAX_OBJECTS :: 2048
 
 Scene :: struct {
 	allocator:      runtime.Allocator,
