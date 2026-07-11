@@ -161,10 +161,8 @@ player_update :: proc(player: ^PlayerController, physics: ^PhysicsWorld, input: 
 
 player_teleport :: proc(player: ^PlayerController, position: Vec3, yaw: f32) {
 	player.position = position
-	player.spawn_position = position
 	player.velocity = {}
 	player.yaw = yaw
-	player.spawn_yaw = yaw
 	player.pitch = 0
 	player.grounded = false
 	player.ground_normal = {0, 1, 0}

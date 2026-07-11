@@ -11,17 +11,15 @@
     angle(integer) : "Yaw" : 0 : "Yaw in editor degrees."
 ]
 
-@PointClass size(-8 -8 -8, 8 8 8) color(255 220 120) = direction_light : "Directional light placeholder"
-[
-    angle(integer) : "Yaw" : 0 : "Yaw in editor degrees."
-]
-
 @PointClass size(-8 -8 -8, 8 8 8) color(80 200 255) = info_teleport_destination : "Teleport destination"
 [
     targetname(target_source) : "Target Name" : "" : "Name other entities can target."
 ]
 
-@PointClass size(-16 -16 -16, 16 16 16) color(255 150 80) = prop_suzanne : "Dynamic Suzanne prop" []
+@PointClass size(-16 -16 -16, 16 16 16) color(255 150 80) = prop_suzanne : "Dynamic Suzanne prop"
+[
+    net_policy(string) : "Network Policy" : server : "server for authoritative synced prop, client for presentation-only local prop."
+]
 
 @PointClass size(-12 -12 -12, 12 12 12) color(255 90 180) = spawner_suzanne : "Timed Suzanne spawner"
 [
@@ -34,4 +32,20 @@
     target(target_destination) : "Target" : "" : "Teleport destination targetname."
     target_origin(string) : "Direct Target Origin" : "" : "Optional direct teleport destination as x y z editor coordinates."
     target_angle(integer) : "Direct Target Yaw" : 0 : "Yaw used with target_origin."
+]
+
+@SolidClass color(180 120 255) = func_train : "Moving brush platform following path_corner entities"
+[
+    target(target_destination) : "First Path Corner" : "" : "Initial path_corner target. The train starts with its bounds center at this corner."
+    targetname(target_source) : "Target Name" : "" : "Optional name for trigger-controlled trains."
+    speed(float) : "Speed" : 100 : "Movement speed in Quake units per second."
+    wait(float) : "Wait" : 0 : "Seconds to wait at path corners unless overridden by the corner."
+]
+
+@PointClass size(-8 -8 -8, 8 8 8) color(220 180 255) = path_corner : "Point target for func_train movement; origin marks the train bounds center"
+[
+    targetname(target_source) : "Target Name" : "" : "Name used by func_train or the previous path_corner."
+    target(target_destination) : "Next Path Corner" : "" : "Next path_corner in the route. Leave empty to stop."
+    speed(float) : "Speed Override" : 0 : "Optional train speed after this corner; 0 keeps the current speed."
+    wait(float) : "Wait Override" : 0 : "Optional seconds to wait at this corner."
 ]

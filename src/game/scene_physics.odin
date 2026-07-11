@@ -6,7 +6,8 @@ import b3 "vendor:box3d"
 COLLISION_CATEGORY_WORLD :: u64(1 << 0)
 COLLISION_CATEGORY_PROP :: u64(1 << 1)
 COLLISION_CATEGORY_PLAYER :: u64(1 << 2)
-COLLISION_MASK_ALL :: u64(COLLISION_CATEGORY_WORLD | COLLISION_CATEGORY_PROP | COLLISION_CATEGORY_PLAYER)
+COLLISION_CATEGORY_TRIGGER :: u64(1 << 3)
+COLLISION_MASK_ALL :: u64(COLLISION_CATEGORY_WORLD | COLLISION_CATEGORY_PROP | COLLISION_CATEGORY_PLAYER | COLLISION_CATEGORY_TRIGGER)
 
 ScenePhysicsAssets :: struct {
 	suzanne_hull: ^b3.HullData,
@@ -68,6 +69,19 @@ scene_physics_create_suzanne_body :: proc(scene: ^Scene, position: Vec3, ordinal
 	return body
 }
 
+scene_physics_create_trigger_body :: proc(scene: ^Scene, center, half_extents: Vec3) -> (body: b3.BodyId, shape: b3.ShapeId) {
+	body_def := b3.DefaultBodyDef()
+	body_def.position = b3.Pos(center)
+	body = b3.CreateBody(scene.physics.id, body_def)
+
+	shape_def := b3.DefaultShapeDef()
+	shape_def.isSensor = true
+	shape_def.filter = scene_physics_trigger_shape_filter()
+	box := b3.MakeBoxHull(half_extents.x, half_extents.y, half_extents.z)
+	shape = b3.CreateHullShape(body, shape_def, &box.base)
+	return
+}
+
 scene_physics_suzanne_angular_velocity :: proc(ordinal: int) -> Vec3 {
 	return {
 		0.25 + f32(ordinal % 5) * 0.12,
@@ -80,10 +94,18 @@ physics_player_query_filter :: proc() -> b3.QueryFilter {
 	return {categoryBits = COLLISION_CATEGORY_PLAYER, maskBits = COLLISION_CATEGORY_WORLD | COLLISION_CATEGORY_PROP}
 }
 
+physics_player_trigger_query_filter :: proc() -> b3.QueryFilter {
+	return {categoryBits = COLLISION_CATEGORY_PLAYER, maskBits = COLLISION_CATEGORY_TRIGGER}
+}
+
 scene_physics_world_shape_filter :: proc() -> b3.Filter {
 	return {categoryBits = COLLISION_CATEGORY_WORLD, maskBits = COLLISION_MASK_ALL}
 }
 
 scene_physics_prop_shape_filter :: proc() -> b3.Filter {
 	return {categoryBits = COLLISION_CATEGORY_PROP, maskBits = COLLISION_MASK_ALL}
+}
+
+scene_physics_trigger_shape_filter :: proc() -> b3.Filter {
+	return {categoryBits = COLLISION_CATEGORY_TRIGGER, maskBits = COLLISION_CATEGORY_PLAYER}
 }

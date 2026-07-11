@@ -1,6 +1,7 @@
 package game
 
 import "core:log"
+import "core:c"
 import "core:math/linalg"
 import "core:strconv"
 import b3 "vendor:box3d"
@@ -118,23 +119,29 @@ scene_spawn_entity_trigger_teleport :: proc(scene: ^Scene, qmap: ^QuakeMap, enti
 		return
 	}
 
-	scene_add_object(
+	trigger_id := scene_add_object(
 		scene,
 		Object {
 			name = "trigger_teleport",
 			kind = .Trigger,
 			transform = {position = (bounds_min + bounds_max) * 0.5},
 			render = {visible = false},
-			physics = {enabled = false},
 			touch = {
 				kind = .TriggerTeleport,
-				bounds_min = bounds_min,
-				bounds_max = bounds_max,
 				target_position = target_position,
 				target_yaw = target_yaw,
 			},
 		},
 	)
+	trigger := scene_object(scene, trigger_id)
+	assert(trigger != nil)
+	half_extents := (bounds_max - bounds_min) * 0.5
+	body, shape := scene_physics_create_trigger_body(scene, trigger.transform.position, half_extents)
+	trigger.physics = {
+		enabled = true,
+		body = body,
+		shape = shape,
+	}
 }
 
 scene_run_think :: proc(scene: ^Scene, step_time: f32) {
@@ -164,18 +171,30 @@ scene_think_spawner_suzanne :: proc(scene: ^Scene, object: ^Object, step_time: f
 
 scene_touch_player :: proc(scene: ^Scene, player: ^PlayerController, move: PlayerMoveResult) {
 	_ = move.old_position
-	player_min := move.new_position + PLAYER_SPEC.hull_mins
-	player_max := move.new_position + PLAYER_SPEC.hull_maxs
-	for &object in scene.objects {
-		switch object.touch.kind {
-		case .TriggerTeleport:
-			if scene_aabb_overlaps(player_min, player_max, object.touch.bounds_min, object.touch.bounds_max) {
-				player_teleport(player, object.touch.target_position, object.touch.target_yaw)
-				return
-			}
-		case .None:
+	query := SceneTouchQuery{scene = scene}
+	mover := player_mover_make_capsule(move.new_position, PLAYER_SPEC)
+	points := [?]Vec3{Vec3(mover.center1), Vec3(mover.center2)}
+	proxy := b3.ShapeProxy{points = raw_data(points[:]), count = c.int(len(points)), radius = mover.radius}
+	_ = b3.World_OverlapShape(scene.physics.id, {0, 0, 0}, proxy, physics_player_trigger_query_filter(), scene_touch_player_overlap, &query)
+	if query.trigger != nil {
+		player_teleport(player, query.trigger.touch.target_position, query.trigger.touch.target_yaw)
+	}
+}
+
+SceneTouchQuery :: struct {
+	scene:   ^Scene,
+	trigger: ^Object,
+}
+
+scene_touch_player_overlap :: proc "c" (shape: b3.ShapeId, ctx: rawptr) -> bool {
+	query := cast(^SceneTouchQuery)ctx
+	for &object in query.scene.objects {
+		if object.physics.shape == shape && object.touch.kind == .TriggerTeleport {
+			query.trigger = &object
+			return false
 		}
 	}
+	return true
 }
 
 scene_find_target_spawn :: proc(qmap: ^QuakeMap, target: string) -> (position: Vec3, yaw: f32, ok: bool) {
@@ -216,13 +235,6 @@ scene_entity_f32 :: proc(entity: ^MapEntity, key: string, default_value: f32) ->
 
 scene_entity_angle :: proc(entity: ^MapEntity, key: string, default_value: f32) -> f32 {
 	return linalg.to_radians(scene_entity_f32(entity, key, default_value) + 180)
-}
-
-scene_aabb_overlaps :: proc(a_min, a_max, b_min, b_max: Vec3) -> bool {
-	return b3.AABB_Overlaps(
-		{lowerBound = a_min, upperBound = a_max},
-		{lowerBound = b_min, upperBound = b_max},
-	)
 }
 
 map_entity_brush_bounds :: proc(entity: ^MapEntity) -> (bounds_min: Vec3, bounds_max: Vec3, ok: bool) {

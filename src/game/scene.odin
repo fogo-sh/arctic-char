@@ -88,6 +88,7 @@ RenderObject :: struct {
 
 PhysicsObject :: struct {
 	body:             b3.BodyId,
+	shape:            b3.ShapeId,
 	enabled:          bool,
 	sync_transform:   bool,
 	linear_velocity:  Vec3,
@@ -114,8 +115,6 @@ TouchKind :: enum {
 
 TouchObject :: struct {
 	kind:            TouchKind,
-	bounds_min:      Vec3,
-	bounds_max:      Vec3,
 	target_position: Vec3,
 	target_yaw:      f32,
 }
