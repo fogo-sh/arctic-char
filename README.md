@@ -41,6 +41,7 @@ python cli.py run
 python cli.py server-build
 python cli.py server-run -- --port 29001
 python cli.py net-smoke
+uv run cli.py mp-test
 ```
 
 `python cli.py build` builds the normal app and dedicated server in one clean
@@ -54,6 +55,10 @@ macOS, install it with `brew install enet`.
 `python cli.py smoke` runs the app through the in-process loopback path.
 `python cli.py net-smoke` builds the dedicated server and real game client, then
 runs the game client against the server over ENet for a fixed duration.
+
+`uv run cli.py mp-test` builds, starts one local dedicated server, launches two real
+clients connected to it, and keeps them running until Ctrl-C. Use `--seconds N`
+for an automated timed run or `--no-build` to reuse existing binaries.
 
 Run multiple real app clients against a manually managed dedicated server:
 

@@ -2,10 +2,12 @@ package main
 
 import "core:fmt"
 import "core:log"
-import "core:math"
 import "core:os"
+import "core:strings"
 import flags "core:flags"
 import "core:time"
+import engine "../engine"
+import game "../game"
 import protocol "../protocol"
 import transport "../net"
 
@@ -19,21 +21,19 @@ ClientSession :: struct {
 	active:   bool,
 	accepted: bool,
 	player_id: u32,
-	position: [3]f32,
-	yaw:      f32,
 	last_logged_command: u32,
 }
 
 ServerState :: struct {
 	sessions: [SERVER_MAX_CLIENTS]ClientSession,
+	scene:    ^game.Scene,
 }
 
-SERVER_PLAYER_START :: [3]f32{0, 0.9, 8.0}
-SERVER_PLAYER_SPEED :: f32(5.0)
-SERVER_COMMAND_STEP :: f32(1.0 / 60.0)
 SERVER_COMMAND_LOG_INTERVAL :: u32(60)
 
 Options :: struct {
+	base_dir:   string `args:"name=basedir" usage:"Base directory containing game content."`,
+	game_dir:   string `args:"name=game" usage:"Game directory to search before base."`,
 	port:       u16    `usage:"UDP port to listen on."`,
 	map_name:   string `args:"name=map" usage:"Authoritative map name for handshake validation."`,
 	content_id: u32    `usage:"Authoritative map/content identifier for handshake validation."`,
@@ -52,9 +52,18 @@ main :: proc() {
 		log.fatalf("Failed to start ENet server on port %d", options.port)
 	}
 	defer transport.destroy(&host)
+	fs := engine.game_fs_create(options.base_dir, options.game_dir)
+	defer engine.game_fs_destroy(&fs)
+	map_qpath := server_map_qpath(options.map_name)
+	defer delete(map_qpath)
+	assets := game.scene_assets_load(&fs, map_qpath)
+	defer game.scene_assets_destroy(&assets)
 
 	log.infof("Dedicated server listening on UDP port %d map=%s content_id=%08x", options.port, options.map_name, options.content_id)
-	run_server(&host, options)
+	scene := game.scene_create(&assets, {})
+	defer game.scene_destroy(&scene)
+
+	run_server(&host, options, &scene)
 }
 
 parse_options :: proc(args: []string) -> Options {
@@ -64,15 +73,21 @@ parse_options :: proc(args: []string) -> Options {
 		append(&runtime_args, arg)
 	}
 
-	options := Options{port = SERVER_DEFAULT_PORT, map_name = SERVER_DEFAULT_MAP, content_id = SERVER_DEFAULT_CONTENT_ID}
+	options := Options{base_dir = ".", port = SERVER_DEFAULT_PORT, map_name = SERVER_DEFAULT_MAP, content_id = SERVER_DEFAULT_CONTENT_ID}
 	flags.parse_or_exit(&options, runtime_args[:], .Unix)
 	return options
 }
 
-run_server :: proc(host: ^transport.Host, options: Options) {
+server_map_qpath :: proc(map_name: string, allocator := context.allocator) -> string {
+	qpath, err := strings.concatenate({"maps/", map_name, ".map"}, allocator)
+	assert(err == nil)
+	return qpath
+}
+
+run_server :: proc(host: ^transport.Host, options: Options, scene: ^game.Scene) {
 	receive_buffer: [protocol.MAX_PACKET_SIZE]byte
 	send_buffer: [protocol.MAX_PACKET_SIZE]byte
-	state: ServerState
+	state := ServerState{scene = scene}
 	started := time.now()
 	for {
 		if options.seconds > 0 {
@@ -129,8 +144,8 @@ run_server :: proc(host: ^transport.Host, options: Options) {
 					log.warnf("Dropped user cmd from unaccepted peer=%v", event.peer)
 					continue
 				}
-				server_apply_user_cmd(&state.sessions[index], packet.user_cmd)
-				server_log_user_cmd_if_needed(&state.sessions[index], event.peer, packet.user_cmd)
+				server_apply_user_cmd(&state, index, packet.user_cmd)
+				server_log_user_cmd_if_needed(&state, index, event.peer, packet.user_cmd)
 				server_broadcast_player_state(host, &state, index, send_buffer[:])
 			case:
 				log.warnf("Unexpected packet kind peer=%v kind=%v", event.peer, packet.header.kind)
@@ -142,6 +157,9 @@ run_server :: proc(host: ^transport.Host, options: Options) {
 server_add_session :: proc(state: ^ServerState, peer: transport.Peer) {
 	if index := server_find_session(state, peer); index >= 0 {
 		state.sessions[index].accepted = false
+		state.sessions[index].active = true
+		state.sessions[index].peer = peer
+		state.sessions[index].player_id = u32(index + 1)
 		return
 	}
 	for i in 0..<len(state.sessions) {
@@ -150,7 +168,6 @@ server_add_session :: proc(state: ^ServerState, peer: transport.Peer) {
 				peer = peer,
 				active = true,
 				player_id = u32(i + 1),
-				position = SERVER_PLAYER_START,
 			}
 			return
 		}
@@ -166,7 +183,9 @@ server_remove_session :: proc(state: ^ServerState, peer: transport.Peer) {
 
 server_accept_session :: proc(state: ^ServerState, peer: transport.Peer) {
 	if index := server_find_session(state, peer); index >= 0 {
-		state.sessions[index].accepted = true
+		session := &state.sessions[index]
+		game.scene_reset_player_to_spawn(state.scene, session.player_id)
+		session.accepted = true
 	}
 }
 
@@ -179,30 +198,39 @@ server_find_session :: proc(state: ^ServerState, peer: transport.Peer) -> int {
 	return -1
 }
 
-server_apply_user_cmd :: proc(session: ^ClientSession, cmd: protocol.User_Cmd) {
-	session.yaw = cmd.yaw
-	forward := [3]f32{math.sin(cmd.yaw), 0, -math.cos(cmd.yaw)}
-	right := [3]f32{math.cos(cmd.yaw), 0, math.sin(cmd.yaw)}
-	dx := (forward.x * cmd.move_forward + right.x * cmd.move_right) * SERVER_PLAYER_SPEED * SERVER_COMMAND_STEP
-	dz := (forward.z * cmd.move_forward + right.z * cmd.move_right) * SERVER_PLAYER_SPEED * SERVER_COMMAND_STEP
-	session.position.x += dx
-	session.position.z += dz
+server_apply_user_cmd :: proc(state: ^ServerState, session_index: int, cmd: protocol.User_Cmd) {
+	session := &state.sessions[session_index]
+	if !session.accepted {
+		return
+	}
+	game.scene_update_from_user_cmd(state.scene, session.player_id, cmd, game.PHYSICS_STEP_TIME)
 }
 
-server_log_user_cmd_if_needed :: proc(session: ^ClientSession, peer: transport.Peer, cmd: protocol.User_Cmd) {
+server_log_user_cmd_if_needed :: proc(state: ^ServerState, session_index: int, peer: transport.Peer, cmd: protocol.User_Cmd) {
+	session := &state.sessions[session_index]
 	if cmd.sequence - session.last_logged_command < SERVER_COMMAND_LOG_INTERVAL {
 		return
 	}
 	session.last_logged_command = cmd.sequence
-	log.debugf("User cmd peer=%v player=%d seq=%d tick=%d move=(%.2f, %.2f) pos=(%.2f, %.2f, %.2f) yaw=%.3f pitch=%.3f buttons=%04x", peer, session.player_id, cmd.sequence, cmd.client_tick, cmd.move_forward, cmd.move_right, session.position.x, session.position.y, session.position.z, cmd.yaw, cmd.pitch, cmd.buttons)
+	player := game.scene_player(state.scene, session.player_id)
+	if player == nil {
+		return
+	}
+	position := player.position
+	log.debugf("User cmd peer=%v player=%d seq=%d tick=%d move=(%.2f, %.2f) pos=(%.2f, %.2f, %.2f) yaw=%.3f pitch=%.3f buttons=%04x", peer, session.player_id, cmd.sequence, cmd.client_tick, cmd.move_forward, cmd.move_right, position.x, position.y, position.z, player.yaw, player.pitch, cmd.buttons)
 }
 
 server_broadcast_player_state :: proc(host: ^transport.Host, state: ^ServerState, source_index: int, buffer: []byte) {
 	source := state.sessions[source_index]
+	player := game.scene_player(state.scene, source.player_id)
+	if player == nil {
+		return
+	}
+	position := player.position
 	player_state := protocol.Server_Player_State{
 		player_id = source.player_id,
-		position = source.position,
-		yaw = source.yaw,
+		position = position,
+		yaw = player.yaw,
 	}
 	packet, ok := protocol.write_server_player_state(buffer, player_state)
 	if !ok {

@@ -10,12 +10,17 @@ import sdl "vendor:sdl3"
 
 SPAWN_INTERVAL :: f32(0.12)
 MAX_OBJECTS :: 2048
+MAX_PLAYERS :: 32
+LOCAL_PLAYER_ID :: u32(1)
 
 Scene :: struct {
 	allocator:      runtime.Allocator,
 	physics:        PhysicsWorld,
 	physics_assets: ScenePhysicsAssets,
-	player:         PlayerController,
+	players:        [dynamic]ScenePlayer,
+	camera_player_id: u32,
+	player_spawn_position: Vec3,
+	player_spawn_yaw: f32,
 	objects:        [dynamic]Object,
 	suzanne_mesh:   MeshHandle,
 	map_mesh:       MeshHandle,
@@ -23,6 +28,11 @@ Scene :: struct {
 	accumulator:    f32,
 	profile:        SceneProfile,
 	profile_log_timer: f32,
+}
+
+ScenePlayer :: struct {
+	id:         u32,
+	controller: PlayerController,
 }
 
 SceneProfile :: struct {
@@ -111,22 +121,67 @@ scene_create :: proc(
 	scene := Scene {
 		allocator      = allocator,
 		physics        = engine.physics_create(),
-		player         = player_create(
-			assets.level.player_spawn.position,
-			assets.level.player_spawn.yaw,
-		),
+		players        = make([dynamic]ScenePlayer, 0, MAX_PLAYERS, allocator),
+		camera_player_id = LOCAL_PLAYER_ID,
+		player_spawn_position = assets.level.player_spawn.position,
+		player_spawn_yaw = assets.level.player_spawn.yaw,
 		objects        = make([dynamic]Object, 0, MAX_OBJECTS, allocator),
 		suzanne_mesh   = gpu.suzanne_handle,
 		map_mesh       = gpu.map_handle,
 		next_object_id = 1,
 	}
+	scene_add_player(&scene, LOCAL_PLAYER_ID, scene.player_spawn_position, scene.player_spawn_yaw)
 	scene_physics_assets_create(&scene, &assets.collision_mesh, &assets.level.render_mesh)
 	scene_create_map(&scene)
 	scene_spawn_level_entities(&scene, &assets.level.source)
 	return scene
 }
 
+scene_add_player :: proc(scene: ^Scene, player_id: u32, position: Vec3, yaw: f32) -> ^PlayerController {
+	assert(len(scene.players) < cap(scene.players))
+	append(&scene.players, ScenePlayer{id = player_id, controller = player_create(position, yaw)})
+	return &scene.players[len(scene.players) - 1].controller
+}
+
+scene_ensure_player :: proc(scene: ^Scene, player_id: u32, position := PLAYER_SPEC.spawn_position, yaw: f32 = 0) -> ^PlayerController {
+	if player := scene_player(scene, player_id); player != nil {
+		return player
+	}
+	return scene_add_player(scene, player_id, position, yaw)
+}
+
+scene_reset_player :: proc(scene: ^Scene, player_id: u32, position := PLAYER_SPEC.spawn_position, yaw: f32 = 0) -> ^PlayerController {
+	player := scene_ensure_player(scene, player_id, position, yaw)
+	player^ = player_create(position, yaw)
+	return player
+}
+
+scene_reset_player_to_spawn :: proc(scene: ^Scene, player_id: u32) -> ^PlayerController {
+	return scene_reset_player(scene, player_id, scene.player_spawn_position, scene.player_spawn_yaw)
+}
+
+scene_player :: proc(scene: ^Scene, player_id: u32) -> ^PlayerController {
+	for &player in scene.players {
+		if player.id == player_id {
+			return &player.controller
+		}
+	}
+	return nil
+}
+
+scene_camera_player :: proc(scene: ^Scene) -> ^PlayerController {
+	player := scene_player(scene, scene.camera_player_id)
+	if player != nil {
+		return player
+	}
+	if len(scene.players) > 0 {
+		return &scene.players[0].controller
+	}
+	return nil
+}
+
 scene_destroy :: proc(scene: ^Scene) {
+	delete(scene.players)
 	delete(scene.objects)
 	engine.physics_destroy(&scene.physics)
 	scene_physics_assets_destroy(scene)
@@ -180,7 +235,11 @@ scene_rebuild_after_hot_reload :: proc(scene: ^Scene, fs: ^GameFS, map_qpath: st
 
 scene_reload_level :: proc(scene: ^Scene, level: ^LevelAsset) {
 	scene_physics_replace_map_mesh(scene, &level.render_mesh)
-	scene.player = player_create(level.player_spawn.position, level.player_spawn.yaw)
+	scene.player_spawn_position = level.player_spawn.position
+	scene.player_spawn_yaw = level.player_spawn.yaw
+	for &player in scene.players {
+		player.controller = player_create(scene.player_spawn_position, scene.player_spawn_yaw)
+	}
 	scene_clear_level_entities(scene)
 	scene_spawn_level_entities(scene, &level.source)
 	scene.accumulator = 0
@@ -188,6 +247,7 @@ scene_reload_level :: proc(scene: ^Scene, level: ^LevelAsset) {
 
 scene_update :: proc(
 	scene: ^Scene,
+	player_id: u32,
 	move_input: PlayerMoveInput,
 	look_input: PlayerLookInput,
 	delta_time: f32,
@@ -195,12 +255,16 @@ scene_update :: proc(
 	update_start := scene_profile_counter_now()
 	scene.profile = {}
 
-	player_apply_look(&scene.player, look_input)
+	player := scene_player(scene, player_id)
+	if player == nil {
+		return
+	}
+	player_apply_look(player, look_input)
 
 	scene.accumulator += min(delta_time, 0.25)
 	for scene.accumulator >= PHYSICS_STEP_TIME {
 		fixed_start := scene_profile_counter_now()
-		scene_fixed_update(scene, move_input, PHYSICS_STEP_TIME)
+		scene_fixed_update(scene, player_id, move_input, PHYSICS_STEP_TIME)
 		scene.profile.fixed_update_ms += scene_profile_elapsed_ms(fixed_start)
 		scene.profile.fixed_steps += 1
 		scene.accumulator -= PHYSICS_STEP_TIME
@@ -210,28 +274,36 @@ scene_update :: proc(
 	scene_profile_log_if_needed(scene, delta_time)
 }
 
-scene_update_from_user_cmd :: proc(scene: ^Scene, cmd: protocol.User_Cmd, delta_time: f32) {
+scene_update_from_user_cmd :: proc(scene: ^Scene, player_id: u32, cmd: protocol.User_Cmd, delta_time: f32) {
 	move := PlayerMoveInput{
 		move_forward = cmd.move_forward,
 		move_right = cmd.move_right,
 		jump_held = (cmd.buttons & protocol.BUTTON_JUMP) != 0,
 	}
-	scene.player.yaw = cmd.yaw
-	scene.player.pitch = cmd.pitch
-	scene_update(scene, move, {}, delta_time)
+	player := scene_player(scene, player_id)
+	if player == nil {
+		return
+	}
+	player.yaw = cmd.yaw
+	player.pitch = cmd.pitch
+	scene_update(scene, player_id, move, {}, delta_time)
 }
 
-scene_fixed_update :: proc(scene: ^Scene, input: PlayerMoveInput, step_time: f32) {
+scene_fixed_update :: proc(scene: ^Scene, player_id: u32, input: PlayerMoveInput, step_time: f32) {
 	think_start := scene_profile_counter_now()
 	scene_run_think(scene, step_time)
 	scene.profile.think_ms += scene_profile_elapsed_ms(think_start)
 
 	player_start := scene_profile_counter_now()
-	move := player_update(&scene.player, &scene.physics, input, step_time)
+	player := scene_player(scene, player_id)
+	if player == nil {
+		return
+	}
+	move := player_update(player, &scene.physics, input, step_time)
 	scene.profile.player_ms += scene_profile_elapsed_ms(player_start)
 
 	touch_start := scene_profile_counter_now()
-	scene_touch_player(scene, move)
+	scene_touch_player(scene, player, move)
 	scene.profile.touch_ms += scene_profile_elapsed_ms(touch_start)
 
 	physics_start := scene_profile_counter_now()
@@ -328,14 +400,23 @@ scene_count_objects :: proc(scene: ^Scene, kind: ObjectKind) -> int {
 }
 
 scene_debug_hud_data :: proc(scene: ^Scene) -> DebugHudData {
+	player := scene_camera_player(scene)
+	player_position: Vec3
+	player_velocity: Vec3
+	player_grounded := false
+	if player != nil {
+		player_position = player.position
+		player_velocity = player.velocity
+		player_grounded = player.grounded
+	}
 	return {
 		enabled = true,
 		object_count = len(scene.objects),
 		suzanne_count = scene_count_objects(scene, .Suzanne),
 		object_capacity = cap(scene.objects),
-		player_position = scene.player.position,
-		player_velocity = scene.player.velocity,
-		player_grounded = scene.player.grounded,
+		player_position = player_position,
+		player_velocity = player_velocity,
+		player_grounded = player_grounded,
 		fixed_steps = scene.profile.fixed_steps,
 		physics_step_ms = scene.profile.box3d.step,
 		physics_collide_ms = scene.profile.box3d.collide,
@@ -400,8 +481,13 @@ scene_collect_render_items :: proc(scene: ^Scene, items: ^[dynamic]RenderItem) -
 
 scene_render_globals :: proc(scene: ^Scene, window_size: [2]i32) -> RenderPassGlobals {
 	aspect := f32(window_size.x) / f32(window_size.y)
+	player := scene_camera_player(scene)
+	view: matrix[4, 4]f32
+	if player != nil {
+		view = player_view_matrix(player)
+	}
 	return RenderPassGlobals {
-		view        = player_view_matrix(&scene.player),
+		view        = view,
 		proj        = engine.matrix4_perspective_z0_f32(linalg.to_radians(f32(70)), aspect, 0.1, 100),
 		environment = scene_render_environment(),
 	}

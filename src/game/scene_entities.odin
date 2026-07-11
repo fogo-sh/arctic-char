@@ -154,7 +154,7 @@ scene_think_spawner_suzanne :: proc(scene: ^Scene, object: ^Object, step_time: f
 	}
 }
 
-scene_touch_player :: proc(scene: ^Scene, move: PlayerMoveResult) {
+scene_touch_player :: proc(scene: ^Scene, player: ^PlayerController, move: PlayerMoveResult) {
 	_ = move.old_position
 	player_min := move.new_position + PLAYER_SPEC.hull_mins
 	player_max := move.new_position + PLAYER_SPEC.hull_maxs
@@ -162,7 +162,7 @@ scene_touch_player :: proc(scene: ^Scene, move: PlayerMoveResult) {
 		switch object.touch.kind {
 		case .TriggerTeleport:
 			if scene_aabb_overlaps(player_min, player_max, object.touch.bounds_min, object.touch.bounds_max) {
-				player_teleport(&scene.player, object.touch.target_position, object.touch.target_yaw)
+				player_teleport(player, object.touch.target_position, object.touch.target_yaw)
 				return
 			}
 		case .None:

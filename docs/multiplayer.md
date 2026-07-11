@@ -484,10 +484,11 @@ diving directly into the id source trees.
    - Client renders authoritative state without prediction first.
    - Status: the real app can run with `--connect`, complete the handshake, and
      send `User_Cmd` packets built from real player input. The dedicated server
-     tracks accepted peers, applies commands to a lightweight authoritative
-     player position, and broadcasts one-player snapshot packets. Clients render
-     remote players as non-physics Suzanne placeholders facing the replicated
-     yaw. Full headless scene physics is still pending.
+     now owns one shared headless real `Scene`, assigns accepted peers stable
+     player ids, resets each player to the map spawn on accept, applies commands
+     through `scene_update_from_user_cmd`, and broadcasts player snapshot packets.
+     Clients render remote players as non-physics Suzanne placeholders facing the
+     replicated yaw. Local-player reconciliation is still pending.
 
 4. Snapshot interpolation.
    - Assign stable network ids to replicated objects.

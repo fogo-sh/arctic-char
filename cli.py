@@ -10,6 +10,7 @@ import hashlib
 import json
 import os
 import platform
+import signal
 import shutil
 import subprocess
 import time
@@ -80,6 +81,12 @@ def main() -> int:
     net_smoke_parser.add_argument("--port", type=int, default=29001)
     net_smoke_parser.add_argument("--map", default="test")
     net_smoke_parser.add_argument("--content-id", type=int, default=0)
+    mp_test_parser = sub.add_parser("mp-test", help="Run one local server and two real clients")
+    mp_test_parser.add_argument("--seconds", type=float, default=0.0)
+    mp_test_parser.add_argument("--port", default=DEFAULT_NET_PORT)
+    mp_test_parser.add_argument("--map", default=DEFAULT_NET_MAP)
+    mp_test_parser.add_argument("--content-id", default=DEFAULT_NET_CONTENT_ID)
+    mp_test_parser.add_argument("--no-build", action="store_true")
     sub.add_parser("hot-game", help="Build hot-reload game dynamic library")
     sub.add_parser("hot-host", help="Build hot-reload host")
     sub.add_parser("hot-build", help="Build hot-reload game and host, then copy assets")
@@ -107,6 +114,7 @@ def main() -> int:
         "server-run": lambda: cmd_server_run(args.args),
         "server-smoke": lambda: cmd_server_smoke(args.seconds),
         "net-smoke": lambda: cmd_net_smoke(args.seconds, args.port, args.map, args.content_id),
+        "mp-test": lambda: cmd_mp_test(args.seconds, args.port, args.map, args.content_id, args.no_build),
         "hot-game": cmd_hot_game,
         "hot-host": cmd_hot_host,
         "hot-build": cmd_hot_build,
@@ -338,6 +346,64 @@ def cmd_net_smoke(seconds: float, port: int, map_name: str, content_id: int) -> 
     require_output_marker(server_output, "Client hello")
     require_output_marker(server_output, "User cmd")
     require_output_marker(client_output, "Server accepted network session")
+
+
+def cmd_mp_test(seconds: float, port: str, map_name: str, content_id: str, no_build: bool) -> None:
+    if not no_build:
+        cmd_build()
+
+    common = ["--connect", "127.0.0.1", "--port", port, "--map", map_name, "--content-id", content_id]
+    processes: list[subprocess.Popen] = []
+
+    def request_shutdown(signum, frame):
+        raise KeyboardInterrupt
+
+    old_sigint = signal.signal(signal.SIGINT, request_shutdown)
+    old_sigterm = signal.signal(signal.SIGTERM, request_shutdown)
+    try:
+        server = spawn_process([server_path(), "--port", port, "--map", map_name, "--content-id", content_id])
+        processes.append(server)
+        time.sleep(0.35)
+
+        client_a = spawn_process([app_path(), *common])
+        processes.append(client_a)
+        time.sleep(0.5)
+
+        client_b = spawn_process([app_path(), *common])
+        processes.append(client_b)
+
+        print("mp-test running: one server and two clients. Press Ctrl-C to stop.")
+        start = time.monotonic()
+        while True:
+            for process in processes:
+                if process.poll() not in (None, 0):
+                    raise subprocess.CalledProcessError(process.returncode, process.args)
+            if seconds > 0 and time.monotonic() - start >= seconds:
+                break
+            time.sleep(0.1)
+    except KeyboardInterrupt:
+        pass
+    finally:
+        signal.signal(signal.SIGINT, old_sigint)
+        signal.signal(signal.SIGTERM, old_sigterm)
+        for process in reversed(processes):
+            terminate_process(process)
+
+
+def spawn_process(cmd: list[str | Path]) -> subprocess.Popen:
+    print("+ " + " ".join(str(part) for part in cmd))
+    return subprocess.Popen([str(part) for part in cmd], cwd=ROOT)
+
+
+def terminate_process(process: subprocess.Popen) -> None:
+    if process.poll() is not None:
+        return
+    process.terminate()
+    try:
+        process.wait(timeout=5)
+    except subprocess.TimeoutExpired:
+        process.kill()
+        process.wait()
 
 
 def require_output_marker(output: str, marker: str) -> None:

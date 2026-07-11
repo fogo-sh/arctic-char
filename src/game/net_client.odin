@@ -94,7 +94,7 @@ game_net_client_update :: proc(net: ^GameNetClient, scene: ^Scene, move: PlayerM
 		game_net_client_send_loopback_user_cmd(net, scene, move, look, delta_time)
 	case .RemoteConnecting, .RemoteAccepted:
 		// Temporary prediction path until the dedicated server shares the same scene simulation.
-		scene_update(scene, move, look, delta_time)
+		scene_update(scene, LOCAL_PLAYER_ID, move, look, delta_time)
 		game_net_client_poll(net, scene)
 		if net.state == .RemoteAccepted {
 			game_net_client_send_user_cmd(net, scene, move)
@@ -151,7 +151,11 @@ game_net_client_loopback_handshake :: proc(net: ^GameNetClient) -> bool {
 game_net_client_send_loopback_user_cmd :: proc(net: ^GameNetClient, scene: ^Scene, move: PlayerMoveInput, look: PlayerLookInput, delta_time: f32) {
 	net.command_sequence += 1
 	net.client_tick += 1
-	yaw, pitch := player_look_angles_after_input(scene.player, look)
+	player := scene_player(scene, LOCAL_PLAYER_ID)
+	if player == nil {
+		return
+	}
+	yaw, pitch := player_look_angles_after_input(player^, look)
 	cmd := game_net_client_make_user_cmd(net, move, yaw, pitch)
 	packet, ok := protocol.write_user_cmd(net.send_buffer[:], cmd)
 	if !ok {
@@ -171,7 +175,7 @@ game_net_client_send_loopback_user_cmd :: proc(net: ^GameNetClient, scene: ^Scen
 		log.warnf("Loopback user cmd parse failed sequence=%d err=%v", cmd.sequence, err)
 		return
 	}
-	scene_update_from_user_cmd(scene, parsed.user_cmd, delta_time)
+	scene_update_from_user_cmd(scene, LOCAL_PLAYER_ID, parsed.user_cmd, delta_time)
 }
 
 game_loopback_send :: proc(queue: ^GameLoopbackQueue, channel: u8, data: []byte) -> bool {
@@ -259,6 +263,9 @@ game_net_client_handle_packet :: proc(net: ^GameNetClient, scene: ^Scene, event:
 		game_net_client_destroy(net)
 	case .Server_Player_State:
 		state := packet.player_state
+		if state.player_id == LOCAL_PLAYER_ID {
+			return
+		}
 		scene_upsert_remote_player(
 			scene,
 			state.player_id,
@@ -273,7 +280,11 @@ game_net_client_handle_packet :: proc(net: ^GameNetClient, scene: ^Scene, event:
 game_net_client_send_user_cmd :: proc(net: ^GameNetClient, scene: ^Scene, move: PlayerMoveInput) {
 	net.command_sequence += 1
 	net.client_tick += 1
-	cmd := game_net_client_make_user_cmd(net, move, scene.player.yaw, scene.player.pitch)
+	player := scene_player(scene, LOCAL_PLAYER_ID)
+	if player == nil {
+		return
+	}
+	cmd := game_net_client_make_user_cmd(net, move, player.yaw, player.pitch)
 	packet, ok := protocol.write_user_cmd(net.send_buffer[:], cmd)
 	if !ok || !transport.send(net.peer, protocol.CHANNEL_USER_CMDS, packet, .Unreliable) {
 		log.warnf("Failed to send user cmd sequence=%d", cmd.sequence)
