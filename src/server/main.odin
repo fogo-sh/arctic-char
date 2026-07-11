@@ -96,10 +96,10 @@ run_server :: proc(host: ^transport.Host, options: Options, scene: ^game.Scene) 
 		frame_time := f32(time.duration_seconds(time.since(last_tick_time)))
 		last_tick_time = time.now()
 		accumulator += min(frame_time, 0.25)
-		for accumulator >= game.PHYSICS_STEP_TIME {
+		for accumulator >= game.NET_SERVER_TICK_TIME {
 			game.net_server_tick(server)
 			server_flush_outgoing(host, server)
-			accumulator -= game.PHYSICS_STEP_TIME
+			accumulator -= game.NET_SERVER_TICK_TIME
 		}
 	}
 }

@@ -9,7 +9,8 @@ PhysicsWorld :: struct {
 	id: b3.WorldId,
 }
 
-PHYSICS_STEP_TIME :: f32(1.0 / 40.0)
+PHYSICS_STEP_HZ   :: 128
+PHYSICS_STEP_TIME :: f32(1.0 / f32(PHYSICS_STEP_HZ))
 PHYSICS_SUBSTEPS :: 4
 PHYSICS_DYNAMIC_BODY_CAPACITY :: 4096
 PHYSICS_STATIC_BODY_CAPACITY :: 64
@@ -36,8 +37,8 @@ physics_destroy :: proc(physics: ^PhysicsWorld) {
 	physics^ = {}
 }
 
-physics_step :: proc(physics: ^PhysicsWorld) {
-	b3.World_Step(physics.id, PHYSICS_STEP_TIME, PHYSICS_SUBSTEPS)
+physics_step :: proc(physics: ^PhysicsWorld, step_time := PHYSICS_STEP_TIME) {
+	b3.World_Step(physics.id, step_time, PHYSICS_SUBSTEPS)
 }
 
 physics_create_static_mesh_data :: proc(mesh: ^CpuMesh) -> ^b3.MeshData {

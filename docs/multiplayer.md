@@ -9,8 +9,8 @@ packages.
 
 - Use a server-authoritative client/server model.
 - Clients send compact player input commands to the server.
-- The server owns the authoritative scene, 40 Hz fixed-step simulation, Box3D
-  world, and spawn/despawn decisions.
+- The server owns the authoritative scene, fixed-step simulation, Box3D world,
+  and spawn/despawn decisions.
 - Clients render server snapshots with interpolation for remote objects.
 - Add local-player prediction and reconciliation after the first snapshot path is
   working.
@@ -82,7 +82,12 @@ packages.
 
 ## Tick Model
 
-- Keep gameplay simulation fixed-step, using the existing scene/physics step.
+- Keep gameplay simulation fixed-step, but keep timing policies separate.
+- Authoritative server simulation currently runs at 64 Hz.
+- Box3D physics substeps currently run at up to 128 Hz inside each scene step.
+- Server snapshots currently send at 32 Hz, not every server tick.
+- Remote interpolation delay is specified in time, currently 100 ms, then
+  converted to server ticks for the current tick rate.
 - Add a monotonically increasing server tick.
 - Client input messages should include client input sequence and the client tick
   or sampled time they were generated from.
@@ -491,13 +496,13 @@ diving directly into the id source trees.
      now owns one shared headless real `Scene`, assigns accepted peers stable
      player ids in `Server_Hello`, resets each player to the map spawn on accept,
      queues deduplicated user commands per session, drains queued commands in
-     sequence order on a 40 Hz server tick, and broadcasts full `Server_Snapshot`
-     packets independent of input arrival. Client input packets include recent
+     sequence order on a 64 Hz server tick, and broadcasts full `Server_Snapshot`
+     packets at 32 Hz independent of input arrival. Client input packets include recent
      commands so dropped packets can be recovered, and snapshots include the last
      processed command sequence for the receiving client. Clients reject stale or
      duplicate snapshot sequences and render non-camera players from canonical
      `Scene.players` using a small remote interpolation buffer, currently delayed
-     four server ticks. Local-player reconciliation is still pending.
+     by 100 ms. Local-player reconciliation is still pending.
 
 4. Snapshot interpolation.
     - Assign stable network ids to replicated objects.

@@ -18,4 +18,5 @@ Vec2 :: engine.Vec2
 Vec3 :: engine.Vec3
 VertexData :: engine.VertexData
 
+PHYSICS_STEP_HZ   :: engine.PHYSICS_STEP_HZ
 PHYSICS_STEP_TIME : f32 : engine.PHYSICS_STEP_TIME

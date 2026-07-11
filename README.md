@@ -30,6 +30,9 @@ not provided. Local input is serialized as `User_Cmd` and fed into the same
 authoritative server core used by the dedicated server; only the transport shell
 differs between loopback and ENet.
 
+Current timing policy is explicit: authoritative server simulation runs at 64 Hz,
+Box3D physics substeps at up to 128 Hz, and server snapshots at 32 Hz.
+
 Other useful commands:
 
 ```sh

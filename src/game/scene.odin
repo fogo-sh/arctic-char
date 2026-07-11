@@ -13,7 +13,9 @@ MAX_OBJECTS :: 2048
 MAX_PLAYERS :: 32
 LOCAL_PLAYER_ID :: u32(1)
 REMOTE_PLAYER_SAMPLE_CAPACITY :: 8
-REMOTE_INTERPOLATION_DELAY_TICKS :: u32(4)
+REMOTE_INTERPOLATION_DELAY_MS :: 100
+REMOTE_INTERPOLATION_DELAY_SECONDS :: f32(REMOTE_INTERPOLATION_DELAY_MS) / 1000.0
+REMOTE_INTERPOLATION_DELAY_TICKS :: u32((REMOTE_INTERPOLATION_DELAY_MS * NET_SERVER_TICK_HZ + 999) / 1000)
 
 PlayerTickInput :: struct {
 	player_id: u32,
@@ -351,11 +353,7 @@ scene_fixed_update_players :: proc(scene: ^Scene, inputs: []PlayerTickInput, ste
 	}
 	scene.profile.player_ms += scene_profile_elapsed_ms(player_start)
 
-	physics_start := scene_profile_counter_now()
-	engine.physics_step(&scene.physics)
-	scene.profile.box3d_step_ms += scene_profile_elapsed_ms(physics_start)
-	scene.profile.box3d = b3.World_GetProfile(scene.physics.id)
-	scene.profile.counters = b3.World_GetCounters(scene.physics.id)
+	scene_step_physics(scene, step_time)
 	scene.profile.fixed_steps += 1
 }
 
@@ -376,8 +374,17 @@ scene_fixed_update :: proc(scene: ^Scene, player_id: u32, input: PlayerMoveInput
 	scene_touch_player(scene, player, move)
 	scene.profile.touch_ms += scene_profile_elapsed_ms(touch_start)
 
+	scene_step_physics(scene, step_time)
+}
+
+scene_step_physics :: proc(scene: ^Scene, elapsed_time: f32) {
 	physics_start := scene_profile_counter_now()
-	engine.physics_step(&scene.physics)
+	remaining := elapsed_time
+	for remaining > 0 {
+		step_time := min(remaining, PHYSICS_STEP_TIME)
+		engine.physics_step(&scene.physics, step_time)
+		remaining -= step_time
+	}
 	scene.profile.box3d_step_ms += scene_profile_elapsed_ms(physics_start)
 	scene.profile.box3d = b3.World_GetProfile(scene.physics.id)
 	scene.profile.counters = b3.World_GetCounters(scene.physics.id)

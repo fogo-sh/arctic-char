@@ -105,8 +105,14 @@ Current findings:
   the generic engine physics wrapper.
 - Fixed stepping is owned by the scene/game update path. Do not advance Box3D
   opportunistically from rendering code.
-- The fixed gameplay/physics step is currently 40 Hz. Dedicated server simulation
-  should advance from its own fixed tick, not once per received input packet.
+- Timing policies are intentionally separate:
+  - authoritative server simulation runs at 64 Hz,
+  - Box3D physics substeps are capped at 128 Hz,
+  - server snapshots are sent at 32 Hz,
+  - remote interpolation delay is expressed in milliseconds, currently 100 ms.
+- Do not use the Box3D step constant as the global game/network clock. Server
+  tick, physics substep, snapshot cadence, user command cadence, and render frame
+  rate are separate policies even when some values are numerically related.
 - Physics transforms crossing into renderer data should use explicit conversion
   helpers, e.g. `physics_body_matrix`.
 
@@ -125,8 +131,9 @@ Current findings:
   inputs and render snapshots, adding local-player prediction only after the
   basic authoritative snapshot path works.
 - Dedicated servers assign player ids, queue deduplicated user commands per
-  accepted session, drain queued commands in sequence order on the 40 Hz server
-  tick, and broadcast full player snapshots independently of input arrival.
+  accepted session, drain queued commands in sequence order on the 64 Hz server
+  tick, and broadcast full player snapshots at the configured snapshot cadence
+  independently of input arrival.
 - Local play should not have an offline simulation fork. With no `--connect`, the
   app creates the same in-process authoritative server core used by the dedicated
   server executable; only the transport wrapper differs.

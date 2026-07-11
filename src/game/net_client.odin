@@ -134,9 +134,9 @@ game_net_client_update_loopback :: proc(net: ^GameNetClient, scene: ^Scene, move
 	}
 	net_server_handle_packet(net.local_server, LOOPBACK_SERVER_PEER, protocol.CHANNEL_USER_CMDS, packet)
 	net.local_server_accumulator += min(delta_time, 0.25)
-	for net.local_server_accumulator >= PHYSICS_STEP_TIME {
+	for net.local_server_accumulator >= NET_SERVER_TICK_TIME {
 		net_server_tick(net.local_server)
-		net.local_server_accumulator -= PHYSICS_STEP_TIME
+		net.local_server_accumulator -= NET_SERVER_TICK_TIME
 	}
 	game_net_client_drain_loopback_server(net, scene)
 }

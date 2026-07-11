@@ -8,6 +8,10 @@ NET_SERVER_MAX_CLIENTS :: 32
 NET_SERVER_PENDING_USER_CMDS :: 64
 NET_SERVER_OUTGOING_PACKETS :: 128
 NET_SERVER_COMMAND_LOG_INTERVAL :: u32(60)
+NET_SERVER_TICK_HZ :: 64
+NET_SERVER_TICK_TIME :: f32(1.0 / f32(NET_SERVER_TICK_HZ))
+NET_SNAPSHOT_HZ :: 32
+NET_SNAPSHOT_INTERVAL_TICKS :: u32(NET_SERVER_TICK_HZ / NET_SNAPSHOT_HZ)
 
 NetServerPeer :: distinct uintptr
 
@@ -133,13 +137,11 @@ net_server_tick :: proc(server: ^NetServer) {
 		input_count += 1
 	}
 
-	if input_count == 0 {
-		return
-	}
-
 	server.server_tick += 1
-	scene_fixed_update_players(server.scene, inputs[:input_count], PHYSICS_STEP_TIME)
-	net_server_broadcast_snapshot(server)
+	scene_fixed_update_players(server.scene, inputs[:input_count], NET_SERVER_TICK_TIME)
+	if server.server_tick % NET_SNAPSHOT_INTERVAL_TICKS == 0 {
+		net_server_broadcast_snapshot(server)
+	}
 }
 
 net_server_poll_outgoing :: proc(server: ^NetServer) -> (packet: NetServerOutgoingPacket, ok: bool) {
