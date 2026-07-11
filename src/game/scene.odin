@@ -314,17 +314,6 @@ scene_update :: proc(
 	scene_profile_log_if_needed(scene, delta_time)
 }
 
-scene_update_from_user_cmd :: proc(scene: ^Scene, player_id: u32, cmd: protocol.User_Cmd, delta_time: f32) {
-	move := player_move_input_from_user_cmd(cmd)
-	player := scene_player(scene, player_id)
-	if player == nil {
-		return
-	}
-	player.yaw = cmd.yaw
-	player.pitch = cmd.pitch
-	scene_update(scene, player_id, move, {}, delta_time)
-}
-
 player_move_input_from_user_cmd :: proc(cmd: protocol.User_Cmd) -> PlayerMoveInput {
 	return {
 		move_forward = cmd.move_forward,

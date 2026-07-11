@@ -131,12 +131,13 @@ Current findings:
   inputs and render snapshots, adding local-player prediction only after the
   basic authoritative snapshot path works.
 - Dedicated servers assign player ids, queue deduplicated user commands per
-  accepted session, drain queued commands in sequence order on the 64 Hz server
-  tick, and broadcast full player snapshots at the configured snapshot cadence
-  independently of input arrival.
+  accepted session, consume at most one queued command per player in sequence
+  order on each 64 Hz server tick, and broadcast full player snapshots at the
+  configured snapshot cadence independently of input arrival.
 - Local play should not have an offline simulation fork. With no `--connect`, the
   app creates the same in-process authoritative server core used by the dedicated
-  server executable; only the transport wrapper differs.
+  server executable; only the transport wrapper differs. The in-process server
+  owns a separate authoritative scene from the client presentation scene.
 - The initial protocol smoke validates protocol version, map name, and a simple
   content id before accepting a client into later gameplay state.
 - See `docs/multiplayer.md` for the current milestone plan.

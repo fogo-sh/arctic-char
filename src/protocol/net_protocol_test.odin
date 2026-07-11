@@ -200,8 +200,24 @@ test_user_cmds_reject_payload_length_mismatch :: proc(t: ^testing.T) {
 test_server_snapshot_round_trips :: proc(t: ^testing.T) {
 	buffer: [MAX_PACKET_SIZE]byte
 	written := Server_Snapshot{server_tick = 120, sequence = 4, last_processed_user_cmd = 43, player_count = 2}
-	written.players[0] = Server_Player_State{player_id = 3, position = {1, 2, 3}, yaw = 1.5}
-	written.players[1] = Server_Player_State{player_id = 7, position = {4, 5, 6}, yaw = 2.5}
+	written.players[0] = Server_Player_State{
+		player_id = 3,
+		position = {1, 2, 3},
+		velocity = {0.5, -1.0, 2.0},
+		yaw = 1.5,
+		pitch = -0.25,
+		grounded = true,
+		ground_normal = {0, 1, 0},
+	}
+	written.players[1] = Server_Player_State{
+		player_id = 7,
+		position = {4, 5, 6},
+		velocity = {-3, 0, 9},
+		yaw = 2.5,
+		pitch = 0.75,
+		grounded = false,
+		ground_normal = {0.1, 0.8, -0.2},
+	}
 	packet, ok := write_server_snapshot(buffer[:], written)
 	testing.expect(t, ok, "server snapshot should fit")
 
@@ -214,10 +230,18 @@ test_server_snapshot_round_trips :: proc(t: ^testing.T) {
 	testing.expect_value(t, parsed.snapshot.player_count, written.player_count)
 	testing.expect_value(t, parsed.snapshot.players[0].player_id, written.players[0].player_id)
 	testing.expect_value(t, parsed.snapshot.players[0].position, written.players[0].position)
+	testing.expect_value(t, parsed.snapshot.players[0].velocity, written.players[0].velocity)
 	testing.expect_value(t, parsed.snapshot.players[0].yaw, written.players[0].yaw)
+	testing.expect_value(t, parsed.snapshot.players[0].pitch, written.players[0].pitch)
+	testing.expect_value(t, parsed.snapshot.players[0].grounded, written.players[0].grounded)
+	testing.expect_value(t, parsed.snapshot.players[0].ground_normal, written.players[0].ground_normal)
 	testing.expect_value(t, parsed.snapshot.players[1].player_id, written.players[1].player_id)
 	testing.expect_value(t, parsed.snapshot.players[1].position, written.players[1].position)
+	testing.expect_value(t, parsed.snapshot.players[1].velocity, written.players[1].velocity)
 	testing.expect_value(t, parsed.snapshot.players[1].yaw, written.players[1].yaw)
+	testing.expect_value(t, parsed.snapshot.players[1].pitch, written.players[1].pitch)
+	testing.expect_value(t, parsed.snapshot.players[1].grounded, written.players[1].grounded)
+	testing.expect_value(t, parsed.snapshot.players[1].ground_normal, written.players[1].ground_normal)
 }
 
 @(test)

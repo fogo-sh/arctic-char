@@ -74,8 +74,8 @@ game_init :: proc(renderer: ^Renderer, fs: ^GameFS, config: rawptr) -> rawptr {
 	assets := scene_assets_load(fs, state.map_qpath)
 	gpu_resources := scene_gpu_resources_upload(renderer, &assets)
 	state.scene = scene_create(&assets, gpu_resources)
+	game_net_client_init(&state.net, game_config, &state.scene, &assets)
 	scene_assets_destroy(&assets)
-	game_net_client_init(&state.net, game_config, &state.scene)
 	return state
 }
 
@@ -130,7 +130,9 @@ game_before_hot_reload :: proc(game: rawptr) {
 game_hot_reloaded :: proc(mem: rawptr) {
 	g = cast(^Game_State)mem
 	scene_rebuild_after_hot_reload(&g.scene, g.fs, g.map_qpath)
-	game_net_client_init(&g.net, g.launch_config, &g.scene)
+	assets := scene_assets_load(g.fs, g.map_qpath)
+	game_net_client_init(&g.net, g.launch_config, &g.scene, &assets)
+	scene_assets_destroy(&assets)
 }
 
 @(export)
@@ -187,6 +189,7 @@ game_reload_map_if_changed :: proc(state: ^Game_State, delta_time: f32) {
 	level := level_load(state.fs, state.map_qpath)
 	engine.renderer_replace_mesh(state.renderer, state.scene.map_mesh, &level.render_mesh)
 	scene_reload_level(&state.scene, &level)
+	game_net_client_reload_local_server_scene(&state.net, &level)
 	level_destroy(&level)
 	state.map_mtime = mtime
 }

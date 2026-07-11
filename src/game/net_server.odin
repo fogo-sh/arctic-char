@@ -254,7 +254,11 @@ net_server_broadcast_snapshot :: proc(server: ^NetServer) {
 		base_snapshot.players[base_snapshot.player_count] = protocol.Server_Player_State{
 			player_id = session.player_id,
 			position = position,
+			velocity = player.velocity,
 			yaw = player.yaw,
+			pitch = player.pitch,
+			grounded = player.grounded,
+			ground_normal = player.ground_normal,
 		}
 		base_snapshot.player_count += 1
 	}
@@ -313,11 +317,12 @@ net_server_consume_user_cmds :: proc(session: ^NetServerSession) -> (cmd: protoc
 		return {}, false
 	}
 
-	for i in 0..<session.pending_cmd_count {
-		cmd = session.pending_cmds[i]
-		session.last_processed_cmd_sequence = cmd.sequence
+	cmd = session.pending_cmds[0]
+	if session.pending_cmd_count > 1 {
+		copy(session.pending_cmds[:], session.pending_cmds[1:session.pending_cmd_count])
 	}
-	session.pending_cmd_count = 0
+	session.pending_cmd_count -= 1
+	session.last_processed_cmd_sequence = cmd.sequence
 	session.last_input_cmd = cmd
 	session.has_last_input_cmd = true
 	return cmd, true

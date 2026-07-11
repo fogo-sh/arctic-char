@@ -18,8 +18,9 @@ packages.
   starts an in-process server core and connects the normal client path to it.
   Local input is serialized as `User_Cmd`, parsed by the same server core used by
   the dedicated executable, simulated on the same fixed tick, and returned to the
-  client as normal server packets. External `--connect` uses ENet as the
-  transport feeding that same core.
+  client as normal server packets. Loopback uses separate client and server
+  scenes; only the in-process transport is special. External `--connect` uses
+  ENet as the transport feeding that same core.
 - Do not try deterministic lockstep or full Box3D rollback first. Box3D dynamic
   prop state, contacts, and collision islands make that a much larger project.
 
@@ -91,6 +92,12 @@ packages.
 - Add a monotonically increasing server tick.
 - Client input messages should include client input sequence and the client tick
   or sampled time they were generated from.
+- One `User_Cmd` sequence currently represents one fixed server tick. Clients
+  generate commands from a `NET_SERVER_TICK_TIME` accumulator and packetize recent
+  unacknowledged commands for redundancy.
+- The server consumes at most one queued command per accepted player per server
+  tick. `last_processed_user_cmd` identifies the exact command represented by the
+  resulting authoritative player state.
 - Server snapshots should include the authoritative server tick and the last input
   sequence processed for each relevant player.
 - Clients should keep a small interpolation buffer for remote entities and render
@@ -495,14 +502,17 @@ diving directly into the id source trees.
      send `User_Cmd` packets built from real player input. The dedicated server
      now owns one shared headless real `Scene`, assigns accepted peers stable
      player ids in `Server_Hello`, resets each player to the map spawn on accept,
-     queues deduplicated user commands per session, drains queued commands in
-     sequence order on a 64 Hz server tick, and broadcasts full `Server_Snapshot`
+     queues deduplicated user commands per session, consumes one queued command
+     per player in sequence order on a 64 Hz server tick, and broadcasts full `Server_Snapshot`
      packets at 32 Hz independent of input arrival. Client input packets include recent
      commands so dropped packets can be recovered, and snapshots include the last
-     processed command sequence for the receiving client. Clients reject stale or
-     duplicate snapshot sequences and render non-camera players from canonical
-     `Scene.players` using a small remote interpolation buffer, currently delayed
-     by 100 ms. Local-player reconciliation is still pending.
+      processed command sequence for the receiving client. Player snapshot state
+      includes position, velocity, view angles, grounded state, and ground normal
+      so reconciliation can reset to the authoritative movement state before
+      replaying unacknowledged commands. Clients reject stale or duplicate
+      snapshot sequences and render non-camera players from canonical `Scene.players`
+      using a small remote interpolation buffer, currently delayed by 100 ms.
+      Local-player reconciliation is still pending.
 
 4. Snapshot interpolation.
     - Assign stable network ids to replicated objects.

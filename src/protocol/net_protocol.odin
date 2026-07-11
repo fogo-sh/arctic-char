@@ -14,7 +14,7 @@ MAX_MAP_NAME_BYTES :: 64
 USER_CMD_PAYLOAD_SIZE :: 26
 USER_CMDS_HEADER_PAYLOAD_SIZE :: 1
 MAX_USER_CMDS_PER_PACKET :: 8
-SERVER_PLAYER_STATE_PAYLOAD_SIZE :: 20
+SERVER_PLAYER_STATE_PAYLOAD_SIZE :: 49
 SERVER_SNAPSHOT_HEADER_PAYLOAD_SIZE :: 14
 MAX_SNAPSHOT_PLAYERS :: 32
 
@@ -78,9 +78,13 @@ User_Cmds :: struct {
 }
 
 Server_Player_State :: struct {
-	player_id: u32,
-	position:  [3]f32,
-	yaw:       f32,
+	player_id:     u32,
+	position:      [3]f32,
+	velocity:      [3]f32,
+	yaw:           f32,
+	pitch:         f32,
+	grounded:      bool,
+	ground_normal: [3]f32,
 }
 
 Server_Snapshot :: struct {
@@ -435,7 +439,15 @@ write_server_player_state_payload :: proc(w: ^Packet_Writer, state: Server_Playe
 	write_f32(w, state.position.x) or_return
 	write_f32(w, state.position.y) or_return
 	write_f32(w, state.position.z) or_return
+	write_f32(w, state.velocity.x) or_return
+	write_f32(w, state.velocity.y) or_return
+	write_f32(w, state.velocity.z) or_return
 	write_f32(w, state.yaw) or_return
+	write_f32(w, state.pitch) or_return
+	write_u8(w, 1 if state.grounded else 0) or_return
+	write_f32(w, state.ground_normal.x) or_return
+	write_f32(w, state.ground_normal.y) or_return
+	write_f32(w, state.ground_normal.z) or_return
 	return true
 }
 
@@ -448,7 +460,25 @@ read_server_player_state_payload :: proc(r: ^Packet_Reader) -> (state: Server_Pl
 	if !ok do return {}, false
 	state.position.z, ok = read_f32(r)
 	if !ok do return {}, false
+	state.velocity.x, ok = read_f32(r)
+	if !ok do return {}, false
+	state.velocity.y, ok = read_f32(r)
+	if !ok do return {}, false
+	state.velocity.z, ok = read_f32(r)
+	if !ok do return {}, false
 	state.yaw, ok = read_f32(r)
+	if !ok do return {}, false
+	state.pitch, ok = read_f32(r)
+	if !ok do return {}, false
+	grounded_u8: u8
+	grounded_u8, ok = read_u8(r)
+	if !ok || grounded_u8 > 1 do return {}, false
+	state.grounded = grounded_u8 != 0
+	state.ground_normal.x, ok = read_f32(r)
+	if !ok do return {}, false
+	state.ground_normal.y, ok = read_f32(r)
+	if !ok do return {}, false
+	state.ground_normal.z, ok = read_f32(r)
 	if !ok do return {}, false
 	return state, true
 }

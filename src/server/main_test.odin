@@ -18,10 +18,33 @@ test_server_command_queue_consumes_in_sequence_order :: proc(t: ^testing.T) {
 
 	cmd, ok := game.net_server_consume_user_cmds(&session)
 	testing.expect(t, ok, "queued commands should consume")
-	testing.expect_value(t, cmd.sequence, u32(3))
-	testing.expect_value(t, session.last_processed_cmd_sequence, u32(3))
-	testing.expect_value(t, session.pending_cmd_count, 0)
+	testing.expect_value(t, cmd.sequence, u32(1))
+	testing.expect_value(t, session.last_processed_cmd_sequence, u32(1))
+	testing.expect_value(t, session.pending_cmd_count, 2)
+	testing.expect_value(t, session.pending_cmds[0].sequence, u32(2))
+	testing.expect_value(t, session.pending_cmds[1].sequence, u32(3))
 	testing.expect(t, session.has_last_input_cmd, "consumed command should become fallback input")
+}
+
+@(test)
+test_server_command_queue_consumes_one_command_per_tick :: proc(t: ^testing.T) {
+	session: game.NetServerSession
+	server_enqueue_test_commands(&session, 1, 3)
+
+	cmd, ok := game.net_server_consume_user_cmds(&session)
+	testing.expect(t, ok, "first consume should produce command")
+	testing.expect_value(t, cmd.sequence, u32(1))
+	testing.expect_value(t, session.pending_cmd_count, 2)
+
+	cmd, ok = game.net_server_consume_user_cmds(&session)
+	testing.expect(t, ok, "second consume should produce command")
+	testing.expect_value(t, cmd.sequence, u32(2))
+	testing.expect_value(t, session.pending_cmd_count, 1)
+
+	cmd, ok = game.net_server_consume_user_cmds(&session)
+	testing.expect(t, ok, "third consume should produce command")
+	testing.expect_value(t, cmd.sequence, u32(3))
+	testing.expect_value(t, session.pending_cmd_count, 0)
 }
 
 @(test)
@@ -83,5 +106,11 @@ test_server_user_cmd :: proc(sequence: u32) -> protocol.User_Cmd {
 		move_right = -f32(sequence),
 		yaw = f32(sequence) * 0.25,
 		pitch = -f32(sequence) * 0.125,
+	}
+}
+
+server_enqueue_test_commands :: proc(session: ^game.NetServerSession, first, last: u32) {
+	for sequence := first; sequence <= last; sequence += 1 {
+		game.net_server_enqueue_user_cmd(session, test_server_user_cmd(sequence))
 	}
 }

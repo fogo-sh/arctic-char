@@ -28,7 +28,9 @@ python cli.py build-and-run
 `run` and `build-and-run` use an in-process loopback session when `--connect` is
 not provided. Local input is serialized as `User_Cmd` and fed into the same
 authoritative server core used by the dedicated server; only the transport shell
-differs between loopback and ENet.
+differs between loopback and ENet. Loopback keeps separate client and
+authoritative server scenes so client prediction/reconciliation can rewind the
+presentation scene without mutating server state.
 
 Current timing policy is explicit: authoritative server simulation runs at 64 Hz,
 Box3D physics substeps at up to 128 Hz, and server snapshots at 32 Hz.

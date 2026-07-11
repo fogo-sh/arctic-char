@@ -81,6 +81,37 @@ test_net_client_apply_snapshot_rejects_stale_sequence :: proc(t: ^testing.T) {
 }
 
 @(test)
+test_net_client_loopback_applies_local_authoritative_snapshot :: proc(t: ^testing.T) {
+	local_server := new(NetServer)
+	defer free(local_server)
+	net := GameNetClient{local_player_id = LOCAL_PLAYER_ID, local_server = local_server}
+	scene := test_net_scene()
+	defer delete(scene.players)
+	scene_add_player(&scene, LOCAL_PLAYER_ID, {0, 0, 0}, 0)
+
+	snapshot := protocol.Server_Snapshot{sequence = 1, server_tick = 8, player_count = 1}
+	snapshot.players[0] = {
+		player_id = LOCAL_PLAYER_ID,
+		position = {4, 2, -3},
+		velocity = {1, -2, 3},
+		yaw = 1.25,
+		pitch = -0.5,
+		grounded = true,
+		ground_normal = {0, 1, 0},
+	}
+	game_net_client_apply_snapshot(&net, &scene, snapshot)
+
+	player := scene_player(&scene, LOCAL_PLAYER_ID)
+	testing.expect(t, player != nil, "local player should exist")
+	testing.expect_value(t, player.position, Vec3{4, 2, -3})
+	testing.expect_value(t, player.velocity, Vec3{1, -2, 3})
+	testing.expect_value(t, player.yaw, f32(1.25))
+	testing.expect_value(t, player.pitch, f32(-0.5))
+	testing.expect_value(t, player.grounded, true)
+	testing.expect_value(t, player.ground_normal, Vec3{0, 1, 0})
+}
+
+@(test)
 test_scene_player_interpolates_remote_samples :: proc(t: ^testing.T) {
 	scene := test_net_scene()
 	defer delete(scene.players)
