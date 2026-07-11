@@ -12,6 +12,9 @@ LaunchOptions :: struct {
 	basedir: string `usage:"Base directory containing game data directories."`,
 	game:    string `usage:"Primary game directory to search before base."`,
 	map_name: string `args:"name=map" usage:"Map name consumed by game code."`,
+	connect: string `usage:"Server address consumed by game code."`,
+	port:    u16    `usage:"Server UDP port consumed by game code."`,
+	content_id: u32 `usage:"Map/content identifier consumed by game code."`,
 	fullscreen: bool `usage:"Start the window in fullscreen mode."`,
 }
 

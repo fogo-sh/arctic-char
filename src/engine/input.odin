@@ -5,8 +5,9 @@ import sdl "vendor:sdl3"
 INPUT_KEY_COUNT :: 512
 
 InputState :: struct {
-	keys:       [INPUT_KEY_COUNT]bool,
-	mouse_delta: [2]f32,
+	keys:           [INPUT_KEY_COUNT]bool,
+	mouse_delta:    [2]f32,
+	mouse_captured: bool,
 }
 
 input_begin_frame :: proc(input: ^InputState) {

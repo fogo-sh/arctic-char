@@ -82,33 +82,25 @@ ui_debug_hud_append_commands :: proc(ui: ^UiContext, win_size: [2]i32, debug: De
 		if clay.UI(clay.ID("HudPanel"))({
 			layout = {
 				layoutDirection = .TopToBottom,
-				sizing = {width = clay.SizingFixed(336), height = clay.SizingFit({})},
-				padding = clay.PaddingAll(12),
-				childGap = 7,
+				sizing = {width = clay.SizingFixed(246), height = clay.SizingFit({})},
+				padding = clay.PaddingAll(8),
+				childGap = 4,
 			},
-			backgroundColor = {35, 31, 27, 210},
-			cornerRadius = clay.CornerRadiusAll(12),
-			border = {color = {206, 162, 98, 230}, width = clay.BorderOutside(2)},
+			backgroundColor = {35, 31, 27, 170},
+			cornerRadius = clay.CornerRadiusAll(8),
+			border = {color = {206, 162, 98, 180}, width = clay.BorderOutside(1)},
 		}) {
-			clay.TextStatic("Debug", {
+			clay.TextStatic("Net Debug", {
 				textColor = {243, 226, 188, 255},
-				fontSize = 22,
+				fontSize = 16,
 			})
 
-			ui_debug_hud_row("Objects", 0, fmt.tprintf("%d / %d", debug.object_count, debug.object_capacity))
-			ui_debug_hud_row("Suzannes", 1, fmt.tprintf("%d", debug.suzanne_count))
-			ui_debug_hud_row("Player", 2, fmt.tprintf("%.2f %.2f %.2f", debug.player_position.x, debug.player_position.y, debug.player_position.z))
-			ui_debug_hud_row("Velocity", 3, fmt.tprintf("%.2f %.2f %.2f", debug.player_velocity.x, debug.player_velocity.y, debug.player_velocity.z))
-			ui_debug_hud_row("Grounded", 4, fmt.tprintf("%v", debug.player_grounded))
-			ui_debug_hud_row("CPU frame", 5, fmt.tprintf("%.1f ms", timing.frame_ms))
-			ui_debug_hud_row("Update", 6, fmt.tprintf("%.1f ms", timing.update_ms))
-			ui_debug_hud_row("Render", 7, fmt.tprintf("%.1f ms", timing.render_ms))
-			ui_debug_hud_row("Fixed steps", 8, fmt.tprintf("%d", debug.fixed_steps))
-			ui_debug_hud_row("Box3D step", 9, fmt.tprintf("%.2f ms", debug.physics_step_ms))
-			ui_debug_hud_row("Collide/solve", 10, fmt.tprintf("%.2f / %.2f", debug.physics_collide_ms, debug.physics_solve_ms))
-			ui_debug_hud_row("Pairs", 11, fmt.tprintf("%.2f ms", debug.physics_pairs_ms))
-			ui_debug_hud_row("Contacts", 12, fmt.tprintf("%d awake %d", debug.physics_contacts, debug.physics_awake_contacts))
-			ui_debug_hud_row("Tree height", 13, fmt.tprintf("%d", debug.physics_tree_height))
+			ui_debug_hud_row("Objs", 0, fmt.tprintf("%d/%d", debug.object_count, debug.object_capacity))
+			ui_debug_hud_row("Suz", 1, fmt.tprintf("%d", debug.suzanne_count))
+			ui_debug_hud_row("Pos", 2, fmt.tprintf("%.1f %.1f %.1f", debug.player_position.x, debug.player_position.y, debug.player_position.z))
+			ui_debug_hud_row("Vel", 3, fmt.tprintf("%.1f %.1f %.1f", debug.player_velocity.x, debug.player_velocity.y, debug.player_velocity.z))
+			ui_debug_hud_row("Frame", 4, fmt.tprintf("%.1fms", timing.frame_ms))
+			ui_debug_hud_row("Phys", 5, fmt.tprintf("%d %.1fms", debug.fixed_steps, debug.physics_step_ms))
 		}
 	}
 
@@ -120,19 +112,19 @@ ui_debug_hud_row :: proc(label: string, index: u32, value: string) {
 	if clay.UI(clay.ID("DebugRow", index))({
 		layout = {
 			layoutDirection = .LeftToRight,
-			sizing = {width = clay.SizingGrow({}), height = clay.SizingFixed(26)},
-			childGap = 10,
+			sizing = {width = clay.SizingGrow({}), height = clay.SizingFixed(18)},
+			childGap = 6,
 		},
 	}) {
 		if clay.UI(clay.ID("DebugLabel", index))({
-			layout = {sizing = {width = clay.SizingFixed(96), height = clay.SizingFixed(24)}},
+			layout = {sizing = {width = clay.SizingFixed(48), height = clay.SizingFixed(18)}},
 		}) {
-			clay.Text(label, {textColor = {180, 170, 150, 255}, fontSize = 16})
+			clay.Text(label, {textColor = {180, 170, 150, 255}, fontSize = 12})
 		}
 		if clay.UI(clay.ID("DebugValue", index))({
-			layout = {sizing = {width = clay.SizingGrow({}), height = clay.SizingFixed(24)}},
+			layout = {sizing = {width = clay.SizingGrow({}), height = clay.SizingFixed(18)}},
 		}) {
-			clay.Text(value, {textColor = {243, 226, 188, 255}, fontSize = 16})
+			clay.Text(value, {textColor = {243, 226, 188, 255}, fontSize = 12})
 		}
 	}
 }

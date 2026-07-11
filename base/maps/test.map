@@ -1041,7 +1041,7 @@
 "classname" "spawner_suzanne"
 "origin" "-400 -184 96"
 "interval" "0.05"
-"count" "500"
+"count" "5"
 }
 // entity 5
 {

@@ -6,6 +6,7 @@ import "core:strings"
 import flags "core:flags"
 import "core:time"
 import engine "../engine"
+import transport "../net"
 
 Run :: proc() {
 	context.logger = log.create_console_logger()
@@ -28,18 +29,25 @@ Game_State :: struct {
 	map_mtime: time.Time,
 	reload_check_timer: f32,
 	scene: Scene,
+	net: GameNetClient,
 }
 
 g: ^Game_State
 
 GameLaunchConfig :: struct {
-	map_name: string,
+	map_name:        string,
+	connect_address: string,
+	port:            u16,
+	content_id:      u32,
 }
 
 GameLaunchOptions :: struct {
 	basedir: string `usage:"Base directory consumed by engine code."`,
 	game:    string `usage:"Game directory consumed by engine code."`,
 	map_name: string `args:"name=map" usage:"Map name to load from maps/<name>.map."`,
+	connect: string `usage:"Server address to connect to as a client."`,
+	port:    u16    `usage:"Server UDP port for client networking."`,
+	content_id: u32 `usage:"Map/content identifier for network handshake."`,
 	fullscreen: bool `usage:"Engine fullscreen flag consumed by engine code."`,
 }
 
@@ -65,12 +73,14 @@ game_init :: proc(renderer: ^Renderer, fs: ^GameFS, config: rawptr) -> rawptr {
 	gpu_resources := scene_gpu_resources_upload(renderer, &assets)
 	state.scene = scene_create(&assets, gpu_resources)
 	scene_assets_destroy(&assets)
+	game_net_client_init(&state.net, game_config)
 	return state
 }
 
 @(export)
 game_destroy :: proc(game: rawptr) {
 	state := cast(^Game_State)game
+	game_net_client_destroy(&state.net)
 	scene_destroy(&state.scene)
 	delete(state.map_qpath)
 	free(state)
@@ -85,6 +95,7 @@ game_update :: proc(game: rawptr, input: InputState, delta_time: f32) {
 	game_reload_map_if_changed(state, delta_time)
 	move_input, look_input := player_input_from_engine(input)
 	scene_update(&state.scene, move_input, look_input, delta_time)
+	game_net_client_update(&state.net, &state.scene, move_input)
 }
 
 @(export)
@@ -110,6 +121,7 @@ game_memory_size :: proc() -> int {
 @(export)
 game_before_hot_reload :: proc(game: rawptr) {
 	state := cast(^Game_State)game
+	game_net_client_destroy(&state.net)
 	scene_prepare_hot_reload(&state.scene)
 }
 
@@ -125,11 +137,16 @@ game_force_restart :: proc() -> bool {
 }
 
 game_launch_config_parse :: proc(args: []string) -> GameLaunchConfig {
-	config := GameLaunchConfig{map_name = "test"}
+	config := GameLaunchConfig{map_name = "test", port = transport.DEFAULT_PORT}
 	options := game_launch_options_parse(args)
 	if options.map_name != "" {
 		config.map_name = options.map_name
 	}
+	config.connect_address = options.connect
+	if options.port != 0 {
+		config.port = options.port
+	}
+	config.content_id = options.content_id
 	return config
 }
 

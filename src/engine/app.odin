@@ -26,6 +26,7 @@ App :: struct {
 
 	running:    bool,
 	mouse_captured: bool,
+	ignore_next_mouse_motion: bool,
 	last_ticks: u64,
 	total_time: f32,
 	stats_log_time: f32,
@@ -81,7 +82,7 @@ app_create :: proc(config: LaunchConfig) -> App {
 	ok = sdl.Init({.VIDEO})
 	assert(ok)
 
-	app := App{running = true, mouse_captured = true}
+	app := App{running = true, mouse_captured = true, ignore_next_mouse_motion = true}
 
 	window_flags := sdl.WindowFlags{.RESIZABLE}
 	if config.fullscreen {
@@ -167,6 +168,7 @@ app_should_run :: proc(app: ^App) -> bool {
 app_frame :: proc(app: ^App) {
 	frame_start := sdl.GetPerformanceCounter()
 	input_begin_frame(&app.input)
+	app.input.mouse_captured = app.mouse_captured
 	app_handle_events(app)
 	app_tick(app)
 	app_draw(app)
@@ -205,13 +207,22 @@ app_handle_events :: proc(app: ^App) {
 			assert(ok)
 			renderer_resize(&app.renderer, app.win_size.x, app.win_size.y)
 		case .MOUSE_MOTION:
-			app.input.mouse_delta.x += ev.motion.xrel
-			app.input.mouse_delta.y += ev.motion.yrel
+			if app.mouse_captured {
+				if app.ignore_next_mouse_motion {
+					app.ignore_next_mouse_motion = false
+				} else {
+					app.input.mouse_delta.x += ev.motion.xrel
+					app.input.mouse_delta.y += ev.motion.yrel
+				}
+			}
 		case .MOUSE_BUTTON_DOWN:
 			if !app.mouse_captured {
 				ok := sdl.SetWindowRelativeMouseMode(app.window, true)
 				assert(ok)
 				app.mouse_captured = true
+				app.input.mouse_captured = true
+				app.input.mouse_delta = {}
+				app.ignore_next_mouse_motion = true
 			}
 		case .KEY_DOWN:
 			if ev.key.scancode == .Q {
@@ -220,6 +231,9 @@ app_handle_events :: proc(app: ^App) {
 				ok := sdl.SetWindowRelativeMouseMode(app.window, false)
 				assert(ok)
 				app.mouse_captured = false
+				app.input.mouse_captured = false
+				app.input.mouse_delta = {}
+				app.ignore_next_mouse_motion = false
 			}
 		}
 	}

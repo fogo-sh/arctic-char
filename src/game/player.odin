@@ -100,7 +100,9 @@ player_input_from_engine :: proc(input: InputState) -> (move: PlayerMoveInput, l
 	if engine.input_key_down(input, sdl.Scancode.D) do move.move_right += 1
 	if engine.input_key_down(input, sdl.Scancode.A) do move.move_right -= 1
 	move.jump_held = engine.input_key_down(input, sdl.Scancode.SPACE)
-	look.look_delta = input.mouse_delta
+	if input.mouse_captured {
+		look.look_delta = input.mouse_delta
+	}
 	return
 }
 

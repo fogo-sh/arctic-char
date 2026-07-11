@@ -20,9 +20,15 @@ ROOT = Path(__file__).resolve().parent
 BUILD = ROOT / "build"
 BASE = ROOT / "base"
 APP_NAME = "arctic-char"
+SERVER_NAME = "arctic-char-server"
+CLIENT_NET_NAME = "arctic-char-client-net"
 MACOS_BUNDLE_NAME = "ArcticChar"
 HOT_DIR = BUILD / "hot_reload"
-ODIN_TEST_PACKAGES = ["src/engine", "src/game"]
+ODIN_TEST_PACKAGES = ["src/engine", "src/game", "src/protocol"]
+DEFAULT_CONNECT_HOST = "127.0.0.1"
+DEFAULT_NET_PORT = "29001"
+DEFAULT_NET_MAP = "test"
+DEFAULT_NET_CONTENT_ID = "0"
 TRENCHBROOM_PROFILE_DIR = ROOT / "tools" / "trenchbroom" / "ArcticChar"
 CLAY_DIR = ROOT / "vendor" / "clay"
 SHADER_OUTPUTS = [
@@ -64,7 +70,21 @@ def main() -> int:
     sub.add_parser("macos-app", help="Build a macOS .app bundle for Xcode Metal capture")
     run_parser = sub.add_parser("run", help="Run the normal executable")
     run_parser.add_argument("args", nargs=argparse.REMAINDER)
-    sub.add_parser("build-and-run", help="Build then run")
+    build_run_parser = sub.add_parser("build-and-run", help="Build then run as a local network client")
+    build_run_parser.add_argument("args", nargs=argparse.REMAINDER)
+    sub.add_parser("server-build", help="Build the dedicated server")
+    server_run_parser = sub.add_parser("server-run", help="Run the dedicated server")
+    server_run_parser.add_argument("args", nargs=argparse.REMAINDER)
+    server_smoke_parser = sub.add_parser("server-smoke", help="Run the dedicated server briefly")
+    server_smoke_parser.add_argument("--seconds", type=float, default=2.0)
+    sub.add_parser("client-net-build", help="Build the standalone network smoke client")
+    client_net_run_parser = sub.add_parser("client-net-run", help="Run the standalone network smoke client")
+    client_net_run_parser.add_argument("args", nargs=argparse.REMAINDER)
+    net_smoke_parser = sub.add_parser("net-smoke", help="Run dedicated server and client hello smoke")
+    net_smoke_parser.add_argument("--seconds", type=float, default=5.0)
+    net_smoke_parser.add_argument("--port", type=int, default=29001)
+    net_smoke_parser.add_argument("--map", default="test")
+    net_smoke_parser.add_argument("--content-id", type=int, default=0)
     sub.add_parser("hot-game", help="Build hot-reload game dynamic library")
     sub.add_parser("hot-host", help="Build hot-reload host")
     sub.add_parser("hot-build", help="Build hot-reload game and host, then copy assets")
@@ -87,7 +107,13 @@ def main() -> int:
         "test": cmd_test,
         "macos-app": cmd_macos_app,
         "run": lambda: cmd_run(args.args),
-        "build-and-run": lambda: (cmd_build(), cmd_run([])),
+        "build-and-run": lambda: cmd_build_and_run(args.args),
+        "server-build": cmd_server_build,
+        "server-run": lambda: cmd_server_run(args.args),
+        "server-smoke": lambda: cmd_server_smoke(args.seconds),
+        "client-net-build": cmd_client_net_build,
+        "client-net-run": lambda: cmd_client_net_run(args.args),
+        "net-smoke": lambda: cmd_net_smoke(args.seconds, args.port, args.map, args.content_id),
         "hot-game": cmd_hot_game,
         "hot-host": cmd_hot_host,
         "hot-build": cmd_hot_build,
@@ -126,6 +152,14 @@ def app_path() -> Path:
     return BUILD / f"{APP_NAME}{exe_suffix()}"
 
 
+def server_path() -> Path:
+    return BUILD / f"{SERVER_NAME}{exe_suffix()}"
+
+
+def client_net_path() -> Path:
+    return BUILD / f"{CLIENT_NET_NAME}{exe_suffix()}"
+
+
 def macos_app_path() -> Path:
     return BUILD / f"{MACOS_BUNDLE_NAME}.app"
 
@@ -150,7 +184,9 @@ def cmd_build() -> None:
     cmd_clean()
     cmd_clay_lib()
     BUILD.mkdir(parents=True, exist_ok=True)
-    run(["odin", "build", ".", "-debug", f"-out:{app_path()}"])
+    build_app_debug()
+    build_server_debug()
+    build_client_net_debug()
     copy_base_to(BUILD)
 
 
@@ -160,6 +196,43 @@ def cmd_build_release() -> None:
     BUILD.mkdir(parents=True, exist_ok=True)
     run(["odin", "build", ".", f"-out:{app_path()}"])
     copy_base_to(BUILD)
+
+
+def build_app_debug() -> None:
+    run(["odin", "build", ".", "-debug", f"-out:{app_path()}"])
+
+
+def build_server_debug() -> None:
+    require_system_enet()
+    run(["odin", "build", "src/server", "-debug", f"-out:{server_path()}"])
+
+
+def build_client_net_debug() -> None:
+    require_system_enet()
+    run(["odin", "build", "src/client_net", "-debug", f"-out:{client_net_path()}"])
+
+
+def cmd_build_and_run(extra_args: list[str]) -> None:
+    cmd_build()
+    cmd_run(default_network_client_args(extra_args))
+
+
+def default_network_client_args(extra_args: list[str]) -> list[str]:
+    args = list(extra_args)
+    if not has_flag(args, "--connect"):
+        args.extend(["--connect", DEFAULT_CONNECT_HOST])
+    if not has_flag(args, "--port"):
+        args.extend(["--port", DEFAULT_NET_PORT])
+    if not has_flag(args, "--map"):
+        args.extend(["--map", DEFAULT_NET_MAP])
+    if not has_flag(args, "--content-id"):
+        args.extend(["--content-id", DEFAULT_NET_CONTENT_ID])
+    return args
+
+
+def has_flag(args: list[str], flag: str) -> bool:
+    prefix = flag + "="
+    return any(arg == flag or arg.startswith(prefix) for arg in args)
 
 
 def cmd_test() -> None:
@@ -243,6 +316,72 @@ def cmd_run(extra_args: list[str]) -> None:
     if extra_args[:1] == ["--"]:
         extra_args = extra_args[1:]
     run([app_path(), *extra_args])
+
+
+def cmd_server_build() -> None:
+    BUILD.mkdir(parents=True, exist_ok=True)
+    build_server_debug()
+
+
+def cmd_server_run(extra_args: list[str]) -> None:
+    if extra_args[:1] == ["--"]:
+        extra_args = extra_args[1:]
+    run([server_path(), *extra_args])
+
+
+def cmd_server_smoke(seconds: float) -> None:
+    cmd_server_build()
+    run([server_path(), "--seconds", str(seconds)])
+
+
+def cmd_client_net_build() -> None:
+    BUILD.mkdir(parents=True, exist_ok=True)
+    build_client_net_debug()
+
+
+def cmd_client_net_run(extra_args: list[str]) -> None:
+    if extra_args[:1] == ["--"]:
+        extra_args = extra_args[1:]
+    run([client_net_path(), *extra_args])
+
+
+def cmd_net_smoke(seconds: float, port: int, map_name: str, content_id: int) -> None:
+    cmd_server_build()
+    cmd_client_net_build()
+
+    server = subprocess.Popen([str(server_path()), "--port", str(port), "--map", map_name, "--content-id", str(content_id), "--seconds", str(seconds)], cwd=ROOT)
+    try:
+        time.sleep(0.2)
+        run([client_net_path(), "--port", str(port), "--map", map_name, "--content-id", str(content_id), "--seconds", str(seconds)])
+    finally:
+        server.terminate()
+        try:
+            server.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            server.kill()
+            server.wait()
+
+
+def require_system_enet() -> None:
+    candidates = [
+        Path("/opt/homebrew/lib/libenet.dylib"),
+        Path("/opt/homebrew/lib/libenet.a"),
+        Path("/usr/local/lib/libenet.dylib"),
+        Path("/usr/local/lib/libenet.a"),
+        Path("/usr/lib/libenet.dylib"),
+        Path("/usr/lib/libenet.a"),
+    ]
+    if any(path.exists() for path in candidates):
+        return
+
+    system = platform.system()
+    if system == "Darwin":
+        hint = "Install it with `brew install enet`."
+    elif system == "Linux":
+        hint = "Install the ENet development package, e.g. `libenet-dev` or `enet-devel`."
+    else:
+        hint = "Install ENet and make sure the linker can find it."
+    raise SystemExit(f"Missing system ENet library required by Odin's vendor:ENet binding. {hint}")
 
 
 def cmd_hot_game() -> None:

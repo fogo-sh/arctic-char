@@ -2,6 +2,8 @@
 .vs
 .DS_Store
 
+__pycache__
+
 *.exe
 *.pdb
 *.dSYM

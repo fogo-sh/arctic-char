@@ -39,6 +39,7 @@ SceneProfile :: struct {
 ObjectKind :: enum {
 	Map,
 	Suzanne,
+	RemotePlayer,
 	Spawner,
 	Trigger,
 }
@@ -47,6 +48,7 @@ ObjectId :: distinct u32
 
 Transform :: struct {
 	position: Vec3,
+	yaw:      f32,
 }
 
 RenderObject :: struct {
@@ -97,6 +99,7 @@ Object :: struct {
 	physics:   PhysicsObject,
 	think:     ThinkObject,
 	touch:     TouchObject,
+	net_id:    u32,
 }
 
 scene_create :: proc(
@@ -163,7 +166,7 @@ scene_rebuild_after_hot_reload :: proc(scene: ^Scene, fs: ^GameFS, map_qpath: st
 			b3.Body_SetLinearVelocity(body, object.physics.linear_velocity)
 			b3.Body_SetAngularVelocity(body, object.physics.angular_velocity)
 			object.physics.body = body
-		case .Map:
+		case .Map, .RemotePlayer:
 			object.physics = {
 				enabled = false,
 			}
@@ -262,6 +265,34 @@ scene_spawn_suzanne :: proc(scene: ^Scene, position: Vec3) -> bool {
 		},
 	)
 	return true
+}
+
+scene_upsert_remote_player :: proc(scene: ^Scene, player_id: u32, position: Vec3, yaw: f32) {
+	for &object in scene.objects {
+		if object.kind == .RemotePlayer && object.net_id == player_id {
+			object.transform.position = position
+			object.transform.yaw = yaw
+			object.render.visible = true
+			return
+		}
+	}
+
+	if len(scene.objects) >= cap(scene.objects) {
+		log.warnf("Cannot add remote player %d: object capacity reached", player_id)
+		return
+	}
+
+	_ = scene_add_object(
+		scene,
+		Object {
+			name = "RemotePlayer",
+			kind = .RemotePlayer,
+			net_id = player_id,
+			transform = {position = position, yaw = yaw},
+			render = {mesh = scene.suzanne_mesh, visible = true},
+			physics = {enabled = false},
+		},
+	)
 }
 
 scene_add_object :: proc(scene: ^Scene, object: Object) -> ObjectId {
@@ -377,5 +408,10 @@ scene_object_model_matrix :: proc(object: ^Object) -> matrix[4, 4]f32 {
 	if object.physics.sync_transform {
 		return engine.physics_body_matrix(object.physics.body)
 	}
-	return linalg.matrix4_translate_f32(object.transform.position)
+	return scene_transform_matrix(object.transform)
+}
+
+scene_transform_matrix :: proc(transform: Transform) -> matrix[4, 4]f32 {
+	rotation := linalg.quaternion_from_euler_angle_y_f32(transform.yaw)
+	return linalg.matrix4_from_trs_f32(transform.position, rotation, {1, 1, 1})
 }

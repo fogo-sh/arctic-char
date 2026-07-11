@@ -19,11 +19,15 @@ The project is pinned to Odin `dev-2026-07` via `mise.toml`.
 
 ## Build
 
-Build and run:
+Build and run as a local network client:
 
 ```sh
+python cli.py server-run
 python cli.py build-and-run
 ```
+
+`build-and-run` defaults to `--connect 127.0.0.1 --port 29001 --map test --content-id 0`.
+Pass any of those flags after `--` to override them.
 
 Other useful commands:
 
@@ -33,10 +37,33 @@ python cli.py build-release
 python cli.py test
 python cli.py macos-app
 python cli.py run
+python cli.py server-build
+python cli.py server-run -- --port 29001
+python cli.py net-smoke
 ```
 
-`python cli.py build` copies `base/` into `build/base/` after compiling. Runtime content
-is loaded through qpaths under `base` by default.
+`python cli.py build` builds the normal app, dedicated server, and standalone
+network smoke client in one clean build, then copies `base/` into `build/base/`.
+Runtime content is loaded through qpaths under `base` by default.
+
+`python cli.py server-build` builds the headless dedicated server entrypoint. It
+uses Odin's `vendor:ENet` binding, which requires a system ENet library. On
+macOS, install it with `brew install enet`.
+
+`python cli.py net-smoke` builds the dedicated server and standalone network
+client, then verifies the initial protocol hello exchange, map validation, and
+content-id validation over ENet.
+
+Run the real app as a network client against a dedicated server:
+
+```sh
+python cli.py server-run -- --map test --port 29001
+python cli.py run -- --connect 127.0.0.1 --port 29001 --map test
+```
+
+The real client currently handshakes, sends `User_Cmd` input packets, receives
+lightweight player-state snapshots, and renders other connected players as
+Suzanne placeholders. Full authoritative scene physics is not wired yet.
 
 `python cli.py test` runs Odin unit tests for pure package logic. The smoke test
 is separate: it launches the real app for a fixed duration and catches startup or
