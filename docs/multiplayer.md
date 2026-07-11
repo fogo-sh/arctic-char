@@ -14,6 +14,11 @@ packages.
 - Clients render server snapshots with interpolation for remote objects.
 - Add local-player prediction and reconciliation after the first snapshot path is
   working.
+- Local play uses client/server semantics. When `--connect` is omitted, the app
+  starts an in-process loopback session: client input is serialized as
+  `User_Cmd`, copied through bounded in-memory client/server packet queues,
+  parsed through the shared protocol, and applied to the local authoritative
+  scene before rendering. External `--connect` still uses ENet.
 - Do not try deterministic lockstep or full Box3D rollback first. Box3D dynamic
   prop state, contacts, and collision islands make that a much larger project.
 
@@ -31,10 +36,9 @@ packages.
 - `src/game/net*.odin` should own game protocol details: hello/version/map checks,
   stable network ids, player input commands, server snapshots, spawn/despawn
   messages, interpolation buffers, and reconciliation.
-- The initial shared wire-format smoke lives in `src/protocol` so the standalone
-  dedicated server and standalone network client can exchange packets without
-  importing SDL, renderer, or the full game package. Move gameplay-specific
-  protocol state into game code once client/server simulation is split.
+- Shared wire-format tests live in `src/protocol`. Runtime smoke tests should use
+  the real app client and dedicated server so temporary network bridge
+  executables do not become a second client implementation.
 - The scene remains the owner of gameplay and physics. Networking code should
   drive scene inputs and consume scene state, not replace scene ownership.
 
@@ -459,9 +463,10 @@ diving directly into the id source trees.
 1. Transport smoke test.
    - Add a shared ENet wrapper.
    - Add a separate dedicated server entrypoint and CLI build/run commands.
-   - Add a standalone network client and combined `net-smoke` command.
+   - Add a combined `net-smoke` command that runs the real game client against
+     the dedicated server.
    - Verify connect, disconnect, reliable hello, and clean shutdown.
-   - Status: complete for direct ENet localhost smoke.
+   - Status: complete for direct ENet localhost smoke with the real app client.
 
 2. Game handshake.
    - Exchange protocol version and map name.

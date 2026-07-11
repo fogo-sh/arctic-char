@@ -1,6 +1,7 @@
 package game
 
 import engine "../engine"
+import protocol "../protocol"
 import "base:runtime"
 import "core:log"
 import "core:math/linalg"
@@ -207,6 +208,17 @@ scene_update :: proc(
 
 	scene.profile.update_ms = scene_profile_elapsed_ms(update_start)
 	scene_profile_log_if_needed(scene, delta_time)
+}
+
+scene_update_from_user_cmd :: proc(scene: ^Scene, cmd: protocol.User_Cmd, delta_time: f32) {
+	move := PlayerMoveInput{
+		move_forward = cmd.move_forward,
+		move_right = cmd.move_right,
+		jump_held = (cmd.buttons & protocol.BUTTON_JUMP) != 0,
+	}
+	scene.player.yaw = cmd.yaw
+	scene.player.pitch = cmd.pitch
+	scene_update(scene, move, {}, delta_time)
 }
 
 scene_fixed_update :: proc(scene: ^Scene, input: PlayerMoveInput, step_time: f32) {

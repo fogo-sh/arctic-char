@@ -94,8 +94,7 @@ game_update :: proc(game: rawptr, input: InputState, delta_time: f32) {
 	state := cast(^Game_State)game
 	game_reload_map_if_changed(state, delta_time)
 	move_input, look_input := player_input_from_engine(input)
-	scene_update(&state.scene, move_input, look_input, delta_time)
-	game_net_client_update(&state.net, &state.scene, move_input)
+	game_net_client_update(&state.net, &state.scene, move_input, look_input, delta_time)
 }
 
 @(export)

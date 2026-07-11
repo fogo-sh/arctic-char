@@ -21,11 +21,9 @@ BUILD = ROOT / "build"
 BASE = ROOT / "base"
 APP_NAME = "arctic-char"
 SERVER_NAME = "arctic-char-server"
-CLIENT_NET_NAME = "arctic-char-client-net"
 MACOS_BUNDLE_NAME = "ArcticChar"
 HOT_DIR = BUILD / "hot_reload"
 ODIN_TEST_PACKAGES = ["src/engine", "src/game", "src/protocol"]
-DEFAULT_CONNECT_HOST = "127.0.0.1"
 DEFAULT_NET_PORT = "29001"
 DEFAULT_NET_MAP = "test"
 DEFAULT_NET_CONTENT_ID = "0"
@@ -77,10 +75,7 @@ def main() -> int:
     server_run_parser.add_argument("args", nargs=argparse.REMAINDER)
     server_smoke_parser = sub.add_parser("server-smoke", help="Run the dedicated server briefly")
     server_smoke_parser.add_argument("--seconds", type=float, default=2.0)
-    sub.add_parser("client-net-build", help="Build the standalone network smoke client")
-    client_net_run_parser = sub.add_parser("client-net-run", help="Run the standalone network smoke client")
-    client_net_run_parser.add_argument("args", nargs=argparse.REMAINDER)
-    net_smoke_parser = sub.add_parser("net-smoke", help="Run dedicated server and client hello smoke")
+    net_smoke_parser = sub.add_parser("net-smoke", help="Run dedicated server and real game client smoke")
     net_smoke_parser.add_argument("--seconds", type=float, default=5.0)
     net_smoke_parser.add_argument("--port", type=int, default=29001)
     net_smoke_parser.add_argument("--map", default="test")
@@ -111,8 +106,6 @@ def main() -> int:
         "server-build": cmd_server_build,
         "server-run": lambda: cmd_server_run(args.args),
         "server-smoke": lambda: cmd_server_smoke(args.seconds),
-        "client-net-build": cmd_client_net_build,
-        "client-net-run": lambda: cmd_client_net_run(args.args),
         "net-smoke": lambda: cmd_net_smoke(args.seconds, args.port, args.map, args.content_id),
         "hot-game": cmd_hot_game,
         "hot-host": cmd_hot_host,
@@ -156,10 +149,6 @@ def server_path() -> Path:
     return BUILD / f"{SERVER_NAME}{exe_suffix()}"
 
 
-def client_net_path() -> Path:
-    return BUILD / f"{CLIENT_NET_NAME}{exe_suffix()}"
-
-
 def macos_app_path() -> Path:
     return BUILD / f"{MACOS_BUNDLE_NAME}.app"
 
@@ -186,7 +175,6 @@ def cmd_build() -> None:
     BUILD.mkdir(parents=True, exist_ok=True)
     build_app_debug()
     build_server_debug()
-    build_client_net_debug()
     copy_base_to(BUILD)
 
 
@@ -207,32 +195,9 @@ def build_server_debug() -> None:
     run(["odin", "build", "src/server", "-debug", f"-out:{server_path()}"])
 
 
-def build_client_net_debug() -> None:
-    require_system_enet()
-    run(["odin", "build", "src/client_net", "-debug", f"-out:{client_net_path()}"])
-
-
 def cmd_build_and_run(extra_args: list[str]) -> None:
     cmd_build()
-    cmd_run(default_network_client_args(extra_args))
-
-
-def default_network_client_args(extra_args: list[str]) -> list[str]:
-    args = list(extra_args)
-    if not has_flag(args, "--connect"):
-        args.extend(["--connect", DEFAULT_CONNECT_HOST])
-    if not has_flag(args, "--port"):
-        args.extend(["--port", DEFAULT_NET_PORT])
-    if not has_flag(args, "--map"):
-        args.extend(["--map", DEFAULT_NET_MAP])
-    if not has_flag(args, "--content-id"):
-        args.extend(["--content-id", DEFAULT_NET_CONTENT_ID])
-    return args
-
-
-def has_flag(args: list[str], flag: str) -> bool:
-    prefix = flag + "="
-    return any(arg == flag or arg.startswith(prefix) for arg in args)
+    cmd_run(extra_args)
 
 
 def cmd_test() -> None:
@@ -334,26 +299,31 @@ def cmd_server_smoke(seconds: float) -> None:
     run([server_path(), "--seconds", str(seconds)])
 
 
-def cmd_client_net_build() -> None:
-    BUILD.mkdir(parents=True, exist_ok=True)
-    build_client_net_debug()
-
-
-def cmd_client_net_run(extra_args: list[str]) -> None:
-    if extra_args[:1] == ["--"]:
-        extra_args = extra_args[1:]
-    run([client_net_path(), *extra_args])
-
-
 def cmd_net_smoke(seconds: float, port: int, map_name: str, content_id: int) -> None:
-    cmd_server_build()
-    cmd_client_net_build()
+    cmd_build()
 
-    server = subprocess.Popen([str(server_path()), "--port", str(port), "--map", map_name, "--content-id", str(content_id), "--seconds", str(seconds)], cwd=ROOT)
+    server = subprocess.Popen([str(server_path()), "--port", str(port), "--map", map_name, "--content-id", str(content_id)], cwd=ROOT)
+    client = None
     try:
         time.sleep(0.2)
-        run([client_net_path(), "--port", str(port), "--map", map_name, "--content-id", str(content_id), "--seconds", str(seconds)])
+        client = subprocess.Popen([
+            str(app_path()),
+            "--connect", "127.0.0.1",
+            "--port", str(port),
+            "--map", map_name,
+            "--content-id", str(content_id),
+        ], cwd=ROOT)
+        time.sleep(seconds)
+        if client.poll() not in (None, 0):
+            raise subprocess.CalledProcessError(client.returncode, app_path())
     finally:
+        if client is not None:
+            client.terminate()
+            try:
+                client.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                client.kill()
+                client.wait()
         server.terminate()
         try:
             server.wait(timeout=5)
@@ -518,6 +488,7 @@ def cmd_check_shaders() -> None:
 
 
 def cmd_smoke(seconds: float) -> None:
+    cmd_build()
     process = subprocess.Popen([str(app_path())], cwd=ROOT)
     try:
         time.sleep(seconds)

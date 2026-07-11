@@ -122,6 +122,10 @@ Current findings:
 - The server owns authoritative scene simulation and Box3D state. Clients send
   inputs and render snapshots, adding local-player prediction only after the
   basic authoritative snapshot path works.
+- Local play should not have an offline simulation fork. With no `--connect`, the
+  app uses an in-process loopback session: client input is serialized as
+  `User_Cmd`, copied through bounded in-memory packet queues, parsed by the
+  shared protocol, and applied by the local authoritative scene before rendering.
 - The initial protocol smoke validates protocol version, map name, and a simple
   content id before accepting a client into later gameplay state.
 - See `docs/multiplayer.md` for the current milestone plan.

@@ -170,13 +170,6 @@ server_accept_session :: proc(state: ^ServerState, peer: transport.Peer) {
 	}
 }
 
-server_session_accepted :: proc(state: ^ServerState, peer: transport.Peer) -> bool {
-	if index := server_find_session(state, peer); index >= 0 {
-		return state.sessions[index].accepted
-	}
-	return false
-}
-
 server_find_session :: proc(state: ^ServerState, peer: transport.Peer) -> int {
 	for i in 0..<len(state.sessions) {
 		if state.sessions[i].active && state.sessions[i].peer == peer {

@@ -19,15 +19,16 @@ The project is pinned to Odin `dev-2026-07` via `mise.toml`.
 
 ## Build
 
-Build and run as a local network client:
+Build and run through the in-process loopback client/server path:
 
 ```sh
-python cli.py server-run
 python cli.py build-and-run
 ```
 
-`build-and-run` defaults to `--connect 127.0.0.1 --port 29001 --map test --content-id 0`.
-Pass any of those flags after `--` to override them.
+`run` and `build-and-run` use an in-process loopback session when `--connect` is
+not provided. Local input is serialized as `User_Cmd`, parsed through the shared
+protocol from a bounded in-memory packet queue, and applied by the local
+authoritative scene before rendering.
 
 Other useful commands:
 
@@ -42,19 +43,19 @@ python cli.py server-run -- --port 29001
 python cli.py net-smoke
 ```
 
-`python cli.py build` builds the normal app, dedicated server, and standalone
-network smoke client in one clean build, then copies `base/` into `build/base/`.
-Runtime content is loaded through qpaths under `base` by default.
+`python cli.py build` builds the normal app and dedicated server in one clean
+build, then copies `base/` into `build/base/`. Runtime content is loaded through
+qpaths under `base` by default.
 
 `python cli.py server-build` builds the headless dedicated server entrypoint. It
 uses Odin's `vendor:ENet` binding, which requires a system ENet library. On
 macOS, install it with `brew install enet`.
 
-`python cli.py net-smoke` builds the dedicated server and standalone network
-client, then verifies the initial protocol hello exchange, map validation, and
-content-id validation over ENet.
+`python cli.py smoke` runs the app through the in-process loopback path.
+`python cli.py net-smoke` builds the dedicated server and real game client, then
+runs the game client against the server over ENet for a fixed duration.
 
-Run the real app as a network client against a dedicated server:
+Run multiple real app clients against a manually managed dedicated server:
 
 ```sh
 python cli.py server-run -- --map test --port 29001
