@@ -351,6 +351,7 @@ def cmd_net_smoke(seconds: float, port: int, map_name: str, content_id: int) -> 
     require_output_marker(server_output, "Client hello")
     require_output_marker(server_output, "User cmd")
     require_output_marker(client_output, "Server accepted network session")
+    reject_output_marker(server_output + client_output, "Trigger teleport fired")
 
 
 def cmd_mp_test(seconds: float, port: str, map_name: str, content_id: str, no_build: bool) -> None:
@@ -408,6 +409,7 @@ def cmd_mp_test(seconds: float, port: str, map_name: str, content_id: str, no_bu
         require_output_marker(client_b_output, "player_id=2")
         require_output_marker(client_a_output, "Remote player visible local=1 remote=2")
         require_output_marker(client_b_output, "Remote player visible local=2 remote=1")
+        reject_output_marker(server_output + client_a_output + client_b_output, "Trigger teleport fired")
 
 
 def spawn_process(cmd: list[str | Path], *, capture_output: bool = False) -> subprocess.Popen:
@@ -431,6 +433,11 @@ def terminate_process(process: subprocess.Popen) -> None:
 def require_output_marker(output: str, marker: str) -> None:
     if marker not in output:
         raise SystemExit(f"Expected smoke output marker not found: {marker}")
+
+
+def reject_output_marker(output: str, marker: str) -> None:
+    if marker in output:
+        raise SystemExit(f"Unexpected smoke output marker found: {marker}")
 
 
 def collect_process_output(process: subprocess.Popen) -> str:
@@ -618,6 +625,7 @@ def cmd_smoke(seconds: float) -> None:
         output = terminate_process_and_collect(process)
     print(output, end="")
     require_output_marker(output, "Started local loopback client/server session")
+    reject_output_marker(output, "Trigger teleport fired")
 
 
 def cmd_trenchbroom_profile() -> None:
@@ -720,7 +728,7 @@ def fgd_entity_lines(entity: dict[str, object]) -> list[str]:
         default = prop.get("default_value", "")
         description = prop.get("description", "")
         if default:
-            line += f" : {default}"
+            line += f" : {fgd_property_default(prop['type'], str(default))}"
         elif description:
             line += " : \"\""
         if description:
@@ -746,6 +754,12 @@ def fgd_property_type(kind: str) -> str:
         "TargetSource": "target_source",
         "TargetDestination": "target_destination",
     }[kind]
+
+
+def fgd_property_default(kind: str, value: str) -> str:
+    if kind in {"String", "TargetSource", "TargetDestination"}:
+        return f'"{value}"'
+    return value
 
 
 def load_entity_definitions() -> list[dict[str, object]]:

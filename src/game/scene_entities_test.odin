@@ -65,6 +65,33 @@ test_scene_touch_player_uses_box3d_trigger_shape :: proc(t: ^testing.T) {
 	testing.expect_value(t, player.yaw, target_yaw)
 }
 
+@(test)
+test_trigger_brush_bounds_use_clipped_vertices_not_plane_points :: proc(t: ^testing.T) {
+	qmap := test_quake_map_from_source(`
+{
+"classname" "worldspawn"
+}
+{
+"classname" "trigger_teleport"
+{
+( -7376 -880 -16 ) ( -7376 -879 -16 ) ( -7376 -880 -15 ) green [ 0 -1 0 0 ] [ 0 0 -1 0 ] 270 1 1
+( -4576 -3344 -16 ) ( -4576 -3344 -15 ) ( -4575 -3344 -16 ) green [ 1 0 0 0 ] [ 0 0 -1 0 ] 270 1 1
+( -4576 -880 -1248 ) ( -4575 -880 -1248 ) ( -4576 -879 -1248 ) green [ -1 0 0 0 ] [ 0 -1 0 0 ] 270 1 1
+( 1328 4576 -960 ) ( 1328 4577 -960 ) ( 1329 4576 -960 ) green [ 1 0 0 0 ] [ 0 -1 0 0 ] 270 1 1
+( 1328 6224 16 ) ( 1329 6224 16 ) ( 1328 6224 17 ) green [ -1 0 0 ] [ 0 0 -1 0 ] 270 1 1
+( 4144 4576 16 ) ( 4144 4576 17 ) ( 4144 4577 16 ) green [ 0 1 0 0 ] [ 0 0 -1 0 ] 270 1 1
+}
+}
+`)
+	defer quake_map_destroy(&qmap)
+
+	entity := &qmap.entities[1]
+	bounds_min, bounds_max, ok := map_entity_brush_bounds(entity, map_mesh_base_winding_size(&qmap))
+
+	testing.expect(t, ok, "trigger bounds should be computed")
+	testing.expectf(t, bounds_max.y < f32(0.5), "trigger top should remain below spawn height, got %v", bounds_max.y)
+}
+
 test_map_entity :: proc(properties: []MapProperty) -> MapEntity {
 	entity := MapEntity {
 		properties = make([dynamic]MapProperty, 0, len(properties)),

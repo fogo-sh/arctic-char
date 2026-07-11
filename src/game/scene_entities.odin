@@ -96,7 +96,7 @@ scene_spawn_entity_spawner_suzanne :: proc(scene: ^Scene, entity: ^MapEntity) {
 }
 
 scene_spawn_entity_trigger_teleport :: proc(scene: ^Scene, qmap: ^QuakeMap, entity: ^MapEntity) {
-	bounds_min, bounds_max, bounds_ok := map_entity_brush_bounds(entity)
+	bounds_min, bounds_max, bounds_ok := map_entity_brush_bounds(entity, map_mesh_base_winding_size(qmap))
 	if !bounds_ok {
 		log.warn("trigger_teleport missing brush bounds")
 		return
@@ -177,6 +177,7 @@ scene_touch_player :: proc(scene: ^Scene, player: ^PlayerController, move: Playe
 	proxy := b3.ShapeProxy{points = raw_data(points[:]), count = c.int(len(points)), radius = mover.radius}
 	_ = b3.World_OverlapShape(scene.physics.id, {0, 0, 0}, proxy, physics_player_trigger_query_filter(), scene_touch_player_overlap, &query)
 	if query.trigger != nil {
+		log.infof("Trigger teleport fired from=(%.2f, %.2f, %.2f) to=(%.2f, %.2f, %.2f)", player.position.x, player.position.y, player.position.z, query.trigger.touch.target_position.x, query.trigger.touch.target_position.y, query.trigger.touch.target_position.z)
 		player_teleport(player, query.trigger.touch.target_position, query.trigger.touch.target_yaw)
 	}
 }
@@ -237,12 +238,14 @@ scene_entity_angle :: proc(entity: ^MapEntity, key: string, default_value: f32) 
 	return linalg.to_radians(scene_entity_f32(entity, key, default_value) + 180)
 }
 
-map_entity_brush_bounds :: proc(entity: ^MapEntity) -> (bounds_min: Vec3, bounds_max: Vec3, ok: bool) {
+map_entity_brush_bounds :: proc(entity: ^MapEntity, base_winding_size: f32) -> (bounds_min: Vec3, bounds_max: Vec3, ok: bool) {
 	bounds_min = {max(f32), max(f32), max(f32)}
 	bounds_max = {-max(f32), -max(f32), -max(f32)}
 	for &brush in entity.brushes {
-		for &face in brush.faces {
-			for point in face.points {
+		for face_index in 0 ..< len(brush.faces) {
+			winding := map_mesh_clipped_face(&brush, &brush.faces[face_index], face_index, base_winding_size)
+			for i in 0 ..< winding.count {
+				point := winding.points[i]
 				bounds_min.x = min(bounds_min.x, point.x)
 				bounds_min.y = min(bounds_min.y, point.y)
 				bounds_min.z = min(bounds_min.z, point.z)

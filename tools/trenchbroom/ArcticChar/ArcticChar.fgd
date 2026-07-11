@@ -18,7 +18,7 @@
 
 @PointClass size(-16 -16 -16, 16 16 16) color(255 150 80) = prop_suzanne : "Dynamic Suzanne prop"
 [
-    net_policy(string) : "Network Policy" : server : "server for authoritative synced prop, client for presentation-only local prop."
+    net_policy(string) : "Network Policy" : "server" : "server for authoritative synced prop, client for presentation-only local prop."
 ]
 
 @PointClass size(-12 -12 -12, 12 12 12) color(255 90 180) = spawner_suzanne : "Timed Suzanne spawner"
