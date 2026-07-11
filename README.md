@@ -26,9 +26,9 @@ python cli.py build-and-run
 ```
 
 `run` and `build-and-run` use an in-process loopback session when `--connect` is
-not provided. Local input is serialized as `User_Cmd`, parsed through the shared
-protocol from a bounded in-memory packet queue, and applied by the local
-authoritative scene before rendering.
+not provided. Local input is serialized as `User_Cmd` and fed into the same
+authoritative server core used by the dedicated server; only the transport shell
+differs between loopback and ENet.
 
 Other useful commands:
 

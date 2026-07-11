@@ -75,7 +75,7 @@ game_init :: proc(renderer: ^Renderer, fs: ^GameFS, config: rawptr) -> rawptr {
 	gpu_resources := scene_gpu_resources_upload(renderer, &assets)
 	state.scene = scene_create(&assets, gpu_resources)
 	scene_assets_destroy(&assets)
-	game_net_client_init(&state.net, game_config)
+	game_net_client_init(&state.net, game_config, &state.scene)
 	return state
 }
 
@@ -130,7 +130,7 @@ game_before_hot_reload :: proc(game: rawptr) {
 game_hot_reloaded :: proc(mem: rawptr) {
 	g = cast(^Game_State)mem
 	scene_rebuild_after_hot_reload(&g.scene, g.fs, g.map_qpath)
-	game_net_client_init(&g.net, g.launch_config)
+	game_net_client_init(&g.net, g.launch_config, &g.scene)
 }
 
 @(export)

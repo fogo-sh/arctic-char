@@ -15,10 +15,11 @@ packages.
 - Add local-player prediction and reconciliation after the first snapshot path is
   working.
 - Local play uses client/server semantics. When `--connect` is omitted, the app
-  starts an in-process loopback session: client input is serialized as
-  `User_Cmd`, copied through bounded in-memory client/server packet queues,
-  parsed through the shared protocol, and applied to the local authoritative
-  scene before rendering. External `--connect` still uses ENet.
+  starts an in-process server core and connects the normal client path to it.
+  Local input is serialized as `User_Cmd`, parsed by the same server core used by
+  the dedicated executable, simulated on the same fixed tick, and returned to the
+  client as normal server packets. External `--connect` uses ENet as the
+  transport feeding that same core.
 - Do not try deterministic lockstep or full Box3D rollback first. Box3D dynamic
   prop state, contacts, and collision islands make that a much larger project.
 
@@ -36,6 +37,9 @@ packages.
 - `src/game/net*.odin` should own game protocol details: hello/version/map checks,
   stable network ids, player input commands, server snapshots, spawn/despawn
   messages, interpolation buffers, and reconciliation.
+- `src/game/net_server.odin` is the canonical authoritative server/session core.
+  The dedicated server executable should be a transport and process wrapper, not
+  a second server implementation.
 - Shared wire-format tests live in `src/protocol`. Runtime smoke tests should use
   the real app client and dedicated server so temporary network bridge
   executables do not become a second client implementation.

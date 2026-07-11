@@ -128,9 +128,8 @@ Current findings:
   accepted session, drain queued commands in sequence order on the 40 Hz server
   tick, and broadcast full player snapshots independently of input arrival.
 - Local play should not have an offline simulation fork. With no `--connect`, the
-  app uses an in-process loopback session: client input is serialized as
-  `User_Cmd`, copied through bounded in-memory packet queues, parsed by the
-  shared protocol, and applied by the local authoritative scene before rendering.
+  app creates the same in-process authoritative server core used by the dedicated
+  server executable; only the transport wrapper differs.
 - The initial protocol smoke validates protocol version, map name, and a simple
   content id before accepting a client into later gameplay state.
 - See `docs/multiplayer.md` for the current milestone plan.
@@ -156,8 +155,9 @@ Current findings:
 - `cli.py` is the canonical local task runner. Do not reintroduce parallel task
   definitions in a `justfile` or shell scripts unless there is a specific need.
 - `mise.toml` pins the expected Odin and Python tool versions.
-- `python cli.py build`, `build-release`, and hot-reload game builds regenerate
-  the current platform's Clay static library before invoking Odin.
+- `python cli.py build`, `build-release`, and hot-reload game builds ensure the
+  current platform's Clay static library exists before invoking Odin. The Clay
+  archive is skipped when it is newer than `vendor/clay/clay.h`.
 - For code changes, run `python cli.py build`.
 - For rendering or physics-affecting changes, also run `python cli.py smoke`.
 - For shader changes, run `python cli.py check-shaders`.

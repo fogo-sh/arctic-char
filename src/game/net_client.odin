@@ -4,8 +4,8 @@ import "core:log"
 import protocol "../protocol"
 import transport "../net"
 
-LOOPBACK_PACKET_CAPACITY :: 16
 CLIENT_COMMAND_HISTORY :: 64
+LOOPBACK_SERVER_PEER :: NetServerPeer(1)
 
 GameNetClientState :: enum {
 	Disabled,
@@ -30,31 +30,22 @@ GameNetClient :: struct {
 	seen_remote_players: [protocol.MAX_SNAPSHOT_PLAYERS + 1]bool,
 	receive_buffer:  [protocol.MAX_PACKET_SIZE]byte,
 	send_buffer:     [protocol.MAX_PACKET_SIZE]byte,
-	client_to_server: GameLoopbackQueue,
-	server_to_client: GameLoopbackQueue,
+	local_server:    ^NetServer,
+	local_server_accumulator: f32,
 }
 
-GameLoopbackPacket :: struct {
-	channel: u8,
-	length:  int,
-	data:    [protocol.MAX_PACKET_SIZE]byte,
-}
-
-GameLoopbackQueue :: struct {
-	packets: [LOOPBACK_PACKET_CAPACITY]GameLoopbackPacket,
-	get:     u32,
-	send:    u32,
-}
-
-game_net_client_init :: proc(net: ^GameNetClient, config: GameLaunchConfig) {
+game_net_client_init :: proc(net: ^GameNetClient, config: GameLaunchConfig, scene: ^Scene) {
 	if config.connect_address == "" {
+		local_server := new(NetServer)
+		local_server^ = net_server_create(scene, config.map_name, config.content_id)
 		net^ = GameNetClient{
 			state = .Disabled,
 			map_name = config.map_name,
 			content_id = config.content_id,
 			local_player_id = LOCAL_PLAYER_ID,
+			local_server = local_server,
 		}
-		if game_net_client_loopback_handshake(net) {
+		if game_net_client_loopback_handshake(net, scene) {
 			net.state = .Loopback
 		}
 		return
@@ -92,6 +83,9 @@ game_net_client_destroy :: proc(net: ^GameNetClient) {
 		}
 		transport.destroy(&net.host)
 	}
+	if net.local_server != nil {
+		free(net.local_server)
+	}
 	net^ = {}
 }
 
@@ -100,9 +94,9 @@ game_net_client_update :: proc(net: ^GameNetClient, scene: ^Scene, move: PlayerM
 	case .Disabled:
 		// No simulation fallback here: local play should initialize loopback explicitly.
 	case .Loopback:
-		game_net_client_send_loopback_user_cmd(net, scene, move, look, delta_time)
+		game_net_client_update_loopback(net, scene, move, look, delta_time)
 	case .RemoteConnecting, .RemoteAccepted:
-		// Temporary prediction path until the dedicated server shares the same scene simulation.
+		// Temporary prediction path until authoritative local-player reconciliation lands.
 		scene_update(scene, net.local_player_id, move, look, delta_time)
 		game_net_client_poll(net, scene)
 		if net.state == .RemoteAccepted {
@@ -111,54 +105,18 @@ game_net_client_update :: proc(net: ^GameNetClient, scene: ^Scene, move: PlayerM
 	}
 }
 
-game_net_client_loopback_handshake :: proc(net: ^GameNetClient) -> bool {
+game_net_client_loopback_handshake :: proc(net: ^GameNetClient, scene: ^Scene) -> bool {
+	net_server_connect(net.local_server, LOOPBACK_SERVER_PEER)
 	packet, ok := protocol.write_client_hello(net.send_buffer[:], net.map_name, net.content_id)
 	if !ok {
 		log.warn("Failed to write loopback client hello")
 		return false
 	}
-	if !game_loopback_send(&net.client_to_server, protocol.CHANNEL_CONTROL, packet) {
-		return false
-	}
-
-	client_packet, packet_ok := game_loopback_poll(&net.client_to_server)
-	if !packet_ok {
-		log.warn("Loopback client hello was not queued")
-		return false
-	}
-	parsed, err := protocol.parse_packet(client_packet.data[:client_packet.length], client_packet.channel)
-	if err != .None || parsed.header.kind != .Client_Hello {
-		log.warnf("Loopback client hello parse failed err=%v", err)
-		return false
-	}
-
-	response: []byte
-	response, ok = protocol.write_server_hello(net.receive_buffer[:], net.map_name, net.content_id, LOCAL_PLAYER_ID)
-	if !ok {
-		log.warn("Failed to write loopback server hello")
-		return false
-	}
-	if !game_loopback_send(&net.server_to_client, protocol.CHANNEL_CONTROL, response) {
-		return false
-	}
-	queued_response: GameLoopbackPacket
-	queued_response, packet_ok = game_loopback_poll(&net.server_to_client)
-	if !packet_ok {
-		log.warn("Loopback server hello was not queued")
-		return false
-	}
-	server_packet: protocol.Parsed_Packet
-	server_packet, err = protocol.parse_packet(queued_response.data[:queued_response.length], queued_response.channel)
-	if err != .None || server_packet.header.kind != .Server_Hello {
-		log.warnf("Loopback server hello parse failed err=%v", err)
-		return false
-	}
-	net.local_player_id = server_packet.hello.player_id
-	log.infof("Started local loopback client/server session map=%s content_id=%08x", net.map_name, net.content_id)
-	return true
+	net_server_handle_packet(net.local_server, LOOPBACK_SERVER_PEER, protocol.CHANNEL_CONTROL, packet)
+	return game_net_client_drain_loopback_server(net, scene)
 }
 
-game_net_client_send_loopback_user_cmd :: proc(net: ^GameNetClient, scene: ^Scene, move: PlayerMoveInput, look: PlayerLookInput, delta_time: f32) {
+game_net_client_update_loopback :: proc(net: ^GameNetClient, scene: ^Scene, move: PlayerMoveInput, look: PlayerLookInput, delta_time: f32) {
 	net.command_sequence += 1
 	net.client_tick += 1
 	player := scene_player(scene, net.local_player_id)
@@ -168,62 +126,19 @@ game_net_client_send_loopback_user_cmd :: proc(net: ^GameNetClient, scene: ^Scen
 	yaw, pitch := player_look_angles_after_input(player^, look)
 	cmd := game_net_client_make_user_cmd(net, move, yaw, pitch)
 	game_net_client_store_user_cmd(net, cmd)
-	packet, ok := protocol.write_user_cmd(net.send_buffer[:], cmd)
+	cmds := game_net_client_recent_user_cmds(net)
+	packet, ok := protocol.write_user_cmds(net.send_buffer[:], cmds)
 	if !ok {
-		log.warnf("Failed to write loopback user cmd sequence=%d", cmd.sequence)
+		log.warnf("Failed to write loopback user cmds newest_sequence=%d count=%d", cmd.sequence, cmds.count)
 		return
 	}
-	if !game_loopback_send(&net.client_to_server, protocol.CHANNEL_USER_CMDS, packet) {
-		return
+	net_server_handle_packet(net.local_server, LOOPBACK_SERVER_PEER, protocol.CHANNEL_USER_CMDS, packet)
+	net.local_server_accumulator += min(delta_time, 0.25)
+	for net.local_server_accumulator >= PHYSICS_STEP_TIME {
+		net_server_tick(net.local_server)
+		net.local_server_accumulator -= PHYSICS_STEP_TIME
 	}
-	queued_cmd, packet_ok := game_loopback_poll(&net.client_to_server)
-	if !packet_ok {
-		log.warnf("Loopback user cmd was not queued sequence=%d", cmd.sequence)
-		return
-	}
-	parsed, err := protocol.parse_packet(queued_cmd.data[:queued_cmd.length], queued_cmd.channel)
-	if err != .None || parsed.header.kind != .User_Cmd {
-		log.warnf("Loopback user cmd parse failed sequence=%d err=%v", cmd.sequence, err)
-		return
-	}
-	if parsed.user_cmds.count == 0 {
-		return
-	}
-	scene_update_from_user_cmd(scene, net.local_player_id, parsed.user_cmds.cmds[int(parsed.user_cmds.count) - 1], delta_time)
-}
-
-game_loopback_send :: proc(queue: ^GameLoopbackQueue, channel: u8, data: []byte) -> bool {
-	if len(data) > protocol.MAX_PACKET_SIZE {
-		log.warnf("Dropped oversized loopback packet channel=%d bytes=%d", channel, len(data))
-		return false
-	}
-	if queue.send - queue.get >= LOOPBACK_PACKET_CAPACITY {
-		if channel == protocol.CHANNEL_CONTROL {
-			log.warn("Dropped loopback control packet: queue is full")
-			return false
-		}
-		log.warnf("Dropping oldest loopback packet: queue is full channel=%d", channel)
-		queue.get += 1
-	}
-	index := queue.send % LOOPBACK_PACKET_CAPACITY
-	packet := &queue.packets[index]
-	packet.channel = channel
-	packet.length = len(data)
-	copy(packet.data[:], data[:packet.length])
-	queue.send += 1
-	return true
-}
-
-game_loopback_poll :: proc(queue: ^GameLoopbackQueue) -> (packet: GameLoopbackPacket, ok: bool) {
-	if queue.send - queue.get > LOOPBACK_PACKET_CAPACITY {
-		queue.get = queue.send - LOOPBACK_PACKET_CAPACITY
-	}
-	if queue.get >= queue.send {
-		return {}, false
-	}
-	index := queue.get % LOOPBACK_PACKET_CAPACITY
-	queue.get += 1
-	return queue.packets[index], true
+	game_net_client_drain_loopback_server(net, scene)
 }
 
 game_net_client_poll :: proc(net: ^GameNetClient, scene: ^Scene) {
@@ -256,9 +171,13 @@ game_net_client_handle_packet :: proc(net: ^GameNetClient, scene: ^Scene, event:
 		return
 	}
 
-	packet, err := protocol.parse_packet(event.data, event.channel)
+	game_net_client_handle_server_packet(net, scene, event.data, event.channel)
+}
+
+game_net_client_handle_server_packet :: proc(net: ^GameNetClient, scene: ^Scene, data: []byte, channel: u8) {
+	packet, err := protocol.parse_packet(data, channel)
 	if err != .None {
-		log.warnf("Rejected server packet channel=%d bytes=%d err=%v", event.channel, len(event.data), err)
+		log.warnf("Rejected server packet channel=%d bytes=%d err=%v", channel, len(data), err)
 		return
 	}
 
@@ -273,8 +192,13 @@ game_net_client_handle_packet :: proc(net: ^GameNetClient, scene: ^Scene, event:
 		net.local_player_id = hello.player_id
 		scene.camera_player_id = hello.player_id
 		scene_reset_player_to_spawn(scene, hello.player_id)
-		net.state = .RemoteAccepted
-		log.infof("Server accepted network session map=%s content_id=%08x player_id=%d", protocol.map_name_string(&hello_map), hello.content_id, hello.player_id)
+		if net.local_server != nil {
+			net.state = .Loopback
+			log.infof("Started local loopback client/server session map=%s content_id=%08x player_id=%d", protocol.map_name_string(&hello_map), hello.content_id, hello.player_id)
+		} else {
+			net.state = .RemoteAccepted
+			log.infof("Server accepted network session map=%s content_id=%08x player_id=%d", protocol.map_name_string(&hello_map), hello.content_id, hello.player_id)
+		}
 	case .Server_Reject:
 		log.warnf("Server rejected network session reason=%v", packet.reject_reason)
 		game_net_client_destroy(net)
@@ -283,6 +207,22 @@ game_net_client_handle_packet :: proc(net: ^GameNetClient, scene: ^Scene, event:
 	case:
 		log.warnf("Unexpected server packet kind=%v", packet.header.kind)
 	}
+}
+
+game_net_client_drain_loopback_server :: proc(net: ^GameNetClient, scene: ^Scene) -> bool {
+	accepted := net.state == .Loopback
+	for {
+		packet, ok := net_server_poll_outgoing(net.local_server)
+		if !ok {
+			break
+		}
+		if packet.peer != LOOPBACK_SERVER_PEER {
+			continue
+		}
+		game_net_client_handle_server_packet(net, scene, packet.data[:packet.length], packet.channel)
+		accepted = accepted || net.state == .Loopback
+	}
+	return accepted
 }
 
 game_net_client_send_user_cmd :: proc(net: ^GameNetClient, scene: ^Scene, move: PlayerMoveInput) {
