@@ -30,6 +30,7 @@ Game_State :: struct {
 	reload_check_timer: f32,
 	scene: Scene,
 	net: GameNetClient,
+	launch_config: GameLaunchConfig,
 }
 
 g: ^Game_State
@@ -67,6 +68,7 @@ game_init :: proc(renderer: ^Renderer, fs: ^GameFS, config: rawptr) -> rawptr {
 	state.renderer = renderer
 	state.fs = fs
 	game_config := (cast(^GameLaunchConfig)config)^
+	state.launch_config = game_config
 	state.map_qpath = game_launch_config_map_qpath(game_config)
 	state.map_mtime, _ = engine.game_fs_modification_time(fs, state.map_qpath)
 	assets := scene_assets_load(fs, state.map_qpath)
@@ -128,6 +130,7 @@ game_before_hot_reload :: proc(game: rawptr) {
 game_hot_reloaded :: proc(mem: rawptr) {
 	g = cast(^Game_State)mem
 	scene_rebuild_after_hot_reload(&g.scene, g.fs, g.map_qpath)
+	game_net_client_init(&g.net, g.launch_config)
 }
 
 @(export)

@@ -68,7 +68,7 @@ def main() -> int:
     sub.add_parser("macos-app", help="Build a macOS .app bundle for Xcode Metal capture")
     run_parser = sub.add_parser("run", help="Run the normal executable")
     run_parser.add_argument("args", nargs=argparse.REMAINDER)
-    build_run_parser = sub.add_parser("build-and-run", help="Build then run as a local network client")
+    build_run_parser = sub.add_parser("build-and-run", help="Build then run the app")
     build_run_parser.add_argument("args", nargs=argparse.REMAINDER)
     sub.add_parser("server-build", help="Build the dedicated server")
     server_run_parser = sub.add_parser("server-run", help="Run the dedicated server")
@@ -302,34 +302,65 @@ def cmd_server_smoke(seconds: float) -> None:
 def cmd_net_smoke(seconds: float, port: int, map_name: str, content_id: int) -> None:
     cmd_build()
 
-    server = subprocess.Popen([str(server_path()), "--port", str(port), "--map", map_name, "--content-id", str(content_id)], cwd=ROOT)
+    server = subprocess.Popen(
+        [str(server_path()), "--port", str(port), "--map", map_name, "--content-id", str(content_id)],
+        cwd=ROOT,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+    )
     client = None
     try:
         time.sleep(0.2)
+        if server.poll() is not None:
+            server_output = collect_process_output(server)
+            raise SystemExit(f"net-smoke server exited early with {server.returncode}\n{server_output}")
         client = subprocess.Popen([
             str(app_path()),
             "--connect", "127.0.0.1",
             "--port", str(port),
             "--map", map_name,
             "--content-id", str(content_id),
-        ], cwd=ROOT)
-        time.sleep(seconds)
-        if client.poll() not in (None, 0):
-            raise subprocess.CalledProcessError(client.returncode, app_path())
+        ], cwd=ROOT, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+        deadline = time.monotonic() + seconds
+        while time.monotonic() < deadline:
+            if server.poll() is not None:
+                raise SystemExit(f"net-smoke server exited early with {server.returncode}")
+            if client.poll() not in (None, 0):
+                raise SystemExit(f"net-smoke client exited early with {client.returncode}")
+            time.sleep(0.05)
     finally:
-        if client is not None:
-            client.terminate()
-            try:
-                client.wait(timeout=5)
-            except subprocess.TimeoutExpired:
-                client.kill()
-                client.wait()
-        server.terminate()
-        try:
-            server.wait(timeout=5)
-        except subprocess.TimeoutExpired:
-            server.kill()
-            server.wait()
+        client_output = terminate_process_and_collect(client)
+        server_output = terminate_process_and_collect(server)
+
+    print(server_output, end="")
+    print(client_output, end="")
+    require_output_marker(server_output, "Client hello")
+    require_output_marker(server_output, "User cmd")
+    require_output_marker(client_output, "Server accepted network session")
+
+
+def require_output_marker(output: str, marker: str) -> None:
+    if marker not in output:
+        raise SystemExit(f"Expected smoke output marker not found: {marker}")
+
+
+def collect_process_output(process: subprocess.Popen) -> str:
+    output, _ = process.communicate(timeout=5)
+    return output or ""
+
+
+def terminate_process_and_collect(process: subprocess.Popen | None) -> str:
+    if process is None:
+        return ""
+    if process.poll() is None:
+        process.terminate()
+    try:
+        output, _ = process.communicate(timeout=5)
+    except subprocess.TimeoutExpired:
+        process.kill()
+        output, _ = process.communicate(timeout=5)
+    return output or ""
 
 
 def require_system_enet() -> None:
@@ -489,16 +520,13 @@ def cmd_check_shaders() -> None:
 
 def cmd_smoke(seconds: float) -> None:
     cmd_build()
-    process = subprocess.Popen([str(app_path())], cwd=ROOT)
+    process = subprocess.Popen([str(app_path())], cwd=ROOT, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
     try:
         time.sleep(seconds)
     finally:
-        process.terminate()
-        try:
-            process.wait(timeout=5)
-        except subprocess.TimeoutExpired:
-            process.kill()
-            process.wait()
+        output = terminate_process_and_collect(process)
+    print(output, end="")
+    require_output_marker(output, "Started local loopback client/server session")
 
 
 def cmd_trenchbroom_profile() -> None:

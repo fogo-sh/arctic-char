@@ -107,10 +107,15 @@ player_input_from_engine :: proc(input: InputState) -> (move: PlayerMoveInput, l
 }
 
 player_apply_look :: proc(player: ^PlayerController, input: PlayerLookInput) {
+	player.yaw, player.pitch = player_look_angles_after_input(player^, input)
+}
+
+player_look_angles_after_input :: proc(player: PlayerController, input: PlayerLookInput) -> (yaw, pitch: f32) {
 	spec := PLAYER_SPEC
-	player.yaw += input.look_delta.x * spec.mouse_sensitivity
-	player.pitch -= input.look_delta.y * spec.mouse_sensitivity
-	player.pitch = math.clamp(player.pitch, linalg.to_radians(f32(-89)), linalg.to_radians(f32(89)))
+	yaw = player.yaw + input.look_delta.x * spec.mouse_sensitivity
+	pitch = player.pitch - input.look_delta.y * spec.mouse_sensitivity
+	pitch = math.clamp(pitch, linalg.to_radians(f32(-89)), linalg.to_radians(f32(89)))
+	return
 }
 
 player_update :: proc(player: ^PlayerController, physics: ^PhysicsWorld, input: PlayerMoveInput, delta_time: f32) -> PlayerMoveResult {
