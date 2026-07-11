@@ -24,7 +24,7 @@ APP_NAME = "arctic-char"
 SERVER_NAME = "arctic-char-server"
 MACOS_BUNDLE_NAME = "ArcticChar"
 HOT_DIR = BUILD / "hot_reload"
-ODIN_TEST_PACKAGES = ["src/engine", "src/game", "src/protocol"]
+ODIN_TEST_PACKAGES = ["src/engine", "src/game", "src/protocol", "src/server"]
 DEFAULT_NET_PORT = "29001"
 DEFAULT_NET_MAP = "test"
 DEFAULT_NET_CONTENT_ID = "0"
@@ -354,6 +354,7 @@ def cmd_mp_test(seconds: float, port: str, map_name: str, content_id: str, no_bu
 
     common = ["--connect", "127.0.0.1", "--port", port, "--map", map_name, "--content-id", content_id]
     processes: list[subprocess.Popen] = []
+    capture_output = seconds > 0
 
     def request_shutdown(signum, frame):
         raise KeyboardInterrupt
@@ -361,15 +362,15 @@ def cmd_mp_test(seconds: float, port: str, map_name: str, content_id: str, no_bu
     old_sigint = signal.signal(signal.SIGINT, request_shutdown)
     old_sigterm = signal.signal(signal.SIGTERM, request_shutdown)
     try:
-        server = spawn_process([server_path(), "--port", port, "--map", map_name, "--content-id", content_id])
+        server = spawn_process([server_path(), "--port", port, "--map", map_name, "--content-id", content_id], capture_output=capture_output)
         processes.append(server)
         time.sleep(0.35)
 
-        client_a = spawn_process([app_path(), *common])
+        client_a = spawn_process([app_path(), *common], capture_output=capture_output)
         processes.append(client_a)
         time.sleep(0.5)
 
-        client_b = spawn_process([app_path(), *common])
+        client_b = spawn_process([app_path(), *common], capture_output=capture_output)
         processes.append(client_b)
 
         print("mp-test running: one server and two clients. Press Ctrl-C to stop.")
@@ -386,12 +387,28 @@ def cmd_mp_test(seconds: float, port: str, map_name: str, content_id: str, no_bu
     finally:
         signal.signal(signal.SIGINT, old_sigint)
         signal.signal(signal.SIGTERM, old_sigterm)
-        for process in reversed(processes):
-            terminate_process(process)
+        outputs = [terminate_process_and_collect(process) for process in reversed(processes)] if capture_output else []
+        if not capture_output:
+            for process in reversed(processes):
+                terminate_process(process)
+
+    if capture_output:
+        client_b_output, client_a_output, server_output = outputs
+        print(server_output, end="")
+        print(client_a_output, end="")
+        print(client_b_output, end="")
+        require_output_marker(server_output, "player=1")
+        require_output_marker(server_output, "player=2")
+        require_output_marker(client_a_output, "player_id=1")
+        require_output_marker(client_b_output, "player_id=2")
+        require_output_marker(client_a_output, "Remote player visible local=1 remote=2")
+        require_output_marker(client_b_output, "Remote player visible local=2 remote=1")
 
 
-def spawn_process(cmd: list[str | Path]) -> subprocess.Popen:
+def spawn_process(cmd: list[str | Path], *, capture_output: bool = False) -> subprocess.Popen:
     print("+ " + " ".join(str(part) for part in cmd))
+    if capture_output:
+        return subprocess.Popen([str(part) for part in cmd], cwd=ROOT, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
     return subprocess.Popen([str(part) for part in cmd], cwd=ROOT)
 
 

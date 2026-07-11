@@ -9,8 +9,8 @@ packages.
 
 - Use a server-authoritative client/server model.
 - Clients send compact player input commands to the server.
-- The server owns the authoritative scene, fixed-step simulation, Box3D world, and
-  spawn/despawn decisions.
+- The server owns the authoritative scene, 40 Hz fixed-step simulation, Box3D
+  world, and spawn/despawn decisions.
 - Clients render server snapshots with interpolation for remote objects.
 - Add local-player prediction and reconciliation after the first snapshot path is
   working.
@@ -485,10 +485,14 @@ diving directly into the id source trees.
    - Status: the real app can run with `--connect`, complete the handshake, and
      send `User_Cmd` packets built from real player input. The dedicated server
      now owns one shared headless real `Scene`, assigns accepted peers stable
-     player ids, resets each player to the map spawn on accept, applies commands
-     through `scene_update_from_user_cmd`, and broadcasts player snapshot packets.
-     Clients render remote players as non-physics Suzanne placeholders facing the
-     replicated yaw. Local-player reconciliation is still pending.
+     player ids in `Server_Hello`, resets each player to the map spawn on accept,
+     queues deduplicated user commands per session, drains queued commands in
+     sequence order on a 40 Hz server tick, and broadcasts full `Server_Snapshot`
+     packets independent of input arrival. Client input packets include recent
+     commands so dropped packets can be recovered, and snapshots include the last
+     processed command sequence for the receiving client. Clients render
+     non-camera players from canonical `Scene.players` as Suzanne placeholders
+     facing the replicated yaw. Local-player reconciliation is still pending.
 
 4. Snapshot interpolation.
    - Assign stable network ids to replicated objects.

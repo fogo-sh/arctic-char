@@ -105,6 +105,8 @@ Current findings:
   the generic engine physics wrapper.
 - Fixed stepping is owned by the scene/game update path. Do not advance Box3D
   opportunistically from rendering code.
+- The fixed gameplay/physics step is currently 40 Hz. Dedicated server simulation
+  should advance from its own fixed tick, not once per received input packet.
 - Physics transforms crossing into renderer data should use explicit conversion
   helpers, e.g. `physics_body_matrix`.
 
@@ -122,6 +124,9 @@ Current findings:
 - The server owns authoritative scene simulation and Box3D state. Clients send
   inputs and render snapshots, adding local-player prediction only after the
   basic authoritative snapshot path works.
+- Dedicated servers assign player ids, queue deduplicated user commands per
+  accepted session, drain queued commands in sequence order on the 40 Hz server
+  tick, and broadcast full player snapshots independently of input arrival.
 - Local play should not have an offline simulation fork. With no `--connect`, the
   app uses an in-process loopback session: client input is serialized as
   `User_Cmd`, copied through bounded in-memory packet queues, parsed by the

@@ -13,6 +13,13 @@ MAX_OBJECTS :: 2048
 MAX_PLAYERS :: 32
 LOCAL_PLAYER_ID :: u32(1)
 
+PlayerTickInput :: struct {
+	player_id: u32,
+	move:      PlayerMoveInput,
+	yaw:       f32,
+	pitch:     f32,
+}
+
 Scene :: struct {
 	allocator:      runtime.Allocator,
 	physics:        PhysicsWorld,
@@ -50,7 +57,6 @@ SceneProfile :: struct {
 ObjectKind :: enum {
 	Map,
 	Suzanne,
-	RemotePlayer,
 	Spawner,
 	Trigger,
 }
@@ -110,7 +116,6 @@ Object :: struct {
 	physics:   PhysicsObject,
 	think:     ThinkObject,
 	touch:     TouchObject,
-	net_id:    u32,
 }
 
 scene_create :: proc(
@@ -222,7 +227,7 @@ scene_rebuild_after_hot_reload :: proc(scene: ^Scene, fs: ^GameFS, map_qpath: st
 			b3.Body_SetLinearVelocity(body, object.physics.linear_velocity)
 			b3.Body_SetAngularVelocity(body, object.physics.angular_velocity)
 			object.physics.body = body
-		case .Map, .RemotePlayer:
+		case .Map:
 			object.physics = {
 				enabled = false,
 			}
@@ -275,11 +280,7 @@ scene_update :: proc(
 }
 
 scene_update_from_user_cmd :: proc(scene: ^Scene, player_id: u32, cmd: protocol.User_Cmd, delta_time: f32) {
-	move := PlayerMoveInput{
-		move_forward = cmd.move_forward,
-		move_right = cmd.move_right,
-		jump_held = (cmd.buttons & protocol.BUTTON_JUMP) != 0,
-	}
+	move := player_move_input_from_user_cmd(cmd)
 	player := scene_player(scene, player_id)
 	if player == nil {
 		return
@@ -287,6 +288,42 @@ scene_update_from_user_cmd :: proc(scene: ^Scene, player_id: u32, cmd: protocol.
 	player.yaw = cmd.yaw
 	player.pitch = cmd.pitch
 	scene_update(scene, player_id, move, {}, delta_time)
+}
+
+player_move_input_from_user_cmd :: proc(cmd: protocol.User_Cmd) -> PlayerMoveInput {
+	return {
+		move_forward = cmd.move_forward,
+		move_right = cmd.move_right,
+		jump_held = (cmd.buttons & protocol.BUTTON_JUMP) != 0,
+	}
+}
+
+scene_fixed_update_players :: proc(scene: ^Scene, inputs: []PlayerTickInput, step_time: f32) {
+	think_start := scene_profile_counter_now()
+	scene_run_think(scene, step_time)
+	scene.profile.think_ms += scene_profile_elapsed_ms(think_start)
+
+	player_start := scene_profile_counter_now()
+	for input in inputs {
+		player := scene_player(scene, input.player_id)
+		if player == nil {
+			continue
+		}
+		player.yaw = input.yaw
+		player.pitch = input.pitch
+		move := player_update(player, &scene.physics, input.move, step_time)
+		touch_start := scene_profile_counter_now()
+		scene_touch_player(scene, player, move)
+		scene.profile.touch_ms += scene_profile_elapsed_ms(touch_start)
+	}
+	scene.profile.player_ms += scene_profile_elapsed_ms(player_start)
+
+	physics_start := scene_profile_counter_now()
+	engine.physics_step(&scene.physics)
+	scene.profile.box3d_step_ms += scene_profile_elapsed_ms(physics_start)
+	scene.profile.box3d = b3.World_GetProfile(scene.physics.id)
+	scene.profile.counters = b3.World_GetCounters(scene.physics.id)
+	scene.profile.fixed_steps += 1
 }
 
 scene_fixed_update :: proc(scene: ^Scene, player_id: u32, input: PlayerMoveInput, step_time: f32) {
@@ -352,31 +389,9 @@ scene_spawn_suzanne :: proc(scene: ^Scene, position: Vec3) -> bool {
 }
 
 scene_upsert_remote_player :: proc(scene: ^Scene, player_id: u32, position: Vec3, yaw: f32) {
-	for &object in scene.objects {
-		if object.kind == .RemotePlayer && object.net_id == player_id {
-			object.transform.position = position
-			object.transform.yaw = yaw
-			object.render.visible = true
-			return
-		}
-	}
-
-	if len(scene.objects) >= cap(scene.objects) {
-		log.warnf("Cannot add remote player %d: object capacity reached", player_id)
-		return
-	}
-
-	_ = scene_add_object(
-		scene,
-		Object {
-			name = "RemotePlayer",
-			kind = .RemotePlayer,
-			net_id = player_id,
-			transform = {position = position, yaw = yaw},
-			render = {mesh = scene.suzanne_mesh, visible = true},
-			physics = {enabled = false},
-		},
-	)
+	player := scene_ensure_player(scene, player_id, position, yaw)
+	player.position = position
+	player.yaw = yaw
 }
 
 scene_add_object :: proc(scene: ^Scene, object: Object) -> ObjectId {
@@ -475,6 +490,13 @@ scene_collect_render_items :: proc(scene: ^Scene, items: ^[dynamic]RenderItem) -
 		}
 		model := scene_object_model_matrix(&object)
 		append(items, RenderItem{mesh = object.render.mesh, model = model})
+	}
+	for &player in scene.players {
+		if player.id == scene.camera_player_id {
+			continue
+		}
+		model := scene_transform_matrix({position = player.controller.position, yaw = player.controller.yaw})
+		append(items, RenderItem{mesh = scene.suzanne_mesh, model = model})
 	}
 	return items[:]
 }
