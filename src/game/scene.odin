@@ -12,6 +12,8 @@ SPAWN_INTERVAL :: f32(0.12)
 MAX_OBJECTS :: 2048
 MAX_PLAYERS :: 32
 LOCAL_PLAYER_ID :: u32(1)
+REMOTE_PLAYER_SAMPLE_CAPACITY :: 8
+REMOTE_INTERPOLATION_DELAY_TICKS :: u32(4)
 
 PlayerTickInput :: struct {
 	player_id: u32,
@@ -33,6 +35,7 @@ Scene :: struct {
 	map_mesh:       MeshHandle,
 	next_object_id: ObjectId,
 	accumulator:    f32,
+	remote_render_tick: u32,
 	profile:        SceneProfile,
 	profile_log_timer: f32,
 }
@@ -40,6 +43,14 @@ Scene :: struct {
 ScenePlayer :: struct {
 	id:         u32,
 	controller: PlayerController,
+	remote_sample_count: int,
+	remote_samples: [REMOTE_PLAYER_SAMPLE_CAPACITY]RemotePlayerSample,
+}
+
+RemotePlayerSample :: struct {
+	server_tick: u32,
+	position:    Vec3,
+	yaw:         f32,
 }
 
 SceneProfile :: struct {
@@ -148,6 +159,12 @@ scene_add_player :: proc(scene: ^Scene, player_id: u32, position: Vec3, yaw: f32
 	return &scene.players[len(scene.players) - 1].controller
 }
 
+scene_add_player_record :: proc(scene: ^Scene, player_id: u32, position: Vec3, yaw: f32) -> ^ScenePlayer {
+	assert(len(scene.players) < cap(scene.players))
+	append(&scene.players, ScenePlayer{id = player_id, controller = player_create(position, yaw)})
+	return &scene.players[len(scene.players) - 1]
+}
+
 scene_ensure_player :: proc(scene: ^Scene, player_id: u32, position := PLAYER_SPEC.spawn_position, yaw: f32 = 0) -> ^PlayerController {
 	if player := scene_player(scene, player_id); player != nil {
 		return player
@@ -155,10 +172,18 @@ scene_ensure_player :: proc(scene: ^Scene, player_id: u32, position := PLAYER_SP
 	return scene_add_player(scene, player_id, position, yaw)
 }
 
+scene_ensure_player_record :: proc(scene: ^Scene, player_id: u32, position := PLAYER_SPEC.spawn_position, yaw: f32 = 0) -> ^ScenePlayer {
+	if player := scene_player_record(scene, player_id); player != nil {
+		return player
+	}
+	return scene_add_player_record(scene, player_id, position, yaw)
+}
+
 scene_reset_player :: proc(scene: ^Scene, player_id: u32, position := PLAYER_SPEC.spawn_position, yaw: f32 = 0) -> ^PlayerController {
-	player := scene_ensure_player(scene, player_id, position, yaw)
-	player^ = player_create(position, yaw)
-	return player
+	player := scene_ensure_player_record(scene, player_id, position, yaw)
+	player.controller = player_create(position, yaw)
+	player.remote_sample_count = 0
+	return &player.controller
 }
 
 scene_reset_player_to_spawn :: proc(scene: ^Scene, player_id: u32) -> ^PlayerController {
@@ -166,9 +191,16 @@ scene_reset_player_to_spawn :: proc(scene: ^Scene, player_id: u32) -> ^PlayerCon
 }
 
 scene_player :: proc(scene: ^Scene, player_id: u32) -> ^PlayerController {
+	if player := scene_player_record(scene, player_id); player != nil {
+		return &player.controller
+	}
+	return nil
+}
+
+scene_player_record :: proc(scene: ^Scene, player_id: u32) -> ^ScenePlayer {
 	for &player in scene.players {
 		if player.id == player_id {
-			return &player.controller
+			return &player
 		}
 	}
 	return nil
@@ -244,6 +276,7 @@ scene_reload_level :: proc(scene: ^Scene, level: ^LevelAsset) {
 	scene.player_spawn_yaw = level.player_spawn.yaw
 	for &player in scene.players {
 		player.controller = player_create(scene.player_spawn_position, scene.player_spawn_yaw)
+		player.remote_sample_count = 0
 	}
 	scene_clear_level_entities(scene)
 	scene_spawn_level_entities(scene, &level.source)
@@ -394,6 +427,85 @@ scene_upsert_remote_player :: proc(scene: ^Scene, player_id: u32, position: Vec3
 	player.yaw = yaw
 }
 
+scene_upsert_remote_player_sample :: proc(scene: ^Scene, player_id: u32, position: Vec3, yaw: f32, server_tick: u32) {
+	player := scene_ensure_player_record(scene, player_id, position, yaw)
+	player.controller.position = position
+	player.controller.yaw = yaw
+	scene_player_add_remote_sample(player, {server_tick = server_tick, position = position, yaw = yaw})
+}
+
+scene_player_add_remote_sample :: proc(player: ^ScenePlayer, sample: RemotePlayerSample) {
+	for i in 0..<player.remote_sample_count {
+		if player.remote_samples[i].server_tick == sample.server_tick {
+			player.remote_samples[i] = sample
+			return
+		}
+	}
+
+	if player.remote_sample_count >= REMOTE_PLAYER_SAMPLE_CAPACITY {
+		copy(player.remote_samples[:], player.remote_samples[1:])
+		player.remote_sample_count -= 1
+	}
+
+	insert_at := player.remote_sample_count
+	for insert_at > 0 && player.remote_samples[insert_at - 1].server_tick > sample.server_tick {
+		player.remote_samples[insert_at] = player.remote_samples[insert_at - 1]
+		insert_at -= 1
+	}
+	player.remote_samples[insert_at] = sample
+	player.remote_sample_count += 1
+}
+
+scene_player_render_transform :: proc(scene: ^Scene, player: ^ScenePlayer) -> Transform {
+	if player.id == scene.camera_player_id || player.remote_sample_count == 0 {
+		return {position = player.controller.position, yaw = player.controller.yaw}
+	}
+	return scene_player_interpolated_transform(player, scene.remote_render_tick)
+}
+
+scene_player_interpolated_transform :: proc(player: ^ScenePlayer, render_tick: u32) -> Transform {
+	if player.remote_sample_count == 0 {
+		return {position = player.controller.position, yaw = player.controller.yaw}
+	}
+	if player.remote_sample_count == 1 || render_tick <= player.remote_samples[0].server_tick {
+		sample := player.remote_samples[0]
+		return {position = sample.position, yaw = sample.yaw}
+	}
+
+	last_index := player.remote_sample_count - 1
+	if render_tick >= player.remote_samples[last_index].server_tick {
+		sample := player.remote_samples[last_index]
+		return {position = sample.position, yaw = sample.yaw}
+	}
+
+	for i in 0..<last_index {
+		from := player.remote_samples[i]
+		to := player.remote_samples[i + 1]
+		if render_tick >= from.server_tick && render_tick <= to.server_tick {
+			span := to.server_tick - from.server_tick
+			if span == 0 {
+				return {position = to.position, yaw = to.yaw}
+			}
+			t := f32(render_tick - from.server_tick) / f32(span)
+			return {
+				position = scene_lerp_vec3(from.position, to.position, t),
+				yaw = scene_lerp_f32(from.yaw, to.yaw, t),
+			}
+		}
+	}
+
+	sample := player.remote_samples[last_index]
+	return {position = sample.position, yaw = sample.yaw}
+}
+
+scene_lerp_vec3 :: proc(a, b: Vec3, t: f32) -> Vec3 {
+	return a + (b - a) * t
+}
+
+scene_lerp_f32 :: proc(a, b: f32, t: f32) -> f32 {
+	return a + (b - a) * t
+}
+
 scene_add_object :: proc(scene: ^Scene, object: Object) -> ObjectId {
 	assert(len(scene.objects) < cap(scene.objects))
 	id := scene.next_object_id
@@ -495,7 +607,7 @@ scene_collect_render_items :: proc(scene: ^Scene, items: ^[dynamic]RenderItem) -
 		if player.id == scene.camera_player_id {
 			continue
 		}
-		model := scene_transform_matrix({position = player.controller.position, yaw = player.controller.yaw})
+		model := scene_transform_matrix(scene_player_render_transform(scene, &player))
 		append(items, RenderItem{mesh = scene.suzanne_mesh, model = model})
 	}
 	return items[:]

@@ -24,6 +24,8 @@ GameNetClient :: struct {
 	command_sequence: u32,
 	client_tick:     u32,
 	last_server_acked_command: u32,
+	last_snapshot_sequence: u32,
+	has_snapshot:    bool,
 	command_history: [CLIENT_COMMAND_HISTORY]protocol.User_Cmd,
 	seen_remote_players: [protocol.MAX_SNAPSHOT_PLAYERS + 1]bool,
 	receive_buffer:  [protocol.MAX_PACKET_SIZE]byte,
@@ -302,6 +304,17 @@ game_net_client_send_user_cmd :: proc(net: ^GameNetClient, scene: ^Scene, move: 
 }
 
 game_net_client_apply_snapshot :: proc(net: ^GameNetClient, scene: ^Scene, snapshot: protocol.Server_Snapshot) {
+	if net.has_snapshot && snapshot.sequence <= net.last_snapshot_sequence {
+		return
+	}
+	net.has_snapshot = true
+	net.last_snapshot_sequence = snapshot.sequence
+	if snapshot.server_tick > REMOTE_INTERPOLATION_DELAY_TICKS {
+		scene.remote_render_tick = snapshot.server_tick - REMOTE_INTERPOLATION_DELAY_TICKS
+	} else {
+		scene.remote_render_tick = 0
+	}
+
 	if snapshot.last_processed_user_cmd > net.last_server_acked_command {
 		net.last_server_acked_command = snapshot.last_processed_user_cmd
 	}
@@ -314,11 +327,12 @@ game_net_client_apply_snapshot :: proc(net: ^GameNetClient, scene: ^Scene, snaps
 			net.seen_remote_players[state.player_id] = true
 			log.infof("Remote player visible local=%d remote=%d", net.local_player_id, state.player_id)
 		}
-		scene_upsert_remote_player(
+		scene_upsert_remote_player_sample(
 			scene,
 			state.player_id,
 			{state.position.x, state.position.y, state.position.z},
 			state.yaw,
+			snapshot.server_tick,
 		)
 	}
 }

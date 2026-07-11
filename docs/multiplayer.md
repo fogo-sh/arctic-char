@@ -490,14 +490,18 @@ diving directly into the id source trees.
      sequence order on a 40 Hz server tick, and broadcasts full `Server_Snapshot`
      packets independent of input arrival. Client input packets include recent
      commands so dropped packets can be recovered, and snapshots include the last
-     processed command sequence for the receiving client. Clients render
-     non-camera players from canonical `Scene.players` as Suzanne placeholders
-     facing the replicated yaw. Local-player reconciliation is still pending.
+     processed command sequence for the receiving client. Clients reject stale or
+     duplicate snapshot sequences and render non-camera players from canonical
+     `Scene.players` using a small remote interpolation buffer, currently delayed
+     four server ticks. Local-player reconciliation is still pending.
 
 4. Snapshot interpolation.
-   - Assign stable network ids to replicated objects.
-   - Interpolate remote players and selected dynamic props from snapshot buffers.
-   - Bound snapshot size before attempting to replicate every stress-test prop.
+    - Assign stable network ids to replicated objects.
+    - Interpolate remote players and selected dynamic props from snapshot buffers.
+    - Bound snapshot size before attempting to replicate every stress-test prop.
+   - Status: remote player snapshots are buffered per `ScenePlayer` and rendered
+     behind the latest received server tick. Duplicate/stale snapshots are ignored
+     by sequence. Dynamic props are still deferred.
 
 5. Local prediction and reconciliation.
    - Predict only the local player controller first.
