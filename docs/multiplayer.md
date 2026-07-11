@@ -467,6 +467,10 @@ diving directly into the id source trees.
   snapshots so the client can discard old inputs.
 - Keep interpolation and prediction buffers bounded and inspectable in the debug
   HUD.
+- Keep network identity distinct from scene storage identity. `NetId` is the
+  protocol/replication id; `ObjectId` is local scene storage only.
+- Keep replicated transform buffering in the replication layer so players, props,
+  trains, and later movers can share the same sample/interpolation path.
 - Start with player-only replication, then add selected dynamic props after packet
   size and CPU costs are visible.
 - Follow the Source-style authority split: server-side think/physics owns gameplay
@@ -556,7 +560,9 @@ diving directly into the id source trees.
      props while skipping unchanged sleeping props. `prop_suzanne` supports a
      `net_policy` key; the default `server` policy replicates as authoritative
      state, while `client` marks presentation-only props that are excluded from
-     server snapshots. A richer Source-style debris policy is still pending.
+     server snapshots. Prop snapshots use `NetId`, not local `ObjectId`, and
+     replicated transform sample storage lives in `src/game/replication.odin`.
+     A richer Source-style debris policy is still pending.
 
 7. Moving platforms and trains.
    - Source's first useful model is classic `func_train` plus `path_corner`, not

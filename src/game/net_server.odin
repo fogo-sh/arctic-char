@@ -36,7 +36,7 @@ NetServerSession :: struct {
 
 NetServerKnownProp :: struct {
 	active: bool,
-	object_id: u32,
+	net_id: protocol.NetId,
 	state: protocol.Server_Prop_State,
 	last_sent_tick: u32,
 }
@@ -300,9 +300,9 @@ net_server_add_prop_delta :: proc(server: ^NetServer, session: ^NetServerSession
 		if !known.active {
 			continue
 		}
-		if !net_server_scene_has_replicated_prop(server.scene, known.object_id) {
+		if !net_server_scene_has_replicated_prop(server.scene, known.net_id) {
 			if snapshot.removed_prop_count < protocol.MAX_REMOVED_PROPS {
-				snapshot.removed_prop_ids[snapshot.removed_prop_count] = known.object_id
+				snapshot.removed_prop_ids[snapshot.removed_prop_count] = known.net_id
 				snapshot.removed_prop_count += 1
 			}
 			known = {}
@@ -314,7 +314,7 @@ net_server_add_prop_delta :: proc(server: ^NetServer, session: ^NetServerSession
 			continue
 		}
 		state, awake := net_server_prop_state_from_object(&object)
-		known := net_server_known_prop(session, state.object_id)
+		known := net_server_known_prop(session, state.net_id)
 		should_send := known == nil || awake || server.server_tick - known.last_sent_tick >= NET_SERVER_PROP_REFRESH_TICKS
 		if known != nil && !should_send {
 			should_send = net_server_prop_state_changed(known.state, state)
@@ -329,12 +329,12 @@ net_server_add_prop_delta :: proc(server: ^NetServer, session: ^NetServerSession
 }
 
 net_server_object_replicates_as_prop :: proc(object: ^Object) -> bool {
-	return object.kind == .Suzanne && object.prop_authority == .ServerAuthoritative
+	return object.kind == .Suzanne && object.replica.kind == .Suzanne && object.replica.authority == .ServerAuthoritative && object.replica.net_id != 0
 }
 
-net_server_scene_has_replicated_prop :: proc(scene: ^Scene, object_id: u32) -> bool {
+net_server_scene_has_replicated_prop :: proc(scene: ^Scene, net_id: protocol.NetId) -> bool {
 	for &object in scene.objects {
-		if u32(object.id) == object_id && net_server_object_replicates_as_prop(&object) {
+		if object.replica.net_id == net_id && net_server_object_replicates_as_prop(&object) {
 			return true
 		}
 	}
@@ -351,7 +351,7 @@ net_server_prop_state_from_object :: proc(object: ^Object) -> (state: protocol.S
 		awake = b3.Body_IsAwake(object.physics.body)
 	}
 	return {
-		object_id = u32(object.id),
+		net_id = object.replica.net_id,
 		position = position,
 		rotation = rotation,
 	}, awake
@@ -366,9 +366,9 @@ net_server_prop_state_changed :: proc(a, b: protocol.Server_Prop_State) -> bool 
 	return rotation_delta > NET_SERVER_PROP_ROTATION_EPSILON
 }
 
-net_server_known_prop :: proc(session: ^NetServerSession, object_id: u32) -> ^NetServerKnownProp {
+net_server_known_prop :: proc(session: ^NetServerSession, net_id: protocol.NetId) -> ^NetServerKnownProp {
 	for &known in session.known_props {
-		if known.active && known.object_id == object_id {
+		if known.active && known.net_id == net_id {
 			return &known
 		}
 	}
@@ -376,14 +376,14 @@ net_server_known_prop :: proc(session: ^NetServerSession, object_id: u32) -> ^Ne
 }
 
 net_server_store_known_prop :: proc(session: ^NetServerSession, state: protocol.Server_Prop_State, server_tick: u32) {
-	if known := net_server_known_prop(session, state.object_id); known != nil {
+	if known := net_server_known_prop(session, state.net_id); known != nil {
 		known.state = state
 		known.last_sent_tick = server_tick
 		return
 	}
 	for &known in session.known_props {
 		if !known.active {
-			known = {active = true, object_id = state.object_id, state = state, last_sent_tick = server_tick}
+			known = {active = true, net_id = state.net_id, state = state, last_sent_tick = server_tick}
 			return
 		}
 	}

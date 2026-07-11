@@ -334,7 +334,7 @@ game_net_client_apply_snapshot :: proc(net: ^GameNetClient, scene: ^Scene, snaps
 		)
 	}
 	for i in 0..<int(snapshot.removed_prop_count) {
-		scene_remove_replicated_prop(scene, ObjectId(snapshot.removed_prop_ids[i]))
+		scene_remove_replicated_prop(scene, snapshot.removed_prop_ids[i])
 	}
 	for i in 0..<int(snapshot.prop_count) {
 		state := snapshot.props[i]
@@ -345,7 +345,7 @@ game_net_client_apply_snapshot :: proc(net: ^GameNetClient, scene: ^Scene, snaps
 		rotation.w = state.rotation.w
 		scene_upsert_replicated_suzanne(
 			scene,
-			ObjectId(state.object_id),
+			state.net_id,
 			{state.position.x, state.position.y, state.position.z},
 			rotation,
 			snapshot.server_tick,

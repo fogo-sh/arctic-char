@@ -219,7 +219,7 @@ test_server_snapshot_round_trips :: proc(t: ^testing.T) {
 		ground_normal = {0.1, 0.8, -0.2},
 	}
 	written.props[0] = Server_Prop_State{
-		object_id = 42,
+		net_id = 42,
 		position = {8, 9, 10},
 		rotation = {0.1, 0.2, 0.3, 0.9},
 	}
@@ -250,7 +250,7 @@ test_server_snapshot_round_trips :: proc(t: ^testing.T) {
 	testing.expect_value(t, parsed.snapshot.players[1].pitch, written.players[1].pitch)
 	testing.expect_value(t, parsed.snapshot.players[1].grounded, written.players[1].grounded)
 	testing.expect_value(t, parsed.snapshot.players[1].ground_normal, written.players[1].ground_normal)
-	testing.expect_value(t, parsed.snapshot.props[0].object_id, written.props[0].object_id)
+	testing.expect_value(t, parsed.snapshot.props[0].net_id, written.props[0].net_id)
 	testing.expect_value(t, parsed.snapshot.props[0].position, written.props[0].position)
 	testing.expect_value(t, parsed.snapshot.props[0].rotation, written.props[0].rotation)
 	testing.expect_value(t, parsed.snapshot.removed_prop_ids[0], written.removed_prop_ids[0])

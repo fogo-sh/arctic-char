@@ -40,6 +40,8 @@ Reject_Reason :: enum u8 {
 
 BUTTON_JUMP :: u16(1 << 0)
 
+NetId :: distinct u32
+
 Header :: struct {
 	magic:          u32,
 	version:        u16,
@@ -92,7 +94,7 @@ Server_Player_State :: struct {
 }
 
 Server_Prop_State :: struct {
-	object_id: u32,
+	net_id:   NetId,
 	position:  [3]f32,
 	rotation:  [4]f32,
 }
@@ -106,7 +108,7 @@ Server_Snapshot :: struct {
 	removed_prop_count: u16,
 	players:     [MAX_SNAPSHOT_PLAYERS]Server_Player_State,
 	props:       [MAX_SNAPSHOT_PROPS]Server_Prop_State,
-	removed_prop_ids: [MAX_REMOVED_PROPS]u32,
+	removed_prop_ids: [MAX_REMOVED_PROPS]NetId,
 }
 
 Parse_Error :: enum {
@@ -283,7 +285,7 @@ write_server_snapshot :: proc(buffer: []byte, snapshot: Server_Snapshot) -> (pac
 		write_server_prop_state_payload(&w, snapshot.props[i]) or_return
 	}
 	for i in 0..<int(snapshot.removed_prop_count) {
-		write_u32(&w, snapshot.removed_prop_ids[i]) or_return
+		write_u32(&w, u32(snapshot.removed_prop_ids[i])) or_return
 	}
 	return writer_bytes(&w), w.err == .None
 }
@@ -433,8 +435,10 @@ parse_server_snapshot_payload :: proc(packet: []byte, header: Header) -> (snapsh
 		if !ok do return {}, .Bad_Payload
 	}
 	for i in 0..<int(snapshot.removed_prop_count) {
-		snapshot.removed_prop_ids[i], ok = read_u32(&r)
+		removed_id: u32
+		removed_id, ok = read_u32(&r)
 		if !ok do return {}, .Bad_Payload
+		snapshot.removed_prop_ids[i] = NetId(removed_id)
 	}
 	if !ok || reader_remaining(&r) != 0 do return {}, .Bad_Payload
 	return snapshot, .None
@@ -519,7 +523,7 @@ read_server_player_state_payload :: proc(r: ^Packet_Reader) -> (state: Server_Pl
 }
 
 write_server_prop_state_payload :: proc(w: ^Packet_Writer, state: Server_Prop_State) -> bool {
-	write_u32(w, state.object_id) or_return
+	write_u32(w, u32(state.net_id)) or_return
 	write_f32(w, state.position.x) or_return
 	write_f32(w, state.position.y) or_return
 	write_f32(w, state.position.z) or_return
@@ -531,8 +535,10 @@ write_server_prop_state_payload :: proc(w: ^Packet_Writer, state: Server_Prop_St
 }
 
 read_server_prop_state_payload :: proc(r: ^Packet_Reader) -> (state: Server_Prop_State, ok: bool) {
-	state.object_id, ok = read_u32(r)
+	net_id: u32
+	net_id, ok = read_u32(r)
 	if !ok do return {}, false
+	state.net_id = NetId(net_id)
 	state.position.x, ok = read_f32(r)
 	if !ok do return {}, false
 	state.position.y, ok = read_f32(r)

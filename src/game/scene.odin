@@ -13,7 +13,6 @@ MAX_OBJECTS :: 2048
 MAX_PLAYERS :: 32
 LOCAL_PLAYER_ID :: u32(1)
 REMOTE_PLAYER_SAMPLE_CAPACITY :: 8
-REPLICATED_PROP_SAMPLE_CAPACITY :: 8
 REMOTE_INTERPOLATION_DELAY_MS :: 100
 REMOTE_INTERPOLATION_DELAY_SECONDS :: f32(REMOTE_INTERPOLATION_DELAY_MS) / 1000.0
 REMOTE_INTERPOLATION_DELAY_TICKS :: u32((REMOTE_INTERPOLATION_DELAY_MS * NET_SERVER_TICK_HZ + 999) / 1000)
@@ -54,17 +53,6 @@ RemotePlayerSample :: struct {
 	server_tick: u32,
 	position:    Vec3,
 	yaw:         f32,
-}
-
-ReplicatedPropAuthority :: enum {
-	ServerAuthoritative,
-	ClientOnly,
-}
-
-ReplicatedPropSample :: struct {
-	server_tick: u32,
-	position:    Vec3,
-	rotation:    linalg.Quaternionf32,
 }
 
 SceneProfile :: struct {
@@ -142,10 +130,7 @@ Object :: struct {
 	physics:   PhysicsObject,
 	think:     ThinkObject,
 	touch:     TouchObject,
-	prop_authority: ReplicatedPropAuthority,
-	prop_sample_count: int,
-	prop_samples: [REPLICATED_PROP_SAMPLE_CAPACITY]ReplicatedPropSample,
-	last_replicated_tick: u32,
+	replica:   ReplicatedObject,
 }
 
 scene_create :: proc(
@@ -431,84 +416,10 @@ scene_spawn_suzanne :: proc(scene: ^Scene, position: Vec3, authority := Replicat
 				sync_transform = true,
 				angular_velocity = scene_physics_suzanne_angular_velocity(i),
 			},
-			prop_authority = authority,
+			replica = {kind = .Suzanne, authority = authority},
 		},
 	)
 	return true
-}
-
-	scene_upsert_replicated_suzanne :: proc(scene: ^Scene, object_id: ObjectId, position: Vec3, rotation: linalg.Quaternionf32, server_tick: u32) {
-	if object := scene_object(scene, object_id); object != nil {
-		if b3.IS_NON_NULL(object.physics.body) {
-			b3.DestroyBody(object.physics.body)
-		}
-		object.kind = .Suzanne
-		object.transform.position = position
-		object.render_rotation = rotation
-		object.render.mesh = scene.suzanne_mesh
-		object.render.visible = true
-		object.physics = {enabled = false}
-		object.prop_authority = .ServerAuthoritative
-		object.last_replicated_tick = server_tick
-		scene_object_add_prop_sample(object, {server_tick = server_tick, position = position, rotation = rotation})
-		return
-	}
-
-	if len(scene.objects) >= cap(scene.objects) {
-		return
-	}
-	object := Object{
-		id = object_id,
-		name = "Suzanne",
-		kind = .Suzanne,
-		transform = {position = position},
-		render_rotation = rotation,
-		render = {mesh = scene.suzanne_mesh, visible = true},
-		physics = {enabled = false},
-		prop_authority = .ServerAuthoritative,
-		prop_sample_count = 1,
-		last_replicated_tick = server_tick,
-	}
-	object.prop_samples[0] = {server_tick = server_tick, position = position, rotation = rotation}
-	append(&scene.objects, object)
-	if u32(object_id) >= u32(scene.next_object_id) {
-		scene.next_object_id = ObjectId(u32(object_id) + 1)
-	}
-}
-
-scene_remove_replicated_prop :: proc(scene: ^Scene, object_id: ObjectId) {
-	for &object, index in scene.objects {
-		if object.id != object_id {
-			continue
-		}
-		if object.physics.enabled && b3.IS_NON_NULL(object.physics.body) {
-			b3.DestroyBody(object.physics.body)
-		}
-		ordered_remove(&scene.objects, index)
-		return
-	}
-}
-
-scene_object_add_prop_sample :: proc(object: ^Object, sample: ReplicatedPropSample) {
-	for i in 0..<object.prop_sample_count {
-		if object.prop_samples[i].server_tick == sample.server_tick {
-			object.prop_samples[i] = sample
-			return
-		}
-	}
-
-	if object.prop_sample_count >= REPLICATED_PROP_SAMPLE_CAPACITY {
-		copy(object.prop_samples[:], object.prop_samples[1:])
-		object.prop_sample_count -= 1
-	}
-
-	insert_at := object.prop_sample_count
-	for insert_at > 0 && object.prop_samples[insert_at - 1].server_tick > sample.server_tick {
-		object.prop_samples[insert_at] = object.prop_samples[insert_at - 1]
-		insert_at -= 1
-	}
-	object.prop_samples[insert_at] = sample
-	object.prop_sample_count += 1
 }
 
 scene_upsert_remote_player :: proc(scene: ^Scene, player_id: u32, position: Vec3, yaw: f32) {
@@ -602,6 +513,9 @@ scene_add_object :: proc(scene: ^Scene, object: Object) -> ObjectId {
 	scene.next_object_id = ObjectId(u32(scene.next_object_id) + 1)
 	stored := object
 	stored.id = id
+	if stored.replica.net_id == 0 && stored.replica.kind != .None && stored.replica.authority == .ServerAuthoritative {
+		stored.replica.net_id = protocol.NetId(u32(id))
+	}
 	append(&scene.objects, stored)
 	return id
 }
@@ -740,42 +654,10 @@ scene_object_model_matrix :: proc(scene: ^Scene, object: ^Object) -> matrix[4, 4
 		return engine.physics_body_matrix(object.physics.body)
 	}
 	if object.kind == .Suzanne {
-		position, rotation := scene_object_replicated_prop_render_transform(object, scene.remote_render_tick)
+		position, rotation := replicated_transform_at_tick(&object.replica.transform_buffer, object.transform.position, object.render_rotation, scene.remote_render_tick)
 		return linalg.matrix4_from_trs_f32(position, rotation, {1, 1, 1})
 	}
 	return scene_transform_matrix(object.transform)
-}
-
-scene_object_replicated_prop_render_transform :: proc(object: ^Object, render_tick: u32) -> (position: Vec3, rotation: linalg.Quaternionf32) {
-	if object.prop_sample_count == 0 {
-		return object.transform.position, object.render_rotation
-	}
-	if object.prop_sample_count == 1 || render_tick <= object.prop_samples[0].server_tick {
-		sample := object.prop_samples[0]
-		return sample.position, sample.rotation
-	}
-
-	last_index := object.prop_sample_count - 1
-	if render_tick >= object.prop_samples[last_index].server_tick {
-		sample := object.prop_samples[last_index]
-		return sample.position, sample.rotation
-	}
-
-	for i in 0..<last_index {
-		from := object.prop_samples[i]
-		to := object.prop_samples[i + 1]
-		if render_tick >= from.server_tick && render_tick <= to.server_tick {
-			span := to.server_tick - from.server_tick
-			if span == 0 {
-				return to.position, to.rotation
-			}
-			t := f32(render_tick - from.server_tick) / f32(span)
-			return scene_lerp_vec3(from.position, to.position, t), linalg.quaternion_slerp(from.rotation, to.rotation, t)
-		}
-	}
-
-	sample := object.prop_samples[last_index]
-	return sample.position, sample.rotation
 }
 
 scene_transform_matrix :: proc(transform: Transform) -> matrix[4, 4]f32 {
