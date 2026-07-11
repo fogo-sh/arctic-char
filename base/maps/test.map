@@ -1078,3 +1078,11 @@
 ( 3888 4576 16 ) ( 3888 4576 17 ) ( 3888 4577 16 ) green [ 0 1 0 0 ] [ 0 0 -1 0 ] 90 1 1
 }
 }
+// entity 6
+{
+"classname" "spawner_prop"
+"model" "models/suzanne.glb"
+"origin" "-456 -200 304"
+"interval" "0.01"
+"count" "20"
+}

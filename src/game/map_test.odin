@@ -63,13 +63,26 @@ test_quake_map_parse_entities_counts_brushes_and_faces :: proc(t: ^testing.T) {
 
 @(test)
 test_quake_map_parse_face_builds_world_plane :: proc(t: ^testing.T) {
-	face, ok := quake_map_parse_face("( 0 0 0 ) ( 0 0 64 ) ( 0 64 64 ) material", 0)
+	face, ok := quake_map_parse_face("( 0 0 0 ) ( 0 0 64 ) ( 0 64 64 ) green", 0)
 	testing.expect(t, ok, "face should parse")
 	testing.expect(t, test_vec3_near(face.points[0], {0, 0, 0}), "first point should convert to world axes")
 	testing.expect(t, test_vec3_near(face.points[1], {0, 64 * QU_TO_M, 0}), "second point should convert to world axes")
 	testing.expect(t, test_vec3_near(face.points[2], {64 * QU_TO_M, 64 * QU_TO_M, 0}), "third point should convert to world axes")
 	testing.expect(t, test_vec3_near(face.normal, {0, 0, 1}), "normal should match id/QBSP winding convention")
 	testing.expect(t, test_f32_near(face.d, 0), "origin plane should have zero distance")
+	testing.expect_value(t, face.material, "green")
+}
+
+@(test)
+test_quake_map_face_color_uses_material_color_name :: proc(t: ^testing.T) {
+	face, ok := quake_map_parse_face("( 0 0 0 ) ( 0 0 64 ) ( 0 64 64 ) green", 0)
+	testing.expect(t, ok, "face should parse")
+
+	color := quake_map_face_color(&face)
+	testing.expect(t, test_f32_near(color[0], f32(0.16)), "green material red channel should match palette")
+	testing.expect(t, test_f32_near(color[1], f32(0.66)), "green material green channel should match palette")
+	testing.expect(t, test_f32_near(color[2], f32(0.22)), "green material blue channel should match palette")
+	testing.expect(t, test_f32_near(color[3], f32(1.0)), "material alpha should be opaque")
 }
 
 @(test)

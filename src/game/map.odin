@@ -26,6 +26,7 @@ MapFace :: struct {
 	points: [3]Vec3,
 	normal: Vec3,
 	d:      f32,
+	material: string,
 }
 
 QuakeMap :: struct {
@@ -245,8 +246,12 @@ quake_map_count_brush_data :: proc(qmap: ^QuakeMap) -> (brush_count, face_count:
 quake_map_parse_face :: proc(source: string, start: int) -> (face: MapFace, ok: bool) {
 	p0, next0, ok0 := quake_map_parse_point(source, start)
 	p1, next1, ok1 := quake_map_parse_point(source, next0)
-	p2, _, ok2 := quake_map_parse_point(source, next1)
+	p2, next2, ok2 := quake_map_parse_point(source, next1)
 	if !(ok0 && ok1 && ok2) {
+		return {}, false
+	}
+	material, _, material_ok := quake_map_parse_material_token(source, next2)
+	if !material_ok {
 		return {}, false
 	}
 
@@ -256,7 +261,19 @@ quake_map_parse_face :: proc(source: string, start: int) -> (face: MapFace, ok: 
 	// MAP plane triples use id/QBSP winding. The normal points out of the brush;
 	// the solid volume is the back side of every face plane.
 	normal := linalg.normalize0(linalg.cross(p0 - p1, p2 - p1))
-	return MapFace{points = {p0, p1, p2}, normal = normal, d = linalg.dot(normal, p0)}, true
+	return MapFace{points = {p0, p1, p2}, normal = normal, d = linalg.dot(normal, p0), material = material}, true
+}
+
+quake_map_parse_material_token :: proc(source: string, start: int) -> (material: string, next: int, ok: bool) {
+	i := quake_map_skip_inline_space(source, start)
+	begin := i
+	for i < len(source) && !quake_map_is_space(source[i]) {
+		i += 1
+	}
+	if begin == i {
+		return "", i, false
+	}
+	return source[begin:i], i, true
 }
 
 quake_map_parse_point :: proc(source: string, start: int) -> (point: Vec3, next: int, ok: bool) {
@@ -277,6 +294,20 @@ quake_map_parse_point :: proc(source: string, start: int) -> (point: Vec3, next:
 }
 
 quake_map_face_color :: proc(face: ^MapFace) -> Color {
+	switch face.material {
+	case "black":   return {0.02, 0.02, 0.02, 1.0}
+	case "white":   return {0.90, 0.90, 0.86, 1.0}
+	case "gray", "grey": return {0.45, 0.45, 0.45, 1.0}
+	case "red":     return {0.82, 0.16, 0.14, 1.0}
+	case "green":   return {0.16, 0.66, 0.22, 1.0}
+	case "blue":    return {0.14, 0.30, 0.86, 1.0}
+	case "yellow":  return {0.88, 0.76, 0.18, 1.0}
+	case "orange":  return {0.92, 0.45, 0.12, 1.0}
+	case "purple":  return {0.50, 0.24, 0.78, 1.0}
+	case "cyan":    return {0.12, 0.72, 0.78, 1.0}
+	case "magenta": return {0.82, 0.18, 0.62, 1.0}
+	}
+
 	n := face.normal
 	return Color{
 		0.24 + math.abs(n.x) * 0.30,
