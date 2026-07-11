@@ -5,7 +5,7 @@ import "core:math/linalg"
 import b3 "vendor:box3d"
 
 PLAYER_MOVER_ITERATIONS :: 4
-PLAYER_MAX_COLLISION_PLANES :: 8
+PLAYER_MAX_COLLISION_PLANES :: 32
 
 PlayerMoverContext :: struct {
 	planes: [PLAYER_MAX_COLLISION_PLANES]b3.CollisionPlane,
@@ -36,7 +36,7 @@ player_mover_move :: proc(
 	if snap_to_ground {
 		mover, new_velocity, planes = player_mover_ground_move(physics, mover, origin, filter, displacement, velocity, spec)
 	} else {
-		player_mover_slide(physics, &mover, origin, filter, displacement, spec.walkable_min_y, &planes)
+		player_mover_slide(physics, &mover, origin, filter, displacement, spec.walkable_min_y, true, &planes)
 		new_velocity = player_mover_clip_walls(velocity, &planes, spec.walkable_min_y)
 	}
 
@@ -76,10 +76,11 @@ player_mover_nudge :: proc(
 
 	base := mover^
 	NUDGE :: 1.0 / 8.0 * QU_TO_M
-	signs := [?]f32{0, -1, 1}
-	for z in signs {
-		for x in signs {
-			for y in signs {
+	xz_signs := [?]f32{0, -1, 1}
+	y_signs := [?]f32{0, 1}
+	for z in xz_signs {
+		for x in xz_signs {
+			for y in y_signs {
 				candidate := base
 				offset := Vec3{x * NUDGE, y * NUDGE, z * NUDGE}
 				candidate.center1 += offset
@@ -120,14 +121,14 @@ player_mover_ground_move :: proc(
 	if direct_frac >= 1 {
 		current.center1 += horizontal
 		current.center2 += horizontal
-		player_mover_collide_and_solve(physics, &current, origin, filter, &planes)
+		player_mover_collide_and_solve(physics, &current, origin, filter, false, &planes)
 		return current, Vec3{velocity.x, 0, velocity.z}, planes
 	}
 
 	original := current
 	down := current
 	down_planes: PlayerMoverContext
-	player_mover_slide(physics, &down, origin, filter, horizontal, spec.walkable_min_y, &down_planes)
+	player_mover_slide(physics, &down, origin, filter, horizontal, spec.walkable_min_y, false, &down_planes)
 	down_velocity := player_mover_clip_walls(Vec3{velocity.x, 0, velocity.z}, &down_planes, spec.walkable_min_y)
 
 	up := original
@@ -137,7 +138,7 @@ player_mover_ground_move :: proc(
 		up.center1 += {0, up_step, 0}
 		up.center2 += {0, up_step, 0}
 		up_planes: PlayerMoverContext
-		player_mover_slide(physics, &up, origin, filter, horizontal, spec.walkable_min_y, &up_planes)
+		player_mover_slide(physics, &up, origin, filter, horizontal, spec.walkable_min_y, false, &up_planes)
 
 		down_frac := b3.World_CastMover(physics.id, origin, up, {0, -spec.step_height, 0}, filter, nil, nil)
 		up.center1 += {0, -spec.step_height * down_frac, 0}
@@ -167,6 +168,7 @@ player_mover_slide :: proc(
 	filter: b3.QueryFilter,
 	displacement: Vec3,
 	walkable_min_y: f32,
+	allow_downward_solve: bool,
 	all_planes: ^PlayerMoverContext,
 ) {
 	delta := displacement
@@ -180,7 +182,7 @@ player_mover_slide :: proc(
 		mover.center1 += safe
 		mover.center2 += safe
 
-		ctx := player_mover_collide_and_solve(physics, mover, origin, filter, all_planes)
+		ctx := player_mover_collide_and_solve(physics, mover, origin, filter, allow_downward_solve, all_planes)
 		if frac >= 1 {
 			break
 		}
@@ -194,14 +196,19 @@ player_mover_collide_and_solve :: proc(
 	mover: ^b3.Capsule,
 	origin: b3.Pos,
 	filter: b3.QueryFilter,
+	allow_downward_solve: bool,
 	all_planes: ^PlayerMoverContext,
 ) -> PlayerMoverContext {
 	ctx: PlayerMoverContext
 	b3.World_CollideMover(physics.id, origin, mover^, filter, player_mover_collect_planes, &ctx)
 	if ctx.count > 0 {
 		result := b3.SolvePlanes({0, 0, 0}, &ctx.planes[0], c.int(ctx.count))
-		mover.center1 += result.delta
-		mover.center2 += result.delta
+		delta := result.delta
+		if !allow_downward_solve && delta.y < 0 {
+			delta.y = 0
+		}
+		mover.center1 += delta
+		mover.center2 += delta
 		for i in 0..<ctx.count {
 			player_mover_add_plane(all_planes, ctx.planes[i])
 		}
@@ -260,17 +267,12 @@ player_mover_categorize_ground :: proc(
 	origin := b3.Pos{0, 0, 0}
 	down := Vec3{0, -1.0 * QU_TO_M, 0}
 	frac := b3.World_CastMover(physics.id, origin, adjusted_mover, down, filter, nil, nil)
-	if frac >= 1 {
-		return false, normal, adjusted_mover
-	}
 
-	if allow_plant {
-		adjusted_mover.center1 += down * frac
-		adjusted_mover.center2 += down * frac
-	}
 	probe_mover := mover
-	probe_mover.center1 += down * frac
-	probe_mover.center2 += down * frac
+	if frac < 1 {
+		probe_mover.center1 += down * frac
+		probe_mover.center2 += down * frac
+	}
 	probe_mover.center1 += down * 0.05
 	probe_mover.center2 += down * 0.05
 	ctx: PlayerMoverContext
@@ -285,10 +287,11 @@ player_mover_categorize_ground :: proc(
 	}
 
 	if best_y >= spec.walkable_min_y {
+		if allow_plant && frac < 1 {
+			adjusted_mover.center1 += down * frac
+			adjusted_mover.center2 += down * frac
+		}
 		return true, normal, adjusted_mover
-	}
-	if ctx.count == 0 {
-		return true, {0, 1, 0}, adjusted_mover
 	}
 	return false, {0, 1, 0}, mover
 }

@@ -172,13 +172,19 @@ def copy_base_to(dest: Path) -> None:
     shutil.copytree(BASE, target)
 
 
+def output_is_stale(output: Path, inputs: list[Path]) -> bool:
+    if not output.exists():
+        return True
+    output_mtime = output.stat().st_mtime
+    return any(path.stat().st_mtime > output_mtime for path in inputs)
+
+
 def cmd_clean() -> None:
     if BUILD.exists():
         shutil.rmtree(BUILD)
 
 
 def cmd_build() -> None:
-    cmd_clean()
     cmd_clay_lib()
     BUILD.mkdir(parents=True, exist_ok=True)
     build_app_debug()
@@ -187,7 +193,6 @@ def cmd_build() -> None:
 
 
 def cmd_build_release() -> None:
-    cmd_clean()
     cmd_clay_lib()
     BUILD.mkdir(parents=True, exist_ok=True)
     run(["odin", "build", ".", f"-out:{app_path()}"])
@@ -533,6 +538,9 @@ def cmd_clay_lib() -> None:
     BUILD.mkdir(parents=True, exist_ok=True)
     output = clay_library_path()
     output.parent.mkdir(parents=True, exist_ok=True)
+    if not output_is_stale(output, [clay_h]):
+        return
+
     obj = BUILD / "clay.o"
     source = BUILD / "clay.c"
     shutil.copyfile(clay_h, source)

@@ -103,6 +103,14 @@ python cli.py test
 python cli.py build
 ```
 
+Run build-style commands sequentially, not in parallel. `smoke`, `net-smoke`,
+`mp-test` without `--no-build`, `hot-build`, and `build` may touch shared files
+under `build/`; concurrent invocations can race on generated intermediates.
+
+Clay is vendored as a C header and built into a static library under `build/`.
+Do not rebuild it manually unless `vendor/clay/clay.h` changed or `build/` was
+cleaned; `cli.py` skips the Clay compile when the archive is already current.
+
 For rendering/physics-affecting changes, also run a short smoke test:
 
 ```sh
