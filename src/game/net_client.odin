@@ -333,6 +333,20 @@ game_net_client_apply_snapshot :: proc(net: ^GameNetClient, scene: ^Scene, snaps
 			snapshot.server_tick,
 		)
 	}
+	for i in 0..<int(snapshot.prop_count) {
+		state := snapshot.props[i]
+		rotation: linalg.Quaternionf32
+		rotation.x = state.rotation.x
+		rotation.y = state.rotation.y
+		rotation.z = state.rotation.z
+		rotation.w = state.rotation.w
+		scene_upsert_replicated_suzanne(
+			scene,
+			ObjectId(state.object_id),
+			{state.position.x, state.position.y, state.position.z},
+			rotation,
+		)
+	}
 }
 
 game_net_client_reconcile_local_player :: proc(net: ^GameNetClient, scene: ^Scene, state: protocol.Server_Player_State, ack_sequence: u32) {

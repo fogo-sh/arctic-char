@@ -3,6 +3,7 @@ package game
 import "core:log"
 import protocol "../protocol"
 import transport "../net"
+import b3 "vendor:box3d"
 
 NET_SERVER_MAX_CLIENTS :: 32
 NET_SERVER_PENDING_USER_CMDS :: 64
@@ -261,6 +262,26 @@ net_server_broadcast_snapshot :: proc(server: ^NetServer) {
 			ground_normal = player.ground_normal,
 		}
 		base_snapshot.player_count += 1
+	}
+	for &object in server.scene.objects {
+		if object.kind != .Suzanne || base_snapshot.prop_count >= protocol.MAX_SNAPSHOT_PROPS {
+			continue
+		}
+		position := object.transform.position
+		rotation := [4]f32{0, 0, 0, 1}
+		if object.physics.sync_transform && b3.IS_NON_NULL(object.physics.body) {
+			transform := b3.Body_GetTransform(object.physics.body)
+			position = Vec3(transform.p)
+			rotation = {transform.q.x, transform.q.y, transform.q.z, transform.q.w}
+		} else {
+			rotation = {object.render_rotation.x, object.render_rotation.y, object.render_rotation.z, object.render_rotation.w}
+		}
+		base_snapshot.props[base_snapshot.prop_count] = protocol.Server_Prop_State{
+			object_id = u32(object.id),
+			position = position,
+			rotation = rotation,
+		}
+		base_snapshot.prop_count += 1
 	}
 
 	for session in server.sessions {

@@ -469,6 +469,13 @@ diving directly into the id source trees.
   HUD.
 - Start with player-only replication, then add selected dynamic props after packet
   size and CPU costs are visible.
+- Follow the Source-style authority split: server-side think/physics owns gameplay
+  truth and dynamic prop spawning; client-side think should be for prediction,
+  interpolation, audio, particles, and other presentation-only work.
+- Replicate dynamic physics props as explicit network state, not by trying to keep
+  Box3D deterministic across machines. Start with transform snapshots and add
+  awake/sleep, dirty flags, and interpolation history when bandwidth or jitter
+  requires it.
 - Treat teleports, map reloads, and hot reloads as discontinuities that clear
   interpolation/prediction buffers.
 - Keep packet serialization explicit and versioned. Avoid reflection-like generic
@@ -534,6 +541,18 @@ diving directly into the id source trees.
      Dynamic prop rollback is intentionally not implemented; interactions with
      dynamic physics objects can still diverge until those objects become
      server-authoritative replicated state.
+
+6. Server-authoritative dynamic props.
+   - Server runs prop spawners and Box3D for Suzanne props.
+   - Snapshots replicate a bounded set of Suzanne prop transforms by stable object
+     id.
+   - Clients upsert those props as render-only objects from snapshots instead of
+     advancing local prop physics.
+   - Status: initial full-state Suzanne transform replication is implemented for
+     up to 64 props per snapshot. This restores server-spawned dynamic props on
+     clients and prevents stale client prop bodies from affecting local prediction.
+     Prop interpolation, sleep/dirty filtering, spawn/despawn messages, and Source-style
+     heavy/server-authoritative vs small/client-only prop policy are still pending.
 
 ## Known Risks
 

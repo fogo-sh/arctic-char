@@ -15,8 +15,10 @@ USER_CMD_PAYLOAD_SIZE :: 26
 USER_CMDS_HEADER_PAYLOAD_SIZE :: 1
 MAX_USER_CMDS_PER_PACKET :: 8
 SERVER_PLAYER_STATE_PAYLOAD_SIZE :: 49
-SERVER_SNAPSHOT_HEADER_PAYLOAD_SIZE :: 14
+SERVER_PROP_STATE_PAYLOAD_SIZE :: 32
+SERVER_SNAPSHOT_HEADER_PAYLOAD_SIZE :: 16
 MAX_SNAPSHOT_PLAYERS :: 32
+MAX_SNAPSHOT_PROPS :: 64
 
 Packet_Kind :: enum u8 {
 	Invalid,
@@ -87,12 +89,20 @@ Server_Player_State :: struct {
 	ground_normal: [3]f32,
 }
 
+Server_Prop_State :: struct {
+	object_id: u32,
+	position:  [3]f32,
+	rotation:  [4]f32,
+}
+
 Server_Snapshot :: struct {
 	server_tick: u32,
 	sequence:    u32,
 	last_processed_user_cmd: u32,
 	player_count: u16,
+	prop_count:   u16,
 	players:     [MAX_SNAPSHOT_PLAYERS]Server_Player_State,
+	props:       [MAX_SNAPSHOT_PROPS]Server_Prop_State,
 }
 
 Parse_Error :: enum {
@@ -240,10 +250,10 @@ write_user_cmds :: proc(buffer: []byte, cmds: User_Cmds) -> (packet: []byte, ok:
 }
 
 write_server_snapshot :: proc(buffer: []byte, snapshot: Server_Snapshot) -> (packet: []byte, ok: bool) {
-	if snapshot.player_count > MAX_SNAPSHOT_PLAYERS {
+	if snapshot.player_count > MAX_SNAPSHOT_PLAYERS || snapshot.prop_count > MAX_SNAPSHOT_PROPS {
 		return nil, false
 	}
-	payload_length := SERVER_SNAPSHOT_HEADER_PAYLOAD_SIZE + int(snapshot.player_count) * SERVER_PLAYER_STATE_PAYLOAD_SIZE
+	payload_length := SERVER_SNAPSHOT_HEADER_PAYLOAD_SIZE + int(snapshot.player_count) * SERVER_PLAYER_STATE_PAYLOAD_SIZE + int(snapshot.prop_count) * SERVER_PROP_STATE_PAYLOAD_SIZE
 	total_length := HEADER_SIZE + payload_length
 	if len(buffer) < total_length {
 		return nil, false
@@ -260,8 +270,12 @@ write_server_snapshot :: proc(buffer: []byte, snapshot: Server_Snapshot) -> (pac
 	write_u32(&w, snapshot.sequence) or_return
 	write_u32(&w, snapshot.last_processed_user_cmd) or_return
 	write_u16(&w, snapshot.player_count) or_return
+	write_u16(&w, snapshot.prop_count) or_return
 	for i in 0..<int(snapshot.player_count) {
 		write_server_player_state_payload(&w, snapshot.players[i]) or_return
+	}
+	for i in 0..<int(snapshot.prop_count) {
+		write_server_prop_state_payload(&w, snapshot.props[i]) or_return
 	}
 	return writer_bytes(&w), w.err == .None
 }
@@ -394,11 +408,18 @@ parse_server_snapshot_payload :: proc(packet: []byte, header: Header) -> (snapsh
 	if !ok do return {}, .Bad_Payload
 	snapshot.player_count, ok = read_u16(&r)
 	if !ok do return {}, .Bad_Payload
-	if snapshot.player_count > MAX_SNAPSHOT_PLAYERS || reader_remaining(&r) != int(snapshot.player_count) * SERVER_PLAYER_STATE_PAYLOAD_SIZE {
+	snapshot.prop_count, ok = read_u16(&r)
+	if !ok do return {}, .Bad_Payload
+	expected_remaining := int(snapshot.player_count) * SERVER_PLAYER_STATE_PAYLOAD_SIZE + int(snapshot.prop_count) * SERVER_PROP_STATE_PAYLOAD_SIZE
+	if snapshot.player_count > MAX_SNAPSHOT_PLAYERS || snapshot.prop_count > MAX_SNAPSHOT_PROPS || reader_remaining(&r) != expected_remaining {
 		return {}, .Bad_Payload
 	}
 	for i in 0..<int(snapshot.player_count) {
 		snapshot.players[i], ok = read_server_player_state_payload(&r)
+		if !ok do return {}, .Bad_Payload
+	}
+	for i in 0..<int(snapshot.prop_count) {
+		snapshot.props[i], ok = read_server_prop_state_payload(&r)
 		if !ok do return {}, .Bad_Payload
 	}
 	if !ok || reader_remaining(&r) != 0 do return {}, .Bad_Payload
@@ -479,6 +500,38 @@ read_server_player_state_payload :: proc(r: ^Packet_Reader) -> (state: Server_Pl
 	state.ground_normal.y, ok = read_f32(r)
 	if !ok do return {}, false
 	state.ground_normal.z, ok = read_f32(r)
+	if !ok do return {}, false
+	return state, true
+}
+
+write_server_prop_state_payload :: proc(w: ^Packet_Writer, state: Server_Prop_State) -> bool {
+	write_u32(w, state.object_id) or_return
+	write_f32(w, state.position.x) or_return
+	write_f32(w, state.position.y) or_return
+	write_f32(w, state.position.z) or_return
+	write_f32(w, state.rotation.x) or_return
+	write_f32(w, state.rotation.y) or_return
+	write_f32(w, state.rotation.z) or_return
+	write_f32(w, state.rotation.w) or_return
+	return true
+}
+
+read_server_prop_state_payload :: proc(r: ^Packet_Reader) -> (state: Server_Prop_State, ok: bool) {
+	state.object_id, ok = read_u32(r)
+	if !ok do return {}, false
+	state.position.x, ok = read_f32(r)
+	if !ok do return {}, false
+	state.position.y, ok = read_f32(r)
+	if !ok do return {}, false
+	state.position.z, ok = read_f32(r)
+	if !ok do return {}, false
+	state.rotation.x, ok = read_f32(r)
+	if !ok do return {}, false
+	state.rotation.y, ok = read_f32(r)
+	if !ok do return {}, false
+	state.rotation.z, ok = read_f32(r)
+	if !ok do return {}, false
+	state.rotation.w, ok = read_f32(r)
 	if !ok do return {}, false
 	return state, true
 }

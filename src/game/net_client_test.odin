@@ -2,6 +2,7 @@ package game
 
 import "core:testing"
 import engine "../engine"
+import "core:math/linalg"
 import protocol "../protocol"
 
 @(test)
@@ -158,6 +159,62 @@ test_net_client_reconcile_replays_unacked_command :: proc(t: ^testing.T) {
 	testing.expect(t, player.position != Vec3{0, 1, 0}, "unacked command should be replayed from authoritative state")
 	_, ok := game_net_client_predicted_state(&net, 2)
 	testing.expect(t, ok, "replayed command should refresh prediction history")
+}
+
+@(test)
+test_net_client_apply_snapshot_upserts_replicated_suzanne :: proc(t: ^testing.T) {
+	net := GameNetClient{local_player_id = LOCAL_PLAYER_ID}
+	scene := test_net_scene()
+	defer delete(scene.objects)
+	defer delete(scene.players)
+	scene.objects = make([dynamic]Object, 0, MAX_OBJECTS)
+
+	snapshot := protocol.Server_Snapshot{sequence = 1, prop_count = 1}
+	snapshot.props[0] = {
+		object_id = 12,
+		position = {2, 3, 4},
+		rotation = {0, 0.5, 0, 0.8660254},
+	}
+	game_net_client_apply_snapshot(&net, &scene, snapshot)
+
+	object := scene_object(&scene, ObjectId(12))
+	testing.expect(t, object != nil, "replicated Suzanne should be created")
+	testing.expect_value(t, object.kind, ObjectKind.Suzanne)
+	testing.expect_value(t, object.transform.position, Vec3{2, 3, 4})
+	testing.expect_value(t, object.render_rotation.y, f32(0.5))
+	testing.expect(t, !object.physics.enabled, "replicated client prop should be render-only")
+}
+
+@(test)
+test_net_client_apply_snapshot_updates_existing_suzanne_as_render_only :: proc(t: ^testing.T) {
+	net := GameNetClient{local_player_id = LOCAL_PLAYER_ID}
+	scene := test_net_scene()
+	defer delete(scene.objects)
+	defer delete(scene.players)
+	scene.objects = make([dynamic]Object, 0, MAX_OBJECTS)
+	append(&scene.objects, Object{
+		id = 4,
+		name = "Suzanne",
+		kind = .Suzanne,
+		transform = {position = {0, 0, 0}},
+		render_rotation = linalg.QUATERNIONF32_IDENTITY,
+		render = {visible = true},
+		physics = {enabled = true, sync_transform = true},
+	})
+
+	snapshot := protocol.Server_Snapshot{sequence = 1, prop_count = 1}
+	snapshot.props[0] = {
+		object_id = 4,
+		position = {9, 8, 7},
+		rotation = {0.1, 0.2, 0.3, 0.9},
+	}
+	game_net_client_apply_snapshot(&net, &scene, snapshot)
+
+	object := scene_object(&scene, ObjectId(4))
+	testing.expect(t, object != nil, "existing Suzanne should remain")
+	testing.expect_value(t, object.transform.position, Vec3{9, 8, 7})
+	testing.expect_value(t, object.render_rotation.z, f32(0.3))
+	testing.expect(t, !object.physics.enabled && !object.physics.sync_transform, "snapshot should take over local prop physics")
 }
 
 @(test)

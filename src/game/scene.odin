@@ -125,6 +125,7 @@ Object :: struct {
 	name:      string,
 	kind:      ObjectKind,
 	transform: Transform,
+	render_rotation: linalg.Quaternionf32,
 	render:    RenderObject,
 	physics:   PhysicsObject,
 	think:     ThinkObject,
@@ -386,6 +387,7 @@ scene_create_map :: proc(scene: ^Scene) {
 			name = "Map",
 			kind = .Map,
 			transform = {position = {0, 0, 0}},
+			render_rotation = linalg.QUATERNIONF32_IDENTITY,
 			render = {mesh = scene.map_mesh, visible = true},
 			physics = {enabled = false},
 		},
@@ -405,6 +407,7 @@ scene_spawn_suzanne :: proc(scene: ^Scene, position: Vec3) -> bool {
 			name = "Suzanne",
 			kind = .Suzanne,
 			transform = {position = position},
+			render_rotation = linalg.QUATERNIONF32_IDENTITY,
 			render = {mesh = scene.suzanne_mesh, visible = true},
 			physics = {
 				body = body,
@@ -415,6 +418,37 @@ scene_spawn_suzanne :: proc(scene: ^Scene, position: Vec3) -> bool {
 		},
 	)
 	return true
+}
+
+scene_upsert_replicated_suzanne :: proc(scene: ^Scene, object_id: ObjectId, position: Vec3, rotation: linalg.Quaternionf32) {
+	if object := scene_object(scene, object_id); object != nil {
+		if b3.IS_NON_NULL(object.physics.body) {
+			b3.DestroyBody(object.physics.body)
+		}
+		object.kind = .Suzanne
+		object.transform.position = position
+		object.render_rotation = rotation
+		object.render.mesh = scene.suzanne_mesh
+		object.render.visible = true
+		object.physics = {enabled = false}
+		return
+	}
+
+	if len(scene.objects) >= cap(scene.objects) {
+		return
+	}
+	append(&scene.objects, Object{
+		id = object_id,
+		name = "Suzanne",
+		kind = .Suzanne,
+		transform = {position = position},
+		render_rotation = rotation,
+		render = {mesh = scene.suzanne_mesh, visible = true},
+		physics = {enabled = false},
+	})
+	if u32(object_id) >= u32(scene.next_object_id) {
+		scene.next_object_id = ObjectId(u32(object_id) + 1)
+	}
 }
 
 scene_upsert_remote_player :: proc(scene: ^Scene, player_id: u32, position: Vec3, yaw: f32) {
@@ -520,6 +554,15 @@ scene_count_objects :: proc(scene: ^Scene, kind: ObjectKind) -> int {
 		}
 	}
 	return count
+}
+
+scene_object :: proc(scene: ^Scene, object_id: ObjectId) -> ^Object {
+	for &object in scene.objects {
+		if object.id == object_id {
+			return &object
+		}
+	}
+	return nil
 }
 
 scene_debug_hud_data :: proc(scene: ^Scene) -> DebugHudData {
@@ -635,6 +678,9 @@ scene_render_environment :: proc() -> RenderEnvironment {
 scene_object_model_matrix :: proc(object: ^Object) -> matrix[4, 4]f32 {
 	if object.physics.sync_transform {
 		return engine.physics_body_matrix(object.physics.body)
+	}
+	if object.kind == .Suzanne {
+		return linalg.matrix4_from_trs_f32(object.transform.position, object.render_rotation, {1, 1, 1})
 	}
 	return scene_transform_matrix(object.transform)
 }
