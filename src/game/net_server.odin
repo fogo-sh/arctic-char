@@ -329,7 +329,7 @@ net_server_add_prop_delta :: proc(server: ^NetServer, session: ^NetServerSession
 }
 
 net_server_object_replicates_as_prop :: proc(object: ^Object) -> bool {
-	return object.kind == .Suzanne && object.replica.kind == .Suzanne && object.replica.authority == .ServerAuthoritative && object.replica.net_id != 0
+	return object.kind == .Prop && object.replica.kind == .Prop && object.replica.authority == .ServerAuthoritative && object.replica.net_id != 0
 }
 
 net_server_scene_has_replicated_prop :: proc(scene: ^Scene, net_id: protocol.NetId) -> bool {
@@ -352,12 +352,16 @@ net_server_prop_state_from_object :: proc(object: ^Object) -> (state: protocol.S
 	}
 	return {
 		net_id = object.replica.net_id,
+		prop_asset_index = object.prop_asset_index,
 		position = position,
 		rotation = rotation,
 	}, awake
 }
 
 net_server_prop_state_changed :: proc(a, b: protocol.Server_Prop_State) -> bool {
+	if a.prop_asset_index != b.prop_asset_index {
+		return true
+	}
 	position_delta := Vec3{a.position.x - b.position.x, a.position.y - b.position.y, a.position.z - b.position.z}
 	if linalg.length(position_delta) > NET_SERVER_PROP_POSITION_EPSILON {
 		return true

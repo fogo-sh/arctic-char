@@ -7,8 +7,8 @@ EntityEditorKind :: enum {
 
 EntityRuntimeKind :: enum {
 	Ignore,
-	PropSuzanne,
-	SpawnerSuzanne,
+	Prop,
+	SpawnerProp,
 	TriggerTeleport,
 }
 
@@ -55,12 +55,16 @@ ENTITY_TARGET_PROPERTIES := [?]EntityPropertyDef {
 	{name = "target", label = "Target", type = .TargetDestination, description = "Target entity name."},
 }
 
-ENTITY_SPAWNER_SUZANNE_PROPERTIES := [?]EntityPropertyDef {
-	{name = "interval", label = "Spawn Interval", type = .Float, default_value = "0.35", description = "Seconds between Suzanne spawns."},
-	{name = "count", label = "Spawn Count", type = .Integer, default_value = "4", description = "Maximum number of Suzannes to spawn."},
+ENTITY_SPAWNER_PROP_PROPERTIES := [?]EntityPropertyDef {
+	{name = "model", label = "Model", type = .String, default_value = DEFAULT_PROP_MODEL, description = "Render model qpath."},
+	{name = "collision_model", label = "Collision Model", type = .String, description = "Optional collision model qpath. Defaults to model stem plus _collision.glb."},
+	{name = "interval", label = "Spawn Interval", type = .Float, default_value = "0.35", description = "Seconds between prop spawns."},
+	{name = "count", label = "Spawn Count", type = .Integer, default_value = "4", description = "Maximum number of props to spawn."},
 }
 
-ENTITY_PROP_SUZANNE_PROPERTIES := [?]EntityPropertyDef {
+ENTITY_PROP_PROPERTIES := [?]EntityPropertyDef {
+	{name = "model", label = "Model", type = .String, default_value = DEFAULT_PROP_MODEL, description = "Render model qpath."},
+	{name = "collision_model", label = "Collision Model", type = .String, description = "Optional collision model qpath. Defaults to model stem plus _collision.glb."},
 	{name = "net_policy", label = "Network Policy", type = .String, default_value = "server", description = "server for authoritative synced prop, client for presentation-only local prop."},
 }
 
@@ -114,24 +118,24 @@ ENTITY_DEFINITIONS := [?]EntityDef {
 		properties = ENTITY_TARGETNAME_PROPERTIES[:],
 	},
 	{
-		classname = "prop_suzanne",
-		description = "Dynamic Suzanne prop",
+		classname = "prop_physics",
+		description = "Dynamic physics prop",
 		editor_kind = .Point,
-		runtime_kind = .PropSuzanne,
+		runtime_kind = .Prop,
 		color = {255, 150, 80},
 		size_min = {-16, -16, -16},
 		size_max = {16, 16, 16},
-		properties = ENTITY_PROP_SUZANNE_PROPERTIES[:],
+		properties = ENTITY_PROP_PROPERTIES[:],
 	},
 	{
-		classname = "spawner_suzanne",
-		description = "Timed Suzanne spawner",
+		classname = "spawner_prop",
+		description = "Timed prop spawner",
 		editor_kind = .Point,
-		runtime_kind = .SpawnerSuzanne,
+		runtime_kind = .SpawnerProp,
 		color = {255, 90, 180},
 		size_min = {-12, -12, -12},
 		size_max = {12, 12, 12},
-		properties = ENTITY_SPAWNER_SUZANNE_PROPERTIES[:],
+		properties = ENTITY_SPAWNER_PROP_PROPERTIES[:],
 	},
 	{
 		classname = "trigger_teleport",

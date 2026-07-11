@@ -5,9 +5,9 @@ import "core:testing"
 
 @(test)
 test_entity_def_find_known_entity :: proc(t: ^testing.T) {
-	def, ok := entity_def_find("spawner_suzanne")
-	testing.expect(t, ok, "spawner_suzanne should be registered")
-	testing.expect_value(t, def.runtime_kind, EntityRuntimeKind.SpawnerSuzanne)
+	def, ok := entity_def_find("spawner_prop")
+	testing.expect(t, ok, "spawner_prop should be registered")
+	testing.expect_value(t, def.runtime_kind, EntityRuntimeKind.SpawnerProp)
 	testing.expect_value(t, def.editor_kind, EntityEditorKind.Point)
 }
 

@@ -21,10 +21,10 @@ scene_spawn_level_entities :: proc(scene: ^Scene, qmap: ^QuakeMap) {
 		switch def.runtime_kind {
 		case .Ignore:
 			continue
-		case .PropSuzanne:
-			scene_spawn_entity_prop_suzanne(scene, &entity)
-		case .SpawnerSuzanne:
-			scene_spawn_entity_spawner_suzanne(scene, &entity)
+		case .Prop:
+			scene_spawn_entity_prop(scene, &entity)
+		case .SpawnerProp:
+			scene_spawn_entity_spawner_prop(scene, &entity)
 		case .TriggerTeleport:
 			scene_spawn_entity_trigger_teleport(scene, qmap, &entity)
 		}
@@ -38,16 +38,15 @@ scene_clear_level_entities :: proc(scene: ^Scene) {
 		}
 	}
 	clear(&scene.objects)
-	scene_create_map(scene)
 }
 
-scene_spawn_entity_prop_suzanne :: proc(scene: ^Scene, entity: ^MapEntity) {
+scene_spawn_entity_prop :: proc(scene: ^Scene, entity: ^MapEntity) {
 	position, ok := scene_entity_origin(entity)
 	if !ok {
-		log.warn("prop_suzanne missing origin")
+		log.warn("prop_physics missing origin")
 		return
 	}
-	_ = scene_spawn_suzanne(scene, position, scene_entity_prop_authority(entity))
+	_ = scene_spawn_prop(scene, position, scene_entity_prop_asset_index(scene, entity), scene_entity_prop_authority(entity))
 }
 
 scene_entity_prop_authority :: proc(entity: ^MapEntity) -> ReplicatedPropAuthority {
@@ -58,10 +57,10 @@ scene_entity_prop_authority :: proc(entity: ^MapEntity) -> ReplicatedPropAuthori
 	return .ServerAuthoritative
 }
 
-scene_spawn_entity_spawner_suzanne :: proc(scene: ^Scene, entity: ^MapEntity) {
+scene_spawn_entity_spawner_prop :: proc(scene: ^Scene, entity: ^MapEntity) {
 	position, ok := scene_entity_origin(entity)
 	if !ok {
-		log.warn("spawner_suzanne missing origin")
+		log.warn("spawner_prop missing origin")
 		return
 	}
 	if len(scene.objects) >= cap(scene.objects) {
@@ -80,17 +79,18 @@ scene_spawn_entity_spawner_suzanne :: proc(scene: ^Scene, entity: ^MapEntity) {
 	scene_add_object(
 		scene,
 		Object {
-			name = "spawner_suzanne",
+			name = "spawner_prop",
 			kind = .Spawner,
 			transform = {position = position},
 			render = {visible = false},
 			physics = {enabled = false},
 			think = {
-				kind = .SpawnerSuzanne,
+				kind = .SpawnerProp,
 				interval = interval,
 				timer = interval,
 				max_count = count,
 			},
+			prop_asset_index = scene_entity_prop_asset_index(scene, entity),
 		},
 	)
 }
@@ -147,26 +147,31 @@ scene_spawn_entity_trigger_teleport :: proc(scene: ^Scene, qmap: ^QuakeMap, enti
 scene_run_think :: proc(scene: ^Scene, step_time: f32) {
 	for &object in scene.objects {
 		switch object.think.kind {
-		case .SpawnerSuzanne:
-			scene_think_spawner_suzanne(scene, &object, step_time)
+		case .SpawnerProp:
+			scene_think_spawner_prop(scene, &object, step_time)
 		case .None:
 		}
 	}
 }
 
-scene_think_spawner_suzanne :: proc(scene: ^Scene, object: ^Object, step_time: f32) {
+scene_think_spawner_prop :: proc(scene: ^Scene, object: ^Object, step_time: f32) {
 	if object.think.spawned_count >= object.think.max_count {
 		return
 	}
 
 	object.think.timer += step_time
 	for object.think.spawned_count < object.think.max_count && object.think.timer >= object.think.interval {
-		if !scene_spawn_suzanne(scene, object.transform.position) {
+		if !scene_spawn_prop(scene, object.transform.position, object.prop_asset_index) {
 			return
 		}
 		object.think.spawned_count += 1
 		object.think.timer -= object.think.interval
 	}
+}
+
+scene_entity_prop_asset_index :: proc(scene: ^Scene, entity: ^MapEntity) -> u16 {
+	model_path := scene_entity_prop_model(entity)
+	return scene_prop_asset_index_by_model(scene, model_path)
 }
 
 scene_touch_player :: proc(scene: ^Scene, player: ^PlayerController, move: PlayerMoveResult) {

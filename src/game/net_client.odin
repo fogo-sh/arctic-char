@@ -113,11 +113,11 @@ game_net_client_destroy :: proc(net: ^GameNetClient) {
 	net^ = {}
 }
 
-game_net_client_reload_local_server_scene :: proc(net: ^GameNetClient, level: ^LevelAsset) {
+game_net_client_reload_local_server_scene :: proc(net: ^GameNetClient, assets: ^LoadedSceneAssets, gpu: SceneGpuResources) {
 	if net.local_server_scene == nil {
 		return
 	}
-	scene_reload_level(net.local_server_scene, level)
+	scene_reload_assets(net.local_server_scene, assets, gpu)
 }
 
 game_net_client_update :: proc(net: ^GameNetClient, scene: ^Scene, move: PlayerMoveInput, look: PlayerLookInput, delta_time: f32) {
@@ -343,9 +343,10 @@ game_net_client_apply_snapshot :: proc(net: ^GameNetClient, scene: ^Scene, snaps
 		rotation.y = state.rotation.y
 		rotation.z = state.rotation.z
 		rotation.w = state.rotation.w
-		scene_upsert_replicated_suzanne(
+		scene_upsert_replicated_prop(
 			scene,
 			state.net_id,
+			state.prop_asset_index,
 			{state.position.x, state.position.y, state.position.z},
 			rotation,
 			snapshot.server_tick,

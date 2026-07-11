@@ -15,7 +15,7 @@ USER_CMD_PAYLOAD_SIZE :: 26
 USER_CMDS_HEADER_PAYLOAD_SIZE :: 1
 MAX_USER_CMDS_PER_PACKET :: 8
 SERVER_PLAYER_STATE_PAYLOAD_SIZE :: 49
-SERVER_PROP_STATE_PAYLOAD_SIZE :: 32
+SERVER_PROP_STATE_PAYLOAD_SIZE :: 34
 SERVER_SNAPSHOT_HEADER_PAYLOAD_SIZE :: 18
 SERVER_REMOVED_PROP_PAYLOAD_SIZE :: 4
 MAX_SNAPSHOT_PLAYERS :: 32
@@ -94,9 +94,10 @@ Server_Player_State :: struct {
 }
 
 Server_Prop_State :: struct {
-	net_id:   NetId,
-	position:  [3]f32,
-	rotation:  [4]f32,
+	net_id:           NetId,
+	prop_asset_index: u16,
+	position:         [3]f32,
+	rotation:         [4]f32,
 }
 
 Server_Snapshot :: struct {
@@ -524,6 +525,7 @@ read_server_player_state_payload :: proc(r: ^Packet_Reader) -> (state: Server_Pl
 
 write_server_prop_state_payload :: proc(w: ^Packet_Writer, state: Server_Prop_State) -> bool {
 	write_u32(w, u32(state.net_id)) or_return
+	write_u16(w, state.prop_asset_index) or_return
 	write_f32(w, state.position.x) or_return
 	write_f32(w, state.position.y) or_return
 	write_f32(w, state.position.z) or_return
@@ -539,6 +541,8 @@ read_server_prop_state_payload :: proc(r: ^Packet_Reader) -> (state: Server_Prop
 	net_id, ok = read_u32(r)
 	if !ok do return {}, false
 	state.net_id = NetId(net_id)
+	state.prop_asset_index, ok = read_u16(r)
+	if !ok do return {}, false
 	state.position.x, ok = read_f32(r)
 	if !ok do return {}, false
 	state.position.y, ok = read_f32(r)

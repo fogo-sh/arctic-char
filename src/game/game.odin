@@ -196,10 +196,10 @@ game_reload_map_if_changed :: proc(state: ^Game_State, delta_time: f32) {
 	}
 
 	log.debugf("Reloading map: %s", state.map_qpath)
-	level := level_load(state.fs, state.map_qpath)
-	engine.renderer_replace_mesh(state.renderer, state.scene.map_mesh, &level.render_mesh)
-	scene_reload_level(&state.scene, &level)
-	game_net_client_reload_local_server_scene(&state.net, &level)
-	level_destroy(&level)
+	assets := scene_assets_load(state.fs, state.map_qpath)
+	gpu_resources := scene_gpu_resources_upload(state.renderer, &assets)
+	scene_reload_assets(&state.scene, &assets, gpu_resources)
+	game_net_client_reload_local_server_scene(&state.net, &assets, gpu_resources)
+	scene_assets_destroy(&assets)
 	state.map_mtime = mtime
 }

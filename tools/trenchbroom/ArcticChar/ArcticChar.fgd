@@ -16,15 +16,19 @@
     targetname(target_source) : "Target Name" : "" : "Name other entities can target."
 ]
 
-@PointClass size(-16 -16 -16, 16 16 16) color(255 150 80) = prop_suzanne : "Dynamic Suzanne prop"
+@PointClass size(-16 -16 -16, 16 16 16) color(255 150 80) = prop_physics : "Dynamic physics prop"
 [
+    model(string) : "Model" : "models/suzanne.glb" : "Render model qpath."
+    collision_model(string) : "Collision Model" : "" : "Optional collision model qpath. Defaults to model stem plus _collision.glb."
     net_policy(string) : "Network Policy" : "server" : "server for authoritative synced prop, client for presentation-only local prop."
 ]
 
-@PointClass size(-12 -12 -12, 12 12 12) color(255 90 180) = spawner_suzanne : "Timed Suzanne spawner"
+@PointClass size(-12 -12 -12, 12 12 12) color(255 90 180) = spawner_prop : "Timed prop spawner"
 [
-    interval(float) : "Spawn Interval" : 0.35 : "Seconds between Suzanne spawns."
-    count(integer) : "Spawn Count" : 4 : "Maximum number of Suzannes to spawn."
+    model(string) : "Model" : "models/suzanne.glb" : "Render model qpath."
+    collision_model(string) : "Collision Model" : "" : "Optional collision model qpath. Defaults to model stem plus _collision.glb."
+    interval(float) : "Spawn Interval" : 0.35 : "Seconds between prop spawns."
+    count(integer) : "Spawn Count" : 4 : "Maximum number of props to spawn."
 ]
 
 @SolidClass color(80 160 255) = trigger_teleport : "Teleports the player when touched"

@@ -5,6 +5,7 @@ import protocol "../protocol"
 import "base:runtime"
 import "core:log"
 import "core:math/linalg"
+import "core:strings"
 import b3 "vendor:box3d"
 import sdl "vendor:sdl3"
 
@@ -33,7 +34,9 @@ Scene :: struct {
 	player_spawn_position: Vec3,
 	player_spawn_yaw: f32,
 	objects:        [dynamic]Object,
-	suzanne_mesh:   MeshHandle,
+	prop_meshes:    [MAX_PROP_ASSETS]MeshHandle,
+	prop_model_paths: [MAX_PROP_ASSETS]string,
+	prop_asset_count: int,
 	map_mesh:       MeshHandle,
 	next_object_id: ObjectId,
 	accumulator:    f32,
@@ -69,7 +72,7 @@ SceneProfile :: struct {
 
 ObjectKind :: enum {
 	Map,
-	Suzanne,
+	Prop,
 	Spawner,
 	Trigger,
 }
@@ -97,7 +100,7 @@ PhysicsObject :: struct {
 
 ThinkKind :: enum {
 	None,
-	SpawnerSuzanne,
+	SpawnerProp,
 }
 
 ThinkObject :: struct {
@@ -130,6 +133,7 @@ Object :: struct {
 	think:     ThinkObject,
 	touch:     TouchObject,
 	replica:   ReplicatedObject,
+	prop_asset_index: u16,
 }
 
 scene_create :: proc(
@@ -145,12 +149,16 @@ scene_create :: proc(
 		player_spawn_position = assets.level.player_spawn.position,
 		player_spawn_yaw = assets.level.player_spawn.yaw,
 		objects        = make([dynamic]Object, 0, MAX_OBJECTS, allocator),
-		suzanne_mesh   = gpu.suzanne_handle,
+		prop_meshes    = gpu.prop_handles,
+		prop_asset_count = len(assets.prop_assets),
 		map_mesh       = gpu.map_handle,
 		next_object_id = 1,
 	}
+	for &asset, i in assets.prop_assets {
+		scene.prop_model_paths[i] = strings.clone(asset.model_path, allocator)
+	}
 	scene_add_player(&scene, LOCAL_PLAYER_ID, scene.player_spawn_position, scene.player_spawn_yaw)
-	scene_physics_assets_create(&scene, &assets.collision_mesh, &assets.level.render_mesh)
+	scene_physics_assets_create(&scene, assets)
 	scene_create_map(&scene)
 	scene_spawn_level_entities(&scene, &assets.level.source)
 	return scene
@@ -221,10 +229,13 @@ scene_camera_player :: proc(scene: ^Scene) -> ^PlayerController {
 }
 
 scene_destroy :: proc(scene: ^Scene) {
+	for i in 0..<scene.prop_asset_count {
+		delete(scene.prop_model_paths[i], scene.allocator)
+	}
 	delete(scene.players)
 	delete(scene.objects)
-	engine.physics_destroy(&scene.physics)
 	scene_physics_assets_destroy(scene)
+	engine.physics_destroy(&scene.physics)
 	scene^ = {}
 }
 
@@ -241,24 +252,22 @@ scene_prepare_hot_reload :: proc(scene: ^Scene) {
 		object.physics.angular_velocity = Vec3(b3.Body_GetAngularVelocity(object.physics.body))
 		object.physics.body = {}
 	}
-	engine.physics_destroy(&scene.physics)
 	scene_physics_assets_destroy(scene)
+	engine.physics_destroy(&scene.physics)
 }
 
 scene_rebuild_after_hot_reload :: proc(scene: ^Scene, fs: ^GameFS, map_qpath: string) {
 	runtime.DEFAULT_TEMP_ALLOCATOR_TEMP_GUARD()
 
-	level := level_load(fs, map_qpath)
-	defer level_destroy(&level)
-	collision_mesh := engine.load_glb_mesh(fs, "models/suzanne_collision.glb")
-	defer engine.cpu_mesh_destroy(&collision_mesh)
+	assets := scene_assets_load(fs, map_qpath)
+	defer scene_assets_destroy(&assets)
 
 	scene.physics = engine.physics_create()
-	scene_physics_assets_create(scene, &collision_mesh, &level.render_mesh)
+	scene_physics_assets_create(scene, &assets)
 	for &object, index in scene.objects {
 		switch object.kind {
-		case .Suzanne:
-			body := scene_physics_create_suzanne_body(scene, object.transform.position, int(index))
+		case .Prop:
+			body := scene_physics_create_prop_body(scene, object.transform.position, object.prop_asset_index, int(index))
 			b3.Body_SetLinearVelocity(body, object.physics.linear_velocity)
 			b3.Body_SetAngularVelocity(body, object.physics.angular_velocity)
 			object.physics.body = body
@@ -273,16 +282,30 @@ scene_rebuild_after_hot_reload :: proc(scene: ^Scene, fs: ^GameFS, map_qpath: st
 	scene.accumulator = 0
 }
 
-scene_reload_level :: proc(scene: ^Scene, level: ^LevelAsset) {
-	scene_physics_replace_map_mesh(scene, &level.render_mesh)
-	scene.player_spawn_position = level.player_spawn.position
-	scene.player_spawn_yaw = level.player_spawn.yaw
+scene_reload_assets :: proc(scene: ^Scene, assets: ^LoadedSceneAssets, gpu: SceneGpuResources) {
+	scene_clear_level_entities(scene)
+	scene_physics_assets_destroy(scene)
+	for i in 0..<scene.prop_asset_count {
+		delete(scene.prop_model_paths[i], scene.allocator)
+		scene.prop_model_paths[i] = ""
+	}
+
+	scene.prop_meshes = gpu.prop_handles
+	scene.prop_asset_count = len(assets.prop_assets)
+	scene.map_mesh = gpu.map_handle
+	for &asset, i in assets.prop_assets {
+		scene.prop_model_paths[i] = strings.clone(asset.model_path, scene.allocator)
+	}
+	scene_physics_assets_create(scene, assets)
+
+	scene.player_spawn_position = assets.level.player_spawn.position
+	scene.player_spawn_yaw = assets.level.player_spawn.yaw
 	for &player in scene.players {
 		player.controller = player_create(scene.player_spawn_position, scene.player_spawn_yaw)
 		player.remote_sample_count = 0
 	}
-	scene_clear_level_entities(scene)
-	scene_spawn_level_entities(scene, &level.source)
+	scene_create_map(scene)
+	scene_spawn_level_entities(scene, &assets.level.source)
 	scene.accumulator = 0
 }
 
@@ -394,31 +417,51 @@ scene_create_map :: proc(scene: ^Scene) {
 	)
 }
 
-scene_spawn_suzanne :: proc(scene: ^Scene, position: Vec3, authority := ReplicatedPropAuthority.ServerAuthoritative) -> bool {
-	i := scene_count_objects(scene, .Suzanne)
+scene_spawn_prop :: proc(scene: ^Scene, position: Vec3, prop_asset_index: u16 = 0, authority := ReplicatedPropAuthority.ServerAuthoritative) -> bool {
+	i := scene_count_objects(scene, .Prop)
 	if len(scene.objects) >= cap(scene.objects) {
 		return false
 	}
+	mesh := scene_prop_mesh(scene, prop_asset_index)
 
-	body := scene_physics_create_suzanne_body(scene, position, i)
+	body := scene_physics_create_prop_body(scene, position, prop_asset_index, i)
 	scene_add_object(
 		scene,
 		Object {
-			name = "Suzanne",
-			kind = .Suzanne,
+			name = "Prop",
+			kind = .Prop,
 			transform = {position = position},
 			render_rotation = linalg.QUATERNIONF32_IDENTITY,
-			render = {mesh = scene.suzanne_mesh, visible = true},
+			render = {mesh = mesh, visible = true},
 			physics = {
 				body = body,
 				enabled = true,
 				sync_transform = true,
-				angular_velocity = scene_physics_suzanne_angular_velocity(i),
+				angular_velocity = scene_physics_prop_angular_velocity(i),
 			},
-			replica = {kind = .Suzanne, authority = authority},
+			replica = {kind = .Prop, authority = authority},
+			prop_asset_index = prop_asset_index,
 		},
 	)
 	return true
+}
+
+scene_prop_mesh :: proc(scene: ^Scene, prop_asset_index: u16) -> MeshHandle {
+	index := int(prop_asset_index)
+	if index < 0 || index >= scene.prop_asset_count {
+		index = 0
+	}
+	return scene.prop_meshes[index]
+}
+
+scene_prop_asset_index_by_model :: proc(scene: ^Scene, model_path: string) -> u16 {
+	for i in 0..<scene.prop_asset_count {
+		if scene.prop_model_paths[i] == model_path {
+			return u16(i)
+		}
+	}
+	log.warnf("Prop model not loaded for scene, falling back to default: %s", model_path)
+	return 0
 }
 
 scene_upsert_remote_player :: proc(scene: ^Scene, player_id: u32, position: Vec3, yaw: f32) {
@@ -551,7 +594,7 @@ scene_debug_hud_data :: proc(scene: ^Scene) -> DebugHudData {
 	return {
 		enabled = true,
 		object_count = len(scene.objects),
-		suzanne_count = scene_count_objects(scene, .Suzanne),
+		prop_count = scene_count_objects(scene, .Prop),
 		object_capacity = cap(scene.objects),
 		player_position = player_position,
 		player_velocity = player_velocity,
@@ -575,9 +618,9 @@ scene_profile_log_if_needed :: proc(scene: ^Scene, delta_time: f32) {
 	scene.profile_log_timer = 0
 	p := scene.profile
 	log.debugf(
-		"profile objects=%d suzannes=%d update=%.2fms fixed=%.2fms steps=%d think=%.2fms player=%.2fms touch=%.2fms box3d_wall=%.2fms box3d_step=%.2fms pairs=%.2fms collide=%.2fms solve=%.2fms contacts=%d awake_contacts=%d tree=%d sat=%d",
+		"profile objects=%d props=%d update=%.2fms fixed=%.2fms steps=%d think=%.2fms player=%.2fms touch=%.2fms box3d_wall=%.2fms box3d_step=%.2fms pairs=%.2fms collide=%.2fms solve=%.2fms contacts=%d awake_contacts=%d tree=%d sat=%d",
 		len(scene.objects),
-		scene_count_objects(scene, .Suzanne),
+		scene_count_objects(scene, .Prop),
 		p.update_ms,
 		p.fixed_update_ms,
 		p.fixed_steps,
@@ -620,7 +663,7 @@ scene_collect_render_items :: proc(scene: ^Scene, items: ^[dynamic]RenderItem) -
 			continue
 		}
 		model := scene_transform_matrix(scene_player_render_transform(scene, &player))
-		append(items, RenderItem{mesh = scene.suzanne_mesh, model = model})
+		append(items, RenderItem{mesh = scene_prop_mesh(scene, 0), model = model})
 	}
 	return items[:]
 }
@@ -652,7 +695,7 @@ scene_object_model_matrix :: proc(scene: ^Scene, object: ^Object) -> matrix[4, 4
 	if object.physics.sync_transform {
 		return engine.physics_body_matrix(object.physics.body)
 	}
-	if object.kind == .Suzanne {
+	if object.kind == .Prop {
 		position, rotation := replicated_transform_at_tick(&object.replica.transform_buffer, object.transform.position, object.render_rotation, scene.remote_render_tick)
 		return linalg.matrix4_from_trs_f32(position, rotation, {1, 1, 1})
 	}

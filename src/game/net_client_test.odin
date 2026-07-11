@@ -162,7 +162,7 @@ test_net_client_reconcile_replays_unacked_command :: proc(t: ^testing.T) {
 }
 
 @(test)
-test_net_client_apply_snapshot_upserts_replicated_suzanne :: proc(t: ^testing.T) {
+test_net_client_apply_snapshot_upserts_replicated_prop :: proc(t: ^testing.T) {
 	net := GameNetClient{local_player_id = LOCAL_PLAYER_ID}
 	scene := test_net_scene()
 	defer delete(scene.objects)
@@ -172,24 +172,26 @@ test_net_client_apply_snapshot_upserts_replicated_suzanne :: proc(t: ^testing.T)
 	snapshot := protocol.Server_Snapshot{sequence = 1, server_tick = 10, prop_count = 1}
 	snapshot.props[0] = {
 		net_id = 12,
+		prop_asset_index = 0,
 		position = {2, 3, 4},
 		rotation = {0, 0.5, 0, 0.8660254},
 	}
 	game_net_client_apply_snapshot(&net, &scene, snapshot)
 
 	object := scene_object_by_net_id(&scene, 12)
-	testing.expect(t, object != nil, "replicated Suzanne should be created")
-	testing.expect_value(t, object.kind, ObjectKind.Suzanne)
+	testing.expect(t, object != nil, "replicated prop should be created")
+	testing.expect_value(t, object.kind, ObjectKind.Prop)
 	testing.expect_value(t, object.transform.position, Vec3{2, 3, 4})
 	testing.expect_value(t, object.render_rotation.y, f32(0.5))
 	testing.expect_value(t, object.replica.net_id, protocol.NetId(12))
+	testing.expect_value(t, object.prop_asset_index, u16(0))
 	testing.expect_value(t, object.replica.transform_buffer.count, 1)
 	testing.expect_value(t, object.replica.transform_buffer.samples[0].server_tick, u32(10))
 	testing.expect(t, !object.physics.enabled, "replicated client prop should be render-only")
 }
 
 @(test)
-test_net_client_apply_snapshot_updates_existing_suzanne_as_render_only :: proc(t: ^testing.T) {
+test_net_client_apply_snapshot_updates_existing_prop_as_render_only :: proc(t: ^testing.T) {
 	net := GameNetClient{local_player_id = LOCAL_PLAYER_ID}
 	scene := test_net_scene()
 	defer delete(scene.objects)
@@ -197,9 +199,9 @@ test_net_client_apply_snapshot_updates_existing_suzanne_as_render_only :: proc(t
 	scene.objects = make([dynamic]Object, 0, MAX_OBJECTS)
 	append(&scene.objects, Object{
 		id = 4,
-		name = "Suzanne",
-		kind = .Suzanne,
-		replica = {net_id = 4, kind = .Suzanne, authority = .ServerAuthoritative},
+		name = "Prop",
+		kind = .Prop,
+		replica = {net_id = 4, kind = .Prop, authority = .ServerAuthoritative},
 		transform = {position = {0, 0, 0}},
 		render_rotation = linalg.QUATERNIONF32_IDENTITY,
 		render = {visible = true},
@@ -209,13 +211,14 @@ test_net_client_apply_snapshot_updates_existing_suzanne_as_render_only :: proc(t
 	snapshot := protocol.Server_Snapshot{sequence = 1, server_tick = 8, prop_count = 1}
 	snapshot.props[0] = {
 		net_id = 4,
+		prop_asset_index = 0,
 		position = {9, 8, 7},
 		rotation = {0.1, 0.2, 0.3, 0.9},
 	}
 	game_net_client_apply_snapshot(&net, &scene, snapshot)
 
 	object := scene_object(&scene, ObjectId(4))
-	testing.expect(t, object != nil, "existing Suzanne should remain")
+	testing.expect(t, object != nil, "existing prop should remain")
 	testing.expect_value(t, object.transform.position, Vec3{9, 8, 7})
 	testing.expect_value(t, object.render_rotation.z, f32(0.3))
 	testing.expect_value(t, object.replica.transform_buffer.count, 1)
@@ -223,13 +226,13 @@ test_net_client_apply_snapshot_updates_existing_suzanne_as_render_only :: proc(t
 }
 
 @(test)
-test_net_client_apply_snapshot_removes_replicated_suzanne :: proc(t: ^testing.T) {
+test_net_client_apply_snapshot_removes_replicated_prop :: proc(t: ^testing.T) {
 	net := GameNetClient{local_player_id = LOCAL_PLAYER_ID}
 	scene := test_net_scene()
 	defer delete(scene.objects)
 	defer delete(scene.players)
 	scene.objects = make([dynamic]Object, 0, MAX_OBJECTS)
-	append(&scene.objects, Object{id = 7, name = "Suzanne", kind = .Suzanne, render = {visible = true}, replica = {net_id = 7, kind = .Suzanne, authority = .ServerAuthoritative}})
+	append(&scene.objects, Object{id = 7, name = "Prop", kind = .Prop, render = {visible = true}, replica = {net_id = 7, kind = .Prop, authority = .ServerAuthoritative}})
 
 	snapshot := protocol.Server_Snapshot{sequence = 1, removed_prop_count = 1}
 	snapshot.removed_prop_ids[0] = 7
@@ -256,7 +259,7 @@ test_net_server_prop_delta_skips_unchanged_known_prop_until_refresh :: proc(t: ^
 	defer delete(scene.objects)
 	defer delete(scene.players)
 	scene.objects = make([dynamic]Object, 0, MAX_OBJECTS)
-	append(&scene.objects, Object{id = 3, kind = .Suzanne, transform = {position = {1, 2, 3}}, render_rotation = linalg.QUATERNIONF32_IDENTITY, replica = {net_id = 3, kind = .Suzanne, authority = .ServerAuthoritative}})
+	append(&scene.objects, Object{id = 3, kind = .Prop, transform = {position = {1, 2, 3}}, render_rotation = linalg.QUATERNIONF32_IDENTITY, replica = {net_id = 3, kind = .Prop, authority = .ServerAuthoritative}})
 	server := new(NetServer)
 	defer free(server)
 	server^ = {scene = &scene, server_tick = 10}
@@ -300,7 +303,7 @@ test_net_server_prop_delta_skips_client_only_prop :: proc(t: ^testing.T) {
 	defer delete(scene.objects)
 	defer delete(scene.players)
 	scene.objects = make([dynamic]Object, 0, MAX_OBJECTS)
-	append(&scene.objects, Object{id = 5, kind = .Suzanne, replica = {net_id = 5, kind = .Suzanne, authority = .ClientOnly}})
+	append(&scene.objects, Object{id = 5, kind = .Prop, replica = {net_id = 5, kind = .Prop, authority = .ClientOnly}})
 	server := new(NetServer)
 	defer free(server)
 	server^ = {scene = &scene}

@@ -10,23 +10,32 @@ COLLISION_CATEGORY_TRIGGER :: u64(1 << 3)
 COLLISION_MASK_ALL :: u64(COLLISION_CATEGORY_WORLD | COLLISION_CATEGORY_PROP | COLLISION_CATEGORY_PLAYER | COLLISION_CATEGORY_TRIGGER)
 
 ScenePhysicsAssets :: struct {
-	suzanne_hull: ^b3.HullData,
-	map_mesh:     ^b3.MeshData,
-	map_body:     b3.BodyId,
+	prop_hulls: [MAX_PROP_ASSETS]^b3.HullData,
+	prop_count: int,
+	map_mesh:   ^b3.MeshData,
+	map_body:   b3.BodyId,
 }
 
-scene_physics_assets_create :: proc(scene: ^Scene, collision_mesh, level_mesh: ^CpuMesh) {
-	scene.physics_assets.suzanne_hull = collision_create_suzanne_hull(collision_mesh)
-	scene.physics_assets.map_mesh = engine.physics_create_static_mesh_data(level_mesh)
+scene_physics_assets_create :: proc(scene: ^Scene, assets: ^LoadedSceneAssets) {
+	scene.physics_assets.prop_count = len(assets.prop_assets)
+	for &asset, i in assets.prop_assets {
+		scene.physics_assets.prop_hulls[i] = collision_create_prop_hull(&asset.collision_mesh)
+	}
+	scene.physics_assets.map_mesh = engine.physics_create_static_mesh_data(&assets.level.render_mesh)
 	scene.physics_assets.map_body = scene_physics_create_map_body(scene)
 }
 
 scene_physics_assets_destroy :: proc(scene: ^Scene) {
+	if b3.IS_NON_NULL(scene.physics_assets.map_body) {
+		b3.DestroyBody(scene.physics_assets.map_body)
+	}
 	if scene.physics_assets.map_mesh != nil {
 		b3.DestroyMesh(scene.physics_assets.map_mesh)
 	}
-	if scene.physics_assets.suzanne_hull != nil {
-		b3.DestroyHull(scene.physics_assets.suzanne_hull)
+	for hull in scene.physics_assets.prop_hulls {
+		if hull != nil {
+			b3.DestroyHull(hull)
+		}
 	}
 	scene.physics_assets = {}
 }
@@ -53,11 +62,11 @@ scene_physics_create_map_body :: proc(scene: ^Scene) -> b3.BodyId {
 	return body
 }
 
-scene_physics_create_suzanne_body :: proc(scene: ^Scene, position: Vec3, ordinal: int) -> b3.BodyId {
+scene_physics_create_prop_body :: proc(scene: ^Scene, position: Vec3, prop_asset_index: u16, ordinal: int) -> b3.BodyId {
 	body_def := b3.DefaultBodyDef()
 	body_def.type = .dynamicBody
 	body_def.position = {position.x, position.y, position.z}
-	body_def.angularVelocity = scene_physics_suzanne_angular_velocity(ordinal)
+	body_def.angularVelocity = scene_physics_prop_angular_velocity(ordinal)
 	body := b3.CreateBody(scene.physics.id, body_def)
 
 	shape_def := b3.DefaultShapeDef()
@@ -65,7 +74,11 @@ scene_physics_create_suzanne_body :: proc(scene: ^Scene, position: Vec3, ordinal
 	shape_def.baseMaterial.friction = 0.6
 	shape_def.baseMaterial.restitution = 0.05
 	shape_def.filter = scene_physics_prop_shape_filter()
-	_ = b3.CreateHullShape(body, shape_def, scene.physics_assets.suzanne_hull)
+	index := int(prop_asset_index)
+	if index < 0 || index >= scene.physics_assets.prop_count {
+		index = 0
+	}
+	_ = b3.CreateHullShape(body, shape_def, scene.physics_assets.prop_hulls[index])
 	return body
 }
 
@@ -82,7 +95,7 @@ scene_physics_create_trigger_body :: proc(scene: ^Scene, center, half_extents: V
 	return
 }
 
-scene_physics_suzanne_angular_velocity :: proc(ordinal: int) -> Vec3 {
+scene_physics_prop_angular_velocity :: proc(ordinal: int) -> Vec3 {
 	return {
 		0.25 + f32(ordinal % 5) * 0.12,
 		0.35 + f32(ordinal % 7) * 0.08,

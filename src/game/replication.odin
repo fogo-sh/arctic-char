@@ -8,7 +8,7 @@ REPLICATED_TRANSFORM_SAMPLE_CAPACITY :: 8
 
 ReplicatedKind :: enum {
 	None,
-	Suzanne,
+	Prop,
 }
 
 ReplicatedPropAuthority :: enum {
@@ -89,20 +89,22 @@ replicated_transform_at_tick :: proc(buffer: ^ReplicatedTransformBuffer, fallbac
 	return sample.position, sample.rotation
 }
 
-scene_upsert_replicated_suzanne :: proc(scene: ^Scene, net_id: protocol.NetId, position: Vec3, rotation: linalg.Quaternionf32, server_tick: u32) {
+scene_upsert_replicated_prop :: proc(scene: ^Scene, net_id: protocol.NetId, prop_asset_index: u16, position: Vec3, rotation: linalg.Quaternionf32, server_tick: u32) {
+	mesh := scene_prop_mesh(scene, prop_asset_index)
 	if object := scene_object_by_net_id(scene, net_id); object != nil {
 		if b3.IS_NON_NULL(object.physics.body) {
 			b3.DestroyBody(object.physics.body)
 		}
-		object.kind = .Suzanne
+		object.kind = .Prop
 		object.transform.position = position
 		object.render_rotation = rotation
-		object.render.mesh = scene.suzanne_mesh
+		object.render.mesh = mesh
 		object.render.visible = true
 		object.physics = {enabled = false}
-		object.replica.kind = .Suzanne
+		object.replica.kind = .Prop
 		object.replica.authority = .ServerAuthoritative
 		object.replica.last_replicated_tick = server_tick
+		object.prop_asset_index = prop_asset_index
 		replicated_transform_add_sample(&object.replica.transform_buffer, {server_tick = server_tick, position = position, rotation = rotation})
 		return
 	}
@@ -111,18 +113,19 @@ scene_upsert_replicated_suzanne :: proc(scene: ^Scene, net_id: protocol.NetId, p
 		return
 	}
 	object := Object{
-		name = "Suzanne",
-		kind = .Suzanne,
+		name = "Prop",
+		kind = .Prop,
 		transform = {position = position},
 		render_rotation = rotation,
-		render = {mesh = scene.suzanne_mesh, visible = true},
+		render = {mesh = mesh, visible = true},
 		physics = {enabled = false},
 		replica = {
 			net_id = net_id,
-			kind = .Suzanne,
+			kind = .Prop,
 			authority = .ServerAuthoritative,
 			last_replicated_tick = server_tick,
 		},
+		prop_asset_index = prop_asset_index,
 	}
 	replicated_transform_add_sample(&object.replica.transform_buffer, {server_tick = server_tick, position = position, rotation = rotation})
 	scene_add_object(scene, object)

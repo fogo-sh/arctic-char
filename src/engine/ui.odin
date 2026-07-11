@@ -34,7 +34,7 @@ UiContext :: struct {
 DebugHudData :: struct {
 	enabled: bool,
 	object_count: int,
-	suzanne_count: int,
+	prop_count: int,
 	object_capacity: int,
 	player_position: Vec3,
 	player_velocity: Vec3,
@@ -101,7 +101,7 @@ ui_debug_hud_append_commands :: proc(ui: ^UiContext, win_size: [2]i32, debug: De
 			})
 
 			ui_debug_hud_row("Objs", 0, fmt.tprintf("%d/%d", debug.object_count, debug.object_capacity))
-			ui_debug_hud_row("Suz", 1, fmt.tprintf("%d", debug.suzanne_count))
+			ui_debug_hud_row("Prop", 1, fmt.tprintf("%d", debug.prop_count))
 			ui_debug_hud_row("Pos", 2, fmt.tprintf("%.1f %.1f %.1f", debug.player_position.x, debug.player_position.y, debug.player_position.z))
 			ui_debug_hud_row("Vel", 3, fmt.tprintf("%.1f %.1f %.1f", debug.player_velocity.x, debug.player_velocity.y, debug.player_velocity.z))
 			ui_debug_hud_row("Cmd", 4, fmt.tprintf("%d ack %d", debug.command_sequence, debug.acked_command))
