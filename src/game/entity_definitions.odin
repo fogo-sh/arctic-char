@@ -60,6 +60,10 @@ ENTITY_SPAWNER_SUZANNE_PROPERTIES := [?]EntityPropertyDef {
 	{name = "count", label = "Spawn Count", type = .Integer, default_value = "4", description = "Maximum number of Suzannes to spawn."},
 }
 
+ENTITY_PROP_SUZANNE_PROPERTIES := [?]EntityPropertyDef {
+	{name = "net_policy", label = "Network Policy", type = .String, default_value = "server", description = "server for authoritative synced prop, client for presentation-only local prop."},
+}
+
 ENTITY_TRIGGER_TELEPORT_PROPERTIES := [?]EntityPropertyDef {
 	{name = "target", label = "Target", type = .TargetDestination, description = "Teleport destination targetname."},
 	{name = "target_origin", label = "Direct Target Origin", type = .String, description = "Optional direct teleport destination as x y z editor coordinates."},
@@ -113,7 +117,7 @@ ENTITY_DEFINITIONS := [?]EntityDef {
 		color = {255, 150, 80},
 		size_min = {-16, -16, -16},
 		size_max = {16, 16, 16},
-		properties = nil,
+		properties = ENTITY_PROP_SUZANNE_PROPERTIES[:],
 	},
 	{
 		classname = "spawner_suzanne",

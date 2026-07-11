@@ -199,7 +199,7 @@ test_user_cmds_reject_payload_length_mismatch :: proc(t: ^testing.T) {
 @(test)
 test_server_snapshot_round_trips :: proc(t: ^testing.T) {
 	buffer: [MAX_PACKET_SIZE]byte
-	written := Server_Snapshot{server_tick = 120, sequence = 4, last_processed_user_cmd = 43, player_count = 2, prop_count = 1}
+	written := Server_Snapshot{server_tick = 120, sequence = 4, last_processed_user_cmd = 43, player_count = 2, prop_count = 1, removed_prop_count = 1}
 	written.players[0] = Server_Player_State{
 		player_id = 3,
 		position = {1, 2, 3},
@@ -223,6 +223,7 @@ test_server_snapshot_round_trips :: proc(t: ^testing.T) {
 		position = {8, 9, 10},
 		rotation = {0.1, 0.2, 0.3, 0.9},
 	}
+	written.removed_prop_ids[0] = 99
 	packet, ok := write_server_snapshot(buffer[:], written)
 	testing.expect(t, ok, "server snapshot should fit")
 
@@ -234,6 +235,7 @@ test_server_snapshot_round_trips :: proc(t: ^testing.T) {
 	testing.expect_value(t, parsed.snapshot.last_processed_user_cmd, written.last_processed_user_cmd)
 	testing.expect_value(t, parsed.snapshot.player_count, written.player_count)
 	testing.expect_value(t, parsed.snapshot.prop_count, written.prop_count)
+	testing.expect_value(t, parsed.snapshot.removed_prop_count, written.removed_prop_count)
 	testing.expect_value(t, parsed.snapshot.players[0].player_id, written.players[0].player_id)
 	testing.expect_value(t, parsed.snapshot.players[0].position, written.players[0].position)
 	testing.expect_value(t, parsed.snapshot.players[0].velocity, written.players[0].velocity)
@@ -251,6 +253,7 @@ test_server_snapshot_round_trips :: proc(t: ^testing.T) {
 	testing.expect_value(t, parsed.snapshot.props[0].object_id, written.props[0].object_id)
 	testing.expect_value(t, parsed.snapshot.props[0].position, written.props[0].position)
 	testing.expect_value(t, parsed.snapshot.props[0].rotation, written.props[0].rotation)
+	testing.expect_value(t, parsed.snapshot.removed_prop_ids[0], written.removed_prop_ids[0])
 }
 
 @(test)
@@ -266,6 +269,7 @@ test_server_snapshot_rejects_invalid_player_count :: proc(t: ^testing.T) {
 	testing.expect(t, write_u32(&w, 2))
 	testing.expect(t, write_u32(&w, 3))
 	testing.expect(t, write_u16(&w, MAX_SNAPSHOT_PLAYERS + 1))
+	testing.expect(t, write_u16(&w, 0))
 	testing.expect(t, write_u16(&w, 0))
 	packet := writer_bytes(&w)
 
@@ -287,6 +291,28 @@ test_server_snapshot_rejects_invalid_prop_count :: proc(t: ^testing.T) {
 	testing.expect(t, write_u32(&w, 3))
 	testing.expect(t, write_u16(&w, 0))
 	testing.expect(t, write_u16(&w, MAX_SNAPSHOT_PROPS + 1))
+	testing.expect(t, write_u16(&w, 0))
+	packet := writer_bytes(&w)
+
+	_, err := parse_packet(packet, CHANNEL_SNAPSHOTS)
+	testing.expect_value(t, err, Parse_Error.Bad_Payload)
+}
+
+@(test)
+test_server_snapshot_rejects_invalid_removed_prop_count :: proc(t: ^testing.T) {
+	buffer: [MAX_PACKET_SIZE]byte
+	snapshot := Server_Snapshot{removed_prop_count = MAX_REMOVED_PROPS + 1}
+	_, write_ok := write_server_snapshot(buffer[:], snapshot)
+	testing.expect(t, !write_ok, "too many removed props should be rejected before writing")
+
+	w := packet_writer(buffer[:HEADER_SIZE + SERVER_SNAPSHOT_HEADER_PAYLOAD_SIZE])
+	testing.expect(t, write_header(&w, Header{magic = PROTOCOL_MAGIC, version = PROTOCOL_VERSION, kind = .Server_Snapshot, payload_length = SERVER_SNAPSHOT_HEADER_PAYLOAD_SIZE}))
+	testing.expect(t, write_u32(&w, 1))
+	testing.expect(t, write_u32(&w, 2))
+	testing.expect(t, write_u32(&w, 3))
+	testing.expect(t, write_u16(&w, 0))
+	testing.expect(t, write_u16(&w, 0))
+	testing.expect(t, write_u16(&w, MAX_REMOVED_PROPS + 1))
 	packet := writer_bytes(&w)
 
 	_, err := parse_packet(packet, CHANNEL_SNAPSHOTS)

@@ -16,9 +16,11 @@ USER_CMDS_HEADER_PAYLOAD_SIZE :: 1
 MAX_USER_CMDS_PER_PACKET :: 8
 SERVER_PLAYER_STATE_PAYLOAD_SIZE :: 49
 SERVER_PROP_STATE_PAYLOAD_SIZE :: 32
-SERVER_SNAPSHOT_HEADER_PAYLOAD_SIZE :: 16
+SERVER_SNAPSHOT_HEADER_PAYLOAD_SIZE :: 18
+SERVER_REMOVED_PROP_PAYLOAD_SIZE :: 4
 MAX_SNAPSHOT_PLAYERS :: 32
 MAX_SNAPSHOT_PROPS :: 64
+MAX_REMOVED_PROPS :: 64
 
 Packet_Kind :: enum u8 {
 	Invalid,
@@ -101,8 +103,10 @@ Server_Snapshot :: struct {
 	last_processed_user_cmd: u32,
 	player_count: u16,
 	prop_count:   u16,
+	removed_prop_count: u16,
 	players:     [MAX_SNAPSHOT_PLAYERS]Server_Player_State,
 	props:       [MAX_SNAPSHOT_PROPS]Server_Prop_State,
+	removed_prop_ids: [MAX_REMOVED_PROPS]u32,
 }
 
 Parse_Error :: enum {
@@ -250,10 +254,10 @@ write_user_cmds :: proc(buffer: []byte, cmds: User_Cmds) -> (packet: []byte, ok:
 }
 
 write_server_snapshot :: proc(buffer: []byte, snapshot: Server_Snapshot) -> (packet: []byte, ok: bool) {
-	if snapshot.player_count > MAX_SNAPSHOT_PLAYERS || snapshot.prop_count > MAX_SNAPSHOT_PROPS {
+	if snapshot.player_count > MAX_SNAPSHOT_PLAYERS || snapshot.prop_count > MAX_SNAPSHOT_PROPS || snapshot.removed_prop_count > MAX_REMOVED_PROPS {
 		return nil, false
 	}
-	payload_length := SERVER_SNAPSHOT_HEADER_PAYLOAD_SIZE + int(snapshot.player_count) * SERVER_PLAYER_STATE_PAYLOAD_SIZE + int(snapshot.prop_count) * SERVER_PROP_STATE_PAYLOAD_SIZE
+	payload_length := SERVER_SNAPSHOT_HEADER_PAYLOAD_SIZE + int(snapshot.player_count) * SERVER_PLAYER_STATE_PAYLOAD_SIZE + int(snapshot.prop_count) * SERVER_PROP_STATE_PAYLOAD_SIZE + int(snapshot.removed_prop_count) * SERVER_REMOVED_PROP_PAYLOAD_SIZE
 	total_length := HEADER_SIZE + payload_length
 	if len(buffer) < total_length {
 		return nil, false
@@ -271,11 +275,15 @@ write_server_snapshot :: proc(buffer: []byte, snapshot: Server_Snapshot) -> (pac
 	write_u32(&w, snapshot.last_processed_user_cmd) or_return
 	write_u16(&w, snapshot.player_count) or_return
 	write_u16(&w, snapshot.prop_count) or_return
+	write_u16(&w, snapshot.removed_prop_count) or_return
 	for i in 0..<int(snapshot.player_count) {
 		write_server_player_state_payload(&w, snapshot.players[i]) or_return
 	}
 	for i in 0..<int(snapshot.prop_count) {
 		write_server_prop_state_payload(&w, snapshot.props[i]) or_return
+	}
+	for i in 0..<int(snapshot.removed_prop_count) {
+		write_u32(&w, snapshot.removed_prop_ids[i]) or_return
 	}
 	return writer_bytes(&w), w.err == .None
 }
@@ -410,8 +418,10 @@ parse_server_snapshot_payload :: proc(packet: []byte, header: Header) -> (snapsh
 	if !ok do return {}, .Bad_Payload
 	snapshot.prop_count, ok = read_u16(&r)
 	if !ok do return {}, .Bad_Payload
-	expected_remaining := int(snapshot.player_count) * SERVER_PLAYER_STATE_PAYLOAD_SIZE + int(snapshot.prop_count) * SERVER_PROP_STATE_PAYLOAD_SIZE
-	if snapshot.player_count > MAX_SNAPSHOT_PLAYERS || snapshot.prop_count > MAX_SNAPSHOT_PROPS || reader_remaining(&r) != expected_remaining {
+	snapshot.removed_prop_count, ok = read_u16(&r)
+	if !ok do return {}, .Bad_Payload
+	expected_remaining := int(snapshot.player_count) * SERVER_PLAYER_STATE_PAYLOAD_SIZE + int(snapshot.prop_count) * SERVER_PROP_STATE_PAYLOAD_SIZE + int(snapshot.removed_prop_count) * SERVER_REMOVED_PROP_PAYLOAD_SIZE
+	if snapshot.player_count > MAX_SNAPSHOT_PLAYERS || snapshot.prop_count > MAX_SNAPSHOT_PROPS || snapshot.removed_prop_count > MAX_REMOVED_PROPS || reader_remaining(&r) != expected_remaining {
 		return {}, .Bad_Payload
 	}
 	for i in 0..<int(snapshot.player_count) {
@@ -420,6 +430,10 @@ parse_server_snapshot_payload :: proc(packet: []byte, header: Header) -> (snapsh
 	}
 	for i in 0..<int(snapshot.prop_count) {
 		snapshot.props[i], ok = read_server_prop_state_payload(&r)
+		if !ok do return {}, .Bad_Payload
+	}
+	for i in 0..<int(snapshot.removed_prop_count) {
+		snapshot.removed_prop_ids[i], ok = read_u32(&r)
 		if !ok do return {}, .Bad_Payload
 	}
 	if !ok || reader_remaining(&r) != 0 do return {}, .Bad_Payload

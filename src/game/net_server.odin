@@ -1,6 +1,7 @@
 package game
 
 import "core:log"
+import "core:math/linalg"
 import protocol "../protocol"
 import transport "../net"
 import b3 "vendor:box3d"
@@ -9,6 +10,9 @@ NET_SERVER_MAX_CLIENTS :: 32
 NET_SERVER_PENDING_USER_CMDS :: 64
 NET_SERVER_OUTGOING_PACKETS :: 128
 NET_SERVER_COMMAND_LOG_INTERVAL :: u32(60)
+NET_SERVER_PROP_REFRESH_TICKS :: u32(64)
+NET_SERVER_PROP_POSITION_EPSILON :: f32(0.01)
+NET_SERVER_PROP_ROTATION_EPSILON :: f32(0.001)
 NET_SERVER_TICK_HZ :: 64
 NET_SERVER_TICK_TIME :: f32(1.0 / f32(NET_SERVER_TICK_HZ))
 NET_SNAPSHOT_HZ :: 32
@@ -27,6 +31,14 @@ NetServerSession :: struct {
 	has_last_input_cmd: bool,
 	last_processed_cmd_sequence: u32,
 	last_logged_command: u32,
+	known_props: [protocol.MAX_SNAPSHOT_PROPS]NetServerKnownProp,
+}
+
+NetServerKnownProp :: struct {
+	active: bool,
+	object_id: u32,
+	state: protocol.Server_Prop_State,
+	last_sent_tick: u32,
 }
 
 NetServerOutgoingPacket :: struct {
@@ -263,33 +275,14 @@ net_server_broadcast_snapshot :: proc(server: ^NetServer) {
 		}
 		base_snapshot.player_count += 1
 	}
-	for &object in server.scene.objects {
-		if object.kind != .Suzanne || base_snapshot.prop_count >= protocol.MAX_SNAPSHOT_PROPS {
-			continue
-		}
-		position := object.transform.position
-		rotation := [4]f32{0, 0, 0, 1}
-		if object.physics.sync_transform && b3.IS_NON_NULL(object.physics.body) {
-			transform := b3.Body_GetTransform(object.physics.body)
-			position = Vec3(transform.p)
-			rotation = {transform.q.x, transform.q.y, transform.q.z, transform.q.w}
-		} else {
-			rotation = {object.render_rotation.x, object.render_rotation.y, object.render_rotation.z, object.render_rotation.w}
-		}
-		base_snapshot.props[base_snapshot.prop_count] = protocol.Server_Prop_State{
-			object_id = u32(object.id),
-			position = position,
-			rotation = rotation,
-		}
-		base_snapshot.prop_count += 1
-	}
 
-	for session in server.sessions {
+	for &session in server.sessions {
 		if !session.active || !session.accepted {
 			continue
 		}
 		snapshot := base_snapshot
 		snapshot.last_processed_user_cmd = session.last_processed_cmd_sequence
+		net_server_add_prop_delta(server, &session, &snapshot)
 		packet, ok := protocol.write_server_snapshot(buffer[:], snapshot)
 		if !ok {
 			log.warnf("Failed to write server snapshot tick=%d players=%d", snapshot.server_tick, snapshot.player_count)
@@ -300,6 +293,100 @@ net_server_broadcast_snapshot :: proc(server: ^NetServer) {
 		}
 	}
 	server.snapshot_sequence += 1
+}
+
+net_server_add_prop_delta :: proc(server: ^NetServer, session: ^NetServerSession, snapshot: ^protocol.Server_Snapshot) {
+	for &known in session.known_props {
+		if !known.active {
+			continue
+		}
+		if !net_server_scene_has_replicated_prop(server.scene, known.object_id) {
+			if snapshot.removed_prop_count < protocol.MAX_REMOVED_PROPS {
+				snapshot.removed_prop_ids[snapshot.removed_prop_count] = known.object_id
+				snapshot.removed_prop_count += 1
+			}
+			known = {}
+		}
+	}
+
+	for &object in server.scene.objects {
+		if !net_server_object_replicates_as_prop(&object) || snapshot.prop_count >= protocol.MAX_SNAPSHOT_PROPS {
+			continue
+		}
+		state, awake := net_server_prop_state_from_object(&object)
+		known := net_server_known_prop(session, state.object_id)
+		should_send := known == nil || awake || server.server_tick - known.last_sent_tick >= NET_SERVER_PROP_REFRESH_TICKS
+		if known != nil && !should_send {
+			should_send = net_server_prop_state_changed(known.state, state)
+		}
+		if !should_send {
+			continue
+		}
+		snapshot.props[snapshot.prop_count] = state
+		snapshot.prop_count += 1
+		net_server_store_known_prop(session, state, server.server_tick)
+	}
+}
+
+net_server_object_replicates_as_prop :: proc(object: ^Object) -> bool {
+	return object.kind == .Suzanne && object.prop_authority == .ServerAuthoritative
+}
+
+net_server_scene_has_replicated_prop :: proc(scene: ^Scene, object_id: u32) -> bool {
+	for &object in scene.objects {
+		if u32(object.id) == object_id && net_server_object_replicates_as_prop(&object) {
+			return true
+		}
+	}
+	return false
+}
+
+net_server_prop_state_from_object :: proc(object: ^Object) -> (state: protocol.Server_Prop_State, awake: bool) {
+	position := object.transform.position
+	rotation := [4]f32{object.render_rotation.x, object.render_rotation.y, object.render_rotation.z, object.render_rotation.w}
+	if object.physics.sync_transform && b3.IS_NON_NULL(object.physics.body) {
+		transform := b3.Body_GetTransform(object.physics.body)
+		position = Vec3(transform.p)
+		rotation = {transform.q.x, transform.q.y, transform.q.z, transform.q.w}
+		awake = b3.Body_IsAwake(object.physics.body)
+	}
+	return {
+		object_id = u32(object.id),
+		position = position,
+		rotation = rotation,
+	}, awake
+}
+
+net_server_prop_state_changed :: proc(a, b: protocol.Server_Prop_State) -> bool {
+	position_delta := Vec3{a.position.x - b.position.x, a.position.y - b.position.y, a.position.z - b.position.z}
+	if linalg.length(position_delta) > NET_SERVER_PROP_POSITION_EPSILON {
+		return true
+	}
+	rotation_delta := abs(a.rotation.x - b.rotation.x) + abs(a.rotation.y - b.rotation.y) + abs(a.rotation.z - b.rotation.z) + abs(a.rotation.w - b.rotation.w)
+	return rotation_delta > NET_SERVER_PROP_ROTATION_EPSILON
+}
+
+net_server_known_prop :: proc(session: ^NetServerSession, object_id: u32) -> ^NetServerKnownProp {
+	for &known in session.known_props {
+		if known.active && known.object_id == object_id {
+			return &known
+		}
+	}
+	return nil
+}
+
+net_server_store_known_prop :: proc(session: ^NetServerSession, state: protocol.Server_Prop_State, server_tick: u32) {
+	if known := net_server_known_prop(session, state.object_id); known != nil {
+		known.state = state
+		known.last_sent_tick = server_tick
+		return
+	}
+	for &known in session.known_props {
+		if !known.active {
+			known = {active = true, object_id = state.object_id, state = state, last_sent_tick = server_tick}
+			return
+		}
+	}
 }
 
 net_server_enqueue_user_cmds :: proc(server: ^NetServer, session_index: int, cmds: protocol.User_Cmds) {

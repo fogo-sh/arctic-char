@@ -46,7 +46,15 @@ scene_spawn_entity_prop_suzanne :: proc(scene: ^Scene, entity: ^MapEntity) {
 		log.warn("prop_suzanne missing origin")
 		return
 	}
-	_ = scene_spawn_suzanne(scene, position)
+	_ = scene_spawn_suzanne(scene, position, scene_entity_prop_authority(entity))
+}
+
+scene_entity_prop_authority :: proc(entity: ^MapEntity) -> ReplicatedPropAuthority {
+	policy, ok := map_entity_property(entity, "net_policy")
+	if ok && policy == "client" {
+		return .ClientOnly
+	}
+	return .ServerAuthoritative
 }
 
 scene_spawn_entity_spawner_suzanne :: proc(scene: ^Scene, entity: ^MapEntity) {

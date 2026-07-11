@@ -548,11 +548,27 @@ diving directly into the id source trees.
      id.
    - Clients upsert those props as render-only objects from snapshots instead of
      advancing local prop physics.
-   - Status: initial full-state Suzanne transform replication is implemented for
-     up to 64 props per snapshot. This restores server-spawned dynamic props on
-     clients and prevents stale client prop bodies from affecting local prediction.
-     Prop interpolation, sleep/dirty filtering, spawn/despawn messages, and Source-style
-     heavy/server-authoritative vs small/client-only prop policy are still pending.
+   - Status: Suzanne transform replication is implemented for up to 64 changed
+     props per snapshot. Clients buffer prop samples and render them at the same
+     delayed snapshot tick used for remote players. Snapshots carry explicit
+     removed prop ids, so absence is not overloaded as deletion. The server keeps
+     per-session known prop state and sends new, changed, awake, or periodic-refresh
+     props while skipping unchanged sleeping props. `prop_suzanne` supports a
+     `net_policy` key; the default `server` policy replicates as authoritative
+     state, while `client` marks presentation-only props that are excluded from
+     server snapshots. A richer Source-style debris policy is still pending.
+
+7. Moving platforms and trains.
+   - Source's first useful model is classic `func_train` plus `path_corner`, not
+     the richer `func_tracktrain` path-track system.
+   - A train should be a server-side kinematic mover, updated in think before
+     player movement, with brush render/collision owned by the train object.
+   - Minimal map keys should be `func_train.target`, optional `speed`, `wait`,
+     `origin`, and `targetname`; `path_corner` should support `targetname`,
+     `target`, `origin`, optional `speed`, and optional `wait`.
+   - Player riding needs a ground-entity/platform-delta concept in the mover so a
+     grounded player inherits train movement for that fixed step.
+   - Status: researched against Source SDK 2013. Implementation is pending.
 
 ## Known Risks
 
