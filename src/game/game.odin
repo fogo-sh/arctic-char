@@ -105,8 +105,18 @@ game_render :: proc(game: rawptr, render_items: ^[dynamic]RenderItem, win_size: 
 	return {
 		globals = scene_render_globals(&state.scene, win_size),
 		items = scene_collect_render_items(&state.scene, render_items),
-		debug = scene_debug_hud_data(&state.scene),
+		debug = game_debug_hud_data(state),
 	}
+}
+
+game_debug_hud_data :: proc(state: ^Game_State) -> DebugHudData {
+	debug := scene_debug_hud_data(&state.scene)
+	debug.command_sequence = state.net.command_sequence
+	debug.acked_command = state.net.last_server_acked_command
+	debug.prediction_error = state.net.last_prediction_error
+	debug.prediction_replay_count = state.net.last_prediction_replay_count
+	debug.prediction_correction_count = state.net.prediction_correction_count
+	return debug
 }
 
 @(export)

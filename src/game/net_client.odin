@@ -1,6 +1,7 @@
 package game
 
 import "core:log"
+import "core:math/linalg"
 import protocol "../protocol"
 import transport "../net"
 
@@ -28,12 +29,26 @@ GameNetClient :: struct {
 	last_snapshot_sequence: u32,
 	has_snapshot:    bool,
 	command_history: [CLIENT_COMMAND_HISTORY]protocol.User_Cmd,
+	prediction_history: [CLIENT_COMMAND_HISTORY]PredictedPlayerState,
+	last_prediction_error: f32,
+	last_prediction_replay_count: u32,
+	prediction_correction_count: u32,
 	seen_remote_players: [protocol.MAX_SNAPSHOT_PLAYERS + 1]bool,
 	receive_buffer:  [protocol.MAX_PACKET_SIZE]byte,
 	send_buffer:     [protocol.MAX_PACKET_SIZE]byte,
 	local_server_scene: ^Scene,
 	local_server:    ^NetServer,
 	local_server_accumulator: f32,
+}
+
+PredictedPlayerState :: struct {
+	sequence:      u32,
+	position:      Vec3,
+	velocity:      Vec3,
+	yaw:           f32,
+	pitch:         f32,
+	grounded:      bool,
+	ground_normal: Vec3,
 }
 
 game_net_client_init :: proc(net: ^GameNetClient, config: GameLaunchConfig, scene: ^Scene, assets: ^LoadedSceneAssets) {
@@ -112,11 +127,9 @@ game_net_client_update :: proc(net: ^GameNetClient, scene: ^Scene, move: PlayerM
 	case .Loopback:
 		game_net_client_update_loopback(net, scene, move, look, delta_time)
 	case .RemoteConnecting, .RemoteAccepted:
-		// Temporary prediction path until authoritative local-player reconciliation lands.
-		scene_update(scene, net.local_player_id, move, look, delta_time)
 		game_net_client_poll(net, scene)
 		if net.state == .RemoteAccepted {
-			game_net_client_send_user_cmds_for_elapsed_time(net, scene, move, delta_time)
+			game_net_client_predict_and_send_user_cmds_for_elapsed_time(net, scene, move, look, delta_time, false)
 		}
 	}
 }
@@ -133,23 +146,15 @@ game_net_client_loopback_handshake :: proc(net: ^GameNetClient, scene: ^Scene) -
 }
 
 game_net_client_update_loopback :: proc(net: ^GameNetClient, scene: ^Scene, move: PlayerMoveInput, look: PlayerLookInput, delta_time: f32) {
-	player := scene_player(scene, net.local_player_id)
-	if player == nil {
-		return
-	}
-	yaw, pitch := player_look_angles_after_input(player^, look)
-	net.command_accumulator += min(delta_time, 0.25)
-	for net.command_accumulator >= NET_SERVER_TICK_TIME {
-		cmd := game_net_client_next_user_cmd(net, move, yaw, pitch)
-		game_net_client_store_user_cmd(net, cmd)
-		cmds := game_net_client_recent_user_cmds(net)
-		packet, ok := protocol.write_user_cmds(net.send_buffer[:], cmds)
+	cmds := game_net_client_predict_and_queue_user_cmds(net, scene, move, look, delta_time, true)
+	if cmds.count > 0 {
+		packet_cmds := game_net_client_recent_user_cmds(net)
+		packet, ok := protocol.write_user_cmds(net.send_buffer[:], packet_cmds)
 		if !ok {
-			log.warnf("Failed to write loopback user cmds newest_sequence=%d count=%d", cmd.sequence, cmds.count)
+			log.warnf("Failed to write loopback user cmds newest_sequence=%d count=%d", net.command_sequence, packet_cmds.count)
 			return
 		}
 		net_server_handle_packet(net.local_server, LOOPBACK_SERVER_PEER, protocol.CHANNEL_USER_CMDS, packet)
-		net.command_accumulator -= NET_SERVER_TICK_TIME
 	}
 	net.local_server_accumulator += min(delta_time, 0.25)
 	for net.local_server_accumulator >= NET_SERVER_TICK_TIME {
@@ -243,30 +248,55 @@ game_net_client_drain_loopback_server :: proc(net: ^GameNetClient, scene: ^Scene
 	return accepted
 }
 
-game_net_client_send_user_cmds_for_elapsed_time :: proc(net: ^GameNetClient, scene: ^Scene, move: PlayerMoveInput, delta_time: f32) {
-	net.command_accumulator += min(delta_time, 0.25)
-	for net.command_accumulator >= NET_SERVER_TICK_TIME {
-		if !game_net_client_send_user_cmd(net, scene, move) {
+game_net_client_predict_and_send_user_cmds_for_elapsed_time :: proc(net: ^GameNetClient, scene: ^Scene, move: PlayerMoveInput, look: PlayerLookInput, delta_time: f32, step_world: bool) {
+	cmds := game_net_client_predict_and_queue_user_cmds(net, scene, move, look, delta_time, step_world)
+	if cmds.count > 0 {
+		packet_cmds := game_net_client_recent_user_cmds(net)
+		packet, ok := protocol.write_user_cmds(net.send_buffer[:], packet_cmds)
+		if !ok || !transport.send(net.peer, protocol.CHANNEL_USER_CMDS, packet, .Unreliable) {
+			log.warnf("Failed to send user cmds newest_sequence=%d count=%d", net.command_sequence, packet_cmds.count)
 			return
 		}
-		net.command_accumulator -= NET_SERVER_TICK_TIME
+		transport.flush(&net.host)
 	}
 }
 
-game_net_client_send_user_cmd :: proc(net: ^GameNetClient, scene: ^Scene, move: PlayerMoveInput) -> bool {
+game_net_client_predict_and_queue_user_cmds :: proc(net: ^GameNetClient, scene: ^Scene, move: PlayerMoveInput, look: PlayerLookInput, delta_time: f32, step_world: bool) -> protocol.User_Cmds {
+	player := scene_player(scene, net.local_player_id)
+	if player == nil {
+		return {}
+	}
+	player_apply_look(player, look)
+
+	queued: protocol.User_Cmds
+	net.command_accumulator += min(delta_time, 0.25)
+	for net.command_accumulator >= NET_SERVER_TICK_TIME {
+		cmd := game_net_client_next_user_cmd(net, move, player.yaw, player.pitch)
+		game_net_client_store_user_cmd(net, cmd)
+		game_net_client_predict_user_cmd(net, scene, cmd, step_world)
+		if queued.count < protocol.MAX_USER_CMDS_PER_PACKET {
+			queued.cmds[int(queued.count)] = cmd
+			queued.count += 1
+		}
+		net.command_accumulator -= NET_SERVER_TICK_TIME
+	}
+	return queued
+}
+
+game_net_client_predict_user_cmd :: proc(net: ^GameNetClient, scene: ^Scene, cmd: protocol.User_Cmd, step_world: bool) -> bool {
 	player := scene_player(scene, net.local_player_id)
 	if player == nil {
 		return false
 	}
-	cmd := game_net_client_next_user_cmd(net, move, player.yaw, player.pitch)
-	game_net_client_store_user_cmd(net, cmd)
-	cmds := game_net_client_recent_user_cmds(net)
-	packet, ok := protocol.write_user_cmds(net.send_buffer[:], cmds)
-	if !ok || !transport.send(net.peer, protocol.CHANNEL_USER_CMDS, packet, .Unreliable) {
-		log.warnf("Failed to send user cmds newest_sequence=%d count=%d", cmd.sequence, cmds.count)
-		return false
+	player.yaw = cmd.yaw
+	player.pitch = cmd.pitch
+	move := player_move_input_from_user_cmd(cmd)
+	result := player_update(player, &scene.physics, move, NET_SERVER_TICK_TIME)
+	scene_touch_player(scene, player, result)
+	if step_world {
+		scene_step_physics(scene, NET_SERVER_TICK_TIME)
 	}
-	transport.flush(&net.host)
+	game_net_client_store_predicted_state(net, cmd.sequence, player^)
 	return true
 }
 
@@ -288,9 +318,7 @@ game_net_client_apply_snapshot :: proc(net: ^GameNetClient, scene: ^Scene, snaps
 	for i in 0..<int(snapshot.player_count) {
 		state := snapshot.players[i]
 		if state.player_id == net.local_player_id {
-			if net.local_server != nil {
-				scene_upsert_local_authoritative_player(scene, state)
-			}
+			game_net_client_reconcile_local_player(net, scene, state, snapshot.last_processed_user_cmd)
 			continue
 		}
 		if state.player_id < len(net.seen_remote_players) && !net.seen_remote_players[state.player_id] {
@@ -307,6 +335,31 @@ game_net_client_apply_snapshot :: proc(net: ^GameNetClient, scene: ^Scene, snaps
 	}
 }
 
+game_net_client_reconcile_local_player :: proc(net: ^GameNetClient, scene: ^Scene, state: protocol.Server_Player_State, ack_sequence: u32) {
+	authoritative := predicted_state_from_server_player_state(ack_sequence, state)
+	if predicted, ok := game_net_client_predicted_state(net, ack_sequence); ok {
+		delta := authoritative.position - predicted.position
+		net.last_prediction_error = linalg.length(delta)
+		if net.last_prediction_error > 0.001 {
+			net.prediction_correction_count += 1
+		}
+	} else {
+		net.last_prediction_error = 0
+	}
+
+	scene_upsert_local_authoritative_player(scene, state)
+	net.last_prediction_replay_count = 0
+	for sequence := ack_sequence + 1; sequence <= net.command_sequence; sequence += 1 {
+		cmd := net.command_history[int(sequence % CLIENT_COMMAND_HISTORY)]
+		if cmd.sequence != sequence {
+			continue
+		}
+		if game_net_client_predict_user_cmd(net, scene, cmd, false) {
+			net.last_prediction_replay_count += 1
+		}
+	}
+}
+
 scene_upsert_local_authoritative_player :: proc(scene: ^Scene, state: protocol.Server_Player_State) {
 	player := scene_ensure_player(scene, state.player_id, {state.position.x, state.position.y, state.position.z}, state.yaw)
 	player.position = {state.position.x, state.position.y, state.position.z}
@@ -319,6 +372,42 @@ scene_upsert_local_authoritative_player :: proc(scene: ^Scene, state: protocol.S
 
 game_net_client_store_user_cmd :: proc(net: ^GameNetClient, cmd: protocol.User_Cmd) {
 	net.command_history[int(cmd.sequence % CLIENT_COMMAND_HISTORY)] = cmd
+}
+
+game_net_client_store_predicted_state :: proc(net: ^GameNetClient, sequence: u32, player: PlayerController) {
+	net.prediction_history[int(sequence % CLIENT_COMMAND_HISTORY)] = predicted_state_from_player(sequence, player)
+}
+
+game_net_client_predicted_state :: proc(net: ^GameNetClient, sequence: u32) -> (PredictedPlayerState, bool) {
+	if sequence == 0 {
+		return {}, false
+	}
+	state := net.prediction_history[int(sequence % CLIENT_COMMAND_HISTORY)]
+	return state, state.sequence == sequence
+}
+
+predicted_state_from_player :: proc(sequence: u32, player: PlayerController) -> PredictedPlayerState {
+	return {
+		sequence = sequence,
+		position = player.position,
+		velocity = player.velocity,
+		yaw = player.yaw,
+		pitch = player.pitch,
+		grounded = player.grounded,
+		ground_normal = player.ground_normal,
+	}
+}
+
+predicted_state_from_server_player_state :: proc(sequence: u32, state: protocol.Server_Player_State) -> PredictedPlayerState {
+	return {
+		sequence = sequence,
+		position = {state.position.x, state.position.y, state.position.z},
+		velocity = {state.velocity.x, state.velocity.y, state.velocity.z},
+		yaw = state.yaw,
+		pitch = state.pitch,
+		grounded = state.grounded,
+		ground_normal = {state.ground_normal.x, state.ground_normal.y, state.ground_normal.z},
+	}
 }
 
 game_net_client_recent_user_cmds :: proc(net: ^GameNetClient) -> protocol.User_Cmds {

@@ -39,6 +39,11 @@ DebugHudData :: struct {
 	player_position: Vec3,
 	player_velocity: Vec3,
 	player_grounded: bool,
+	command_sequence: u32,
+	acked_command: u32,
+	prediction_error: f32,
+	prediction_replay_count: u32,
+	prediction_correction_count: u32,
 	fixed_steps: int,
 	physics_step_ms: f32,
 	physics_collide_ms: f32,
@@ -99,8 +104,11 @@ ui_debug_hud_append_commands :: proc(ui: ^UiContext, win_size: [2]i32, debug: De
 			ui_debug_hud_row("Suz", 1, fmt.tprintf("%d", debug.suzanne_count))
 			ui_debug_hud_row("Pos", 2, fmt.tprintf("%.1f %.1f %.1f", debug.player_position.x, debug.player_position.y, debug.player_position.z))
 			ui_debug_hud_row("Vel", 3, fmt.tprintf("%.1f %.1f %.1f", debug.player_velocity.x, debug.player_velocity.y, debug.player_velocity.z))
-			ui_debug_hud_row("Frame", 4, fmt.tprintf("%.1fms", timing.frame_ms))
-			ui_debug_hud_row("Phys", 5, fmt.tprintf("%d %.1fms", debug.fixed_steps, debug.physics_step_ms))
+			ui_debug_hud_row("Cmd", 4, fmt.tprintf("%d ack %d", debug.command_sequence, debug.acked_command))
+			ui_debug_hud_row("Pred", 5, fmt.tprintf("err %.3f replay %d", debug.prediction_error, debug.prediction_replay_count))
+			ui_debug_hud_row("Corr", 6, fmt.tprintf("%d", debug.prediction_correction_count))
+			ui_debug_hud_row("Frame", 7, fmt.tprintf("%.1fms", timing.frame_ms))
+			ui_debug_hud_row("Phys", 8, fmt.tprintf("%d %.1fms", debug.fixed_steps, debug.physics_step_ms))
 		}
 	}
 

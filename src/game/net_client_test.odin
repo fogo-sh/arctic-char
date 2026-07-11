@@ -1,6 +1,7 @@
 package game
 
 import "core:testing"
+import engine "../engine"
 import protocol "../protocol"
 
 @(test)
@@ -112,6 +113,54 @@ test_net_client_loopback_applies_local_authoritative_snapshot :: proc(t: ^testin
 }
 
 @(test)
+test_net_client_reconcile_records_prediction_error :: proc(t: ^testing.T) {
+	net := GameNetClient{local_player_id = LOCAL_PLAYER_ID, command_sequence = 1}
+	net.prediction_history[1 % CLIENT_COMMAND_HISTORY] = PredictedPlayerState{
+		sequence = 1,
+		position = {3, 0, 0},
+	}
+	scene := test_net_scene()
+	defer delete(scene.players)
+	scene_add_player(&scene, LOCAL_PLAYER_ID, {0, 0, 0}, 0)
+
+	snapshot := protocol.Server_Snapshot{sequence = 1, last_processed_user_cmd = 1, player_count = 1}
+	snapshot.players[0] = {
+		player_id = LOCAL_PLAYER_ID,
+		position = {1, 0, 0},
+		ground_normal = {0, 1, 0},
+	}
+	game_net_client_apply_snapshot(&net, &scene, snapshot)
+
+	testing.expect_value(t, net.last_prediction_error, f32(2))
+	testing.expect_value(t, net.prediction_correction_count, u32(1))
+	testing.expect_value(t, net.last_prediction_replay_count, u32(0))
+}
+
+@(test)
+test_net_client_reconcile_replays_unacked_command :: proc(t: ^testing.T) {
+	net := GameNetClient{local_player_id = LOCAL_PLAYER_ID, command_sequence = 2}
+	net.command_history[2 % CLIENT_COMMAND_HISTORY] = test_net_user_cmd(2)
+	scene := test_net_physics_scene()
+	defer test_net_physics_scene_destroy(&scene)
+	scene_add_player(&scene, LOCAL_PLAYER_ID, {0, 1, 0}, 0)
+
+	snapshot := protocol.Server_Snapshot{sequence = 1, last_processed_user_cmd = 1, player_count = 1}
+	snapshot.players[0] = {
+		player_id = LOCAL_PLAYER_ID,
+		position = {0, 1, 0},
+		ground_normal = {0, 1, 0},
+	}
+	game_net_client_apply_snapshot(&net, &scene, snapshot)
+
+	player := scene_player(&scene, LOCAL_PLAYER_ID)
+	testing.expect(t, player != nil, "local player should exist")
+	testing.expect_value(t, net.last_prediction_replay_count, u32(1))
+	testing.expect(t, player.position != Vec3{0, 1, 0}, "unacked command should be replayed from authoritative state")
+	_, ok := game_net_client_predicted_state(&net, 2)
+	testing.expect(t, ok, "replayed command should refresh prediction history")
+}
+
+@(test)
 test_scene_player_interpolates_remote_samples :: proc(t: ^testing.T) {
 	scene := test_net_scene()
 	defer delete(scene.players)
@@ -153,4 +202,17 @@ test_net_scene :: proc() -> Scene {
 		players = make([dynamic]ScenePlayer, 0, MAX_PLAYERS),
 		camera_player_id = LOCAL_PLAYER_ID,
 	}
+}
+
+test_net_physics_scene :: proc() -> Scene {
+	return Scene{
+		physics = engine.physics_create(),
+		players = make([dynamic]ScenePlayer, 0, MAX_PLAYERS),
+		camera_player_id = LOCAL_PLAYER_ID,
+	}
+}
+
+test_net_physics_scene_destroy :: proc(scene: ^Scene) {
+	engine.physics_destroy(&scene.physics)
+	delete(scene.players)
 }

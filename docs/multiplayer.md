@@ -527,6 +527,13 @@ diving directly into the id source trees.
    - Store local inputs until acknowledged by server snapshots.
    - Correct and replay when error crosses a small threshold.
    - Leave dynamic Suzanne props server-authoritative/interpolated.
+   - Status: local player command prediction now stores predicted movement state in
+     a fixed command ring. Authoritative snapshots reset the local player to the
+     acknowledged server state, replay unacknowledged commands, and expose command,
+     ack, prediction error, replay count, and correction count in the debug HUD.
+     Dynamic prop rollback is intentionally not implemented; interactions with
+     dynamic physics objects can still diverge until those objects become
+     server-authoritative replicated state.
 
 ## Known Risks
 

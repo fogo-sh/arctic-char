@@ -1034,12 +1034,12 @@
 // entity 3
 {
 "classname" "prop_suzanne"
-"origin" "-384 -120 72"
+"origin" "-112 216 72"
 }
 // entity 4
 {
 "classname" "spawner_suzanne"
-"origin" "-400 -184 96"
+"origin" "-368 8 96"
 "interval" "0.05"
 "count" "5"
 }
