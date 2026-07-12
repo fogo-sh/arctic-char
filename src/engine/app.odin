@@ -18,6 +18,7 @@ App :: struct {
 	ui:       UiContext,
 	input: InputState,
 	render_items: [dynamic]RenderItem,
+	debug_lines:  [dynamic]DebugLine,
 	ui_commands:  [dynamic]UiCommand,
 	fs: GameFS,
 	game: rawptr,
@@ -39,12 +40,13 @@ Game_API :: struct {
 	init: proc(renderer: ^Renderer, fs: ^GameFS, config: rawptr) -> rawptr,
 	destroy: proc(game: rawptr),
 	update: proc(game: rawptr, input: InputState, delta_time: f32),
-	render: proc(game: rawptr, render_items: ^[dynamic]RenderItem, win_size: [2]i32) -> RenderFrame,
+	render: proc(game: rawptr, render_items: ^[dynamic]RenderItem, debug_lines: ^[dynamic]DebugLine, win_size: [2]i32) -> RenderFrame,
 }
 
 RenderFrame :: struct {
 	globals: RenderPassGlobals,
 	items: []RenderItem,
+	debug_lines: []DebugLine,
 	ui_items: []UiCommand,
 	debug: DebugHudData,
 }
@@ -124,6 +126,7 @@ app_create :: proc(config: LaunchConfig) -> App {
 	app.renderer = renderer_create(app.gpu, app.window, app.win_size.x, app.win_size.y)
 	app.ui = ui_create(app.win_size.x, app.win_size.y)
 	app.render_items = make([dynamic]RenderItem, 0, APP_RENDER_ITEM_CAPACITY)
+	app.debug_lines = make([dynamic]DebugLine, 0, 4096)
 	app.ui_commands = make([dynamic]UiCommand, 0, UI_COMMAND_CAPACITY)
 
 	app.last_ticks = sdl.GetTicks()
@@ -160,6 +163,7 @@ app_destroy :: proc(app: ^App) {
 	ui_destroy(&app.ui)
 	renderer_destroy(&app.renderer)
 	delete(app.ui_commands)
+	delete(app.debug_lines)
 	delete(app.render_items)
 	game_fs_destroy(&app.fs)
 	if app.gpu != nil && app.window != nil do sdl.ReleaseWindowFromGPUDevice(app.gpu, app.window)
@@ -262,7 +266,7 @@ app_draw :: proc(app: ^App) {
 	ok := sdl.WaitAndAcquireGPUSwapchainTexture(cmd_buf, app.window, &swapchain_tex, nil, nil)
 	assert(ok)
 
-	frame := app.game_api.render(app.game, &app.render_items, app.win_size)
+	frame := app.game_api.render(app.game, &app.render_items, &app.debug_lines, app.win_size)
 	clear(&app.ui_commands)
 	for item in frame.ui_items {
 		append(&app.ui_commands, item)
@@ -272,7 +276,7 @@ app_draw :: proc(app: ^App) {
 		update_ms = app.last_update_ms,
 		render_ms = app.last_render_ms,
 	}, &app.ui_commands)
-	renderer_draw(&app.renderer, cmd_buf, swapchain_tex, frame.globals, frame.items, app.ui_commands[:], app.win_size)
+	renderer_draw(&app.renderer, cmd_buf, swapchain_tex, frame.globals, frame.items, frame.debug_lines, app.ui_commands[:], app.win_size)
 	if app.stats_log_time >= 2.0 {
 		renderer_log_stats(&app.renderer)
 		app.stats_log_time = 0

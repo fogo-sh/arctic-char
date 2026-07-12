@@ -320,6 +320,18 @@ diving directly into the id source trees.
   while preserving the sequence/ack/baseline shape.
 - Prediction should only cover the local player at first. Other players and props
   should render from interpolated snapshots.
+- id Tech 2/3 prediction does not simulate arbitrary remote physics props locally.
+  Client movement traces against solid entities from the active snapshot image.
+  Quake 3 also adjusts the predicted player by the movement of the current ground
+  mover after replaying commands.
+- Source SDK 2013 has the same broad split: prediction replays local commands,
+  interpolation remains presentation state, and before prediction it moves the
+  local player's ground entity back to its last received network position so
+  client movement does not collide against render-interpolated transforms.
+- For this project, replicated dynamic props should therefore provide a
+  non-simulating collision image for local prediction, but should not run full
+  client-side rigid-body simulation. Full rollback of dynamic prop physics remains
+  out of scope.
 - Physics props are expensive and chaotic. Replicate a curated/capped set first;
   do not replicate every dynamic stress-test object by default.
 - Add network diagnostics early: packet sequence, snapshot sequence, acked
@@ -550,19 +562,24 @@ diving directly into the id source trees.
    - Server runs prop spawners and Box3D for Suzanne props.
    - Snapshots replicate a bounded set of Suzanne prop transforms by stable object
      id.
-   - Clients upsert those props as render-only objects from snapshots instead of
-     advancing local prop physics.
+   - Clients upsert those props from snapshots instead of advancing local prop
+     physics.
    - Status: Suzanne transform replication is implemented for up to 64 changed
      props per snapshot. Clients buffer prop samples and render them at the same
-     delayed snapshot tick used for remote players. Snapshots carry explicit
-     removed prop ids, so absence is not overloaded as deletion. The server keeps
-     per-session known prop state and sends new, changed, awake, or periodic-refresh
-     props while skipping unchanged sleeping props. `prop_suzanne` supports a
-     `net_policy` key; the default `server` policy replicates as authoritative
-     state, while `client` marks presentation-only props that are excluded from
-     server snapshots. Prop snapshots use `NetId`, not local `ObjectId`, and
-     replicated transform sample storage lives in `src/game/replication.odin`.
-     A richer Source-style debris policy is still pending.
+     delayed snapshot tick used for remote players. Clients also create/update a
+     kinematic collision proxy at the latest received authoritative prop transform
+     so local player prediction can collide with server-owned props without
+     simulating prop rigid-body motion locally. This mirrors the id Tech/Source
+     split between prediction collision state and render interpolation, but it is
+     still not historical prop rollback. Snapshots carry explicit removed prop ids,
+     so absence is not overloaded as deletion. The server keeps per-session known
+     prop state and sends new, changed, awake, or periodic-refresh props while
+     skipping unchanged sleeping props. `prop_suzanne` supports a `net_policy` key;
+     the default `server` policy replicates as authoritative state, while `client`
+     marks presentation-only props that are excluded from server snapshots. Prop
+     snapshots use `NetId`, not local `ObjectId`, and replicated transform sample
+     storage lives in `src/game/replication.odin`. A richer Source-style debris
+     policy is still pending.
 
 7. Moving platforms and trains.
    - Source's first useful model is classic `func_train` plus `path_corner`, not

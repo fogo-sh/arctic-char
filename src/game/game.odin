@@ -105,14 +105,21 @@ game_update :: proc(game: rawptr, input: InputState, delta_time: f32) {
 }
 
 @(export)
-game_render :: proc(game: rawptr, render_items: ^[dynamic]RenderItem, win_size: [2]i32) -> engine.RenderFrame {
+game_render :: proc(game: rawptr, render_items: ^[dynamic]RenderItem, debug_lines: ^[dynamic]DebugLine, win_size: [2]i32) -> engine.RenderFrame {
 	state := cast(^Game_State)game
+	clear(debug_lines)
+	when GAME_DRAW_PHYSICS_DEBUG {
+		engine.physics_debug_draw_world_lines(&state.scene.physics, debug_lines)
+	}
 	return {
 		globals = scene_render_globals(&state.scene, win_size),
 		items = scene_collect_render_items(&state.scene, render_items),
+		debug_lines = debug_lines[:],
 		debug = game_debug_hud_data(state),
 	}
 }
+
+GAME_DRAW_PHYSICS_DEBUG :: true
 
 game_debug_hud_data :: proc(state: ^Game_State) -> DebugHudData {
 	debug := scene_debug_hud_data(&state.scene)

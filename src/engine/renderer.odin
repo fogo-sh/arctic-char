@@ -12,9 +12,13 @@ Renderer :: struct {
 	window: ^sdl.Window,
 
 	pipeline:     ^sdl.GPUGraphicsPipeline,
+	line_pipeline: ^sdl.GPUGraphicsPipeline,
 	sky_pipeline: ^sdl.GPUGraphicsPipeline,
 	ui_pipeline: ^sdl.GPUGraphicsPipeline,
 	text:        ^TextRenderer,
+	debug_line_vertex_buffer: ^sdl.GPUBuffer,
+	debug_line_transfer_buffer: ^sdl.GPUTransferBuffer,
+	debug_line_vertices: [dynamic]VertexData,
 
 	msaa_color_texture: ^sdl.GPUTexture,
 	depth_texture:      ^sdl.GPUTexture,
@@ -37,6 +41,14 @@ RenderItem :: struct {
 	mesh:  MeshHandle,
 	model: matrix[4, 4]f32,
 }
+
+DebugLine :: struct {
+	from:  Vec3,
+	to:    Vec3,
+	color: Color,
+}
+
+DEBUG_LINE_CAPACITY :: 32768
 
 RenderPassGlobals :: struct {
 	view:        matrix[4, 4]f32,
@@ -94,10 +106,16 @@ renderer_create :: proc(
 	log.debugf("Renderer MSAA sample count: %v", renderer.sample_count)
 	renderer_create_render_targets(&renderer, width, height)
 	renderer.pipeline = renderer_create_pipeline(gpu, window, renderer.sample_count)
+	renderer.line_pipeline = renderer_create_line_pipeline(gpu, window, renderer.sample_count)
 	renderer.sky_pipeline = renderer_create_sky_pipeline(gpu, window, renderer.sample_count)
 	renderer.ui_pipeline = renderer_create_ui_pipeline(gpu, window, renderer.sample_count)
 	renderer.text = renderer_create_text(gpu, window, renderer.sample_count)
 	renderer.meshes = make([dynamic]GpuMesh, 0, 16, allocator)
+	renderer.debug_line_vertices = make([dynamic]VertexData, 0, DEBUG_LINE_CAPACITY * 2, allocator)
+	renderer.debug_line_vertex_buffer = sdl.CreateGPUBuffer(gpu, {usage = {.VERTEX}, size = u32(DEBUG_LINE_CAPACITY * 2 * size_of(VertexData))})
+	renderer.debug_line_transfer_buffer = sdl.CreateGPUTransferBuffer(gpu, {usage = .UPLOAD, size = u32(DEBUG_LINE_CAPACITY * 2 * size_of(VertexData))})
+	assert(renderer.debug_line_vertex_buffer != nil)
+	assert(renderer.debug_line_transfer_buffer != nil)
 	renderer_update_static_stats(&renderer)
 	return renderer
 }
@@ -106,10 +124,14 @@ renderer_destroy :: proc(renderer: ^Renderer) {
 	for &mesh in renderer.meshes {
 		renderer_destroy_mesh(renderer, &mesh)
 	}
+	delete(renderer.debug_line_vertices)
 	delete(renderer.meshes)
+	if renderer.debug_line_transfer_buffer != nil do sdl.ReleaseGPUTransferBuffer(renderer.gpu, renderer.debug_line_transfer_buffer)
+	if renderer.debug_line_vertex_buffer != nil do sdl.ReleaseGPUBuffer(renderer.gpu, renderer.debug_line_vertex_buffer)
 	if renderer.depth_texture != nil do sdl.ReleaseGPUTexture(renderer.gpu, renderer.depth_texture)
 	if renderer.msaa_color_texture != nil do sdl.ReleaseGPUTexture(renderer.gpu, renderer.msaa_color_texture)
 	if renderer.pipeline != nil do sdl.ReleaseGPUGraphicsPipeline(renderer.gpu, renderer.pipeline)
+	if renderer.line_pipeline != nil do sdl.ReleaseGPUGraphicsPipeline(renderer.gpu, renderer.line_pipeline)
 	if renderer.sky_pipeline != nil do sdl.ReleaseGPUGraphicsPipeline(renderer.gpu, renderer.sky_pipeline)
 	if renderer.ui_pipeline != nil do sdl.ReleaseGPUGraphicsPipeline(renderer.gpu, renderer.ui_pipeline)
 	renderer_destroy_text(renderer.gpu, renderer.text)
@@ -250,6 +272,51 @@ renderer_create_pipeline :: proc(
 	return pipeline
 }
 
+renderer_create_line_pipeline :: proc(
+	gpu: ^sdl.GPUDevice,
+	window: ^sdl.Window,
+	sample_count: sdl.GPUSampleCount,
+) -> ^sdl.GPUGraphicsPipeline {
+	vert_shader := load_shader(gpu, vert_shader_code, .VERTEX, num_uniform_buffers = 1, entrypoint_name = "VertexMain")
+	frag_shader := load_shader(gpu, frag_shader_code, .FRAGMENT, num_uniform_buffers = 1, entrypoint_name = "FragmentMain")
+	assert(vert_shader != nil)
+	assert(frag_shader != nil)
+	defer sdl.ReleaseGPUShader(gpu, vert_shader)
+	defer sdl.ReleaseGPUShader(gpu, frag_shader)
+
+	vertex_buffer_description := sdl.GPUVertexBufferDescription{slot = 0, pitch = size_of(VertexData), input_rate = .VERTEX}
+	vertex_attributes := [4]sdl.GPUVertexAttribute{
+		{location = 0, buffer_slot = 0, format = .FLOAT3, offset = 0},
+		{location = 1, buffer_slot = 0, format = .FLOAT3, offset = u32(offset_of(VertexData, normal))},
+		{location = 2, buffer_slot = 0, format = .FLOAT2, offset = u32(offset_of(VertexData, uv))},
+		{location = 3, buffer_slot = 0, format = .FLOAT4, offset = u32(offset_of(VertexData, color))},
+	}
+	color_target_description := sdl.GPUColorTargetDescription{format = sdl.GetGPUSwapchainTextureFormat(gpu, window)}
+	target_info := sdl.GPUGraphicsPipelineTargetInfo{
+		num_color_targets = 1,
+		color_target_descriptions = &color_target_description,
+		depth_stencil_format = .D32_FLOAT,
+		has_depth_stencil_target = true,
+	}
+	pipeline := sdl.CreateGPUGraphicsPipeline(gpu, {
+		vertex_shader = vert_shader,
+		fragment_shader = frag_shader,
+		vertex_input_state = {
+			num_vertex_buffers = 1,
+			vertex_buffer_descriptions = &vertex_buffer_description,
+			num_vertex_attributes = len(vertex_attributes),
+			vertex_attributes = &vertex_attributes[0],
+		},
+		primitive_type = .LINELIST,
+		rasterizer_state = {front_face = .COUNTER_CLOCKWISE, enable_depth_clip = true},
+		multisample_state = {sample_count = sample_count},
+		depth_stencil_state = {compare_op = .LESS_OR_EQUAL, enable_depth_test = true, enable_depth_write = false},
+		target_info = target_info,
+	})
+	assert(pipeline != nil)
+	return pipeline
+}
+
 renderer_destroy_mesh :: proc(renderer: ^Renderer, mesh: ^GpuMesh) {
 	if mesh.index_buffer != nil do sdl.ReleaseGPUBuffer(renderer.gpu, mesh.index_buffer)
 	if mesh.vertex_buffer != nil do sdl.ReleaseGPUBuffer(renderer.gpu, mesh.vertex_buffer)
@@ -355,6 +422,7 @@ renderer_draw :: proc(
 	swapchain_tex: ^sdl.GPUTexture,
 	globals: RenderPassGlobals,
 	items: []RenderItem,
+	debug_lines: []DebugLine,
 	ui_commands: []UiCommand,
 	viewport: [2]i32,
 ) {
@@ -362,6 +430,7 @@ renderer_draw :: proc(
 	renderer.stats.draw_count = 0
 	renderer.stats.triangle_count = 0
 	renderer_prepare_text(renderer, cmd_buf, ui_commands)
+	renderer_prepare_debug_lines(renderer, cmd_buf, debug_lines)
 
 	color_target := renderer_color_target(renderer, swapchain_tex, globals.environment)
 	depth_target := sdl.GPUDepthStencilTargetInfo {
@@ -396,9 +465,41 @@ renderer_draw :: proc(
 		renderer.stats.draw_count += 1
 		renderer.stats.triangle_count += mesh.index_count / 3
 	}
+	renderer_draw_debug_lines(renderer, cmd_buf, render_pass, globals)
 	renderer_draw_ui(renderer, cmd_buf, render_pass, ui_commands, viewport)
 	renderer_draw_text(renderer, cmd_buf, render_pass, viewport)
 	sdl.EndGPURenderPass(render_pass)
+}
+
+renderer_prepare_debug_lines :: proc(renderer: ^Renderer, cmd_buf: ^sdl.GPUCommandBuffer, lines: []DebugLine) {
+	clear(&renderer.debug_line_vertices)
+	if len(lines) == 0 do return
+	line_count := min(len(lines), DEBUG_LINE_CAPACITY)
+	for line in lines[:line_count] {
+		append(&renderer.debug_line_vertices, VertexData{pos = line.from, color = line.color})
+		append(&renderer.debug_line_vertices, VertexData{pos = line.to, color = line.color})
+	}
+	data_size := len(renderer.debug_line_vertices) * size_of(VertexData)
+	transfer_ptr := transmute([^]byte)sdl.MapGPUTransferBuffer(renderer.gpu, renderer.debug_line_transfer_buffer, true)
+	mem.copy(transfer_ptr[:], raw_data(renderer.debug_line_vertices[:]), data_size)
+	sdl.UnmapGPUTransferBuffer(renderer.gpu, renderer.debug_line_transfer_buffer)
+	copy_pass := sdl.BeginGPUCopyPass(cmd_buf)
+	assert(copy_pass != nil)
+	sdl.UploadToGPUBuffer(copy_pass, {transfer_buffer = renderer.debug_line_transfer_buffer, offset = 0}, {buffer = renderer.debug_line_vertex_buffer, offset = 0, size = u32(data_size)}, true)
+	sdl.EndGPUCopyPass(copy_pass)
+}
+
+renderer_draw_debug_lines :: proc(renderer: ^Renderer, cmd_buf: ^sdl.GPUCommandBuffer, render_pass: ^sdl.GPURenderPass, globals: RenderPassGlobals) {
+	if len(renderer.debug_line_vertices) == 0 do return
+	sdl.BindGPUGraphicsPipeline(render_pass, renderer.line_pipeline)
+	fragment_uniforms := renderer_fragment_uniforms(globals.environment)
+	sdl.PushGPUFragmentUniformData(cmd_buf, 0, &fragment_uniforms, size_of(fragment_uniforms))
+	vertex_uniforms := WorldVertexUniforms{mvp = globals.proj * globals.view, model_view = globals.view}
+	sdl.PushGPUVertexUniformData(cmd_buf, 0, &vertex_uniforms, size_of(vertex_uniforms))
+	vertex_buffer_binding := sdl.GPUBufferBinding{buffer = renderer.debug_line_vertex_buffer, offset = 0}
+	sdl.BindGPUVertexBuffers(render_pass, 0, &vertex_buffer_binding, 1)
+	sdl.DrawGPUPrimitives(render_pass, u32(len(renderer.debug_line_vertices)), 1, 0, 0)
+	renderer.stats.draw_count += 1
 }
 
 renderer_fragment_uniforms :: proc(environment: RenderEnvironment) -> FragmentUniforms {
@@ -418,7 +519,7 @@ renderer_mesh :: proc(renderer: ^Renderer, handle: MeshHandle) -> ^GpuMesh {
 
 renderer_update_static_stats :: proc(renderer: ^Renderer) {
 	renderer.stats.mesh_count = len(renderer.meshes)
-	renderer.stats.pipeline_count = int(renderer.pipeline != nil) + int(renderer.sky_pipeline != nil) + int(renderer.ui_pipeline != nil) + int(renderer.text != nil && renderer.text.pipeline != nil)
+	renderer.stats.pipeline_count = int(renderer.pipeline != nil) + int(renderer.line_pipeline != nil) + int(renderer.sky_pipeline != nil) + int(renderer.ui_pipeline != nil) + int(renderer.text != nil && renderer.text.pipeline != nil)
 }
 
 renderer_log_stats :: proc(renderer: ^Renderer) {

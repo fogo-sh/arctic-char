@@ -1055,7 +1055,7 @@
 "model" "models/boxish.glb"
 "origin" "-464 200 304"
 "interval" "0.01"
-"count" "20"
+"count" "1"
 }
 // entity 4
 {
@@ -1084,5 +1084,5 @@
 "model" "models/suzanne.glb"
 "origin" "-456 -200 304"
 "interval" "0.01"
-"count" "20"
+"count" "1"
 }

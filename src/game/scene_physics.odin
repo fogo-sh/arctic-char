@@ -1,6 +1,7 @@
 package game
 
 import engine "../engine"
+import "core:math/linalg"
 import b3 "vendor:box3d"
 
 COLLISION_CATEGORY_WORLD :: u64(1 << 0)
@@ -63,10 +64,21 @@ scene_physics_create_map_body :: proc(scene: ^Scene) -> b3.BodyId {
 }
 
 scene_physics_create_prop_body :: proc(scene: ^Scene, position: Vec3, prop_asset_index: u16, ordinal: int) -> b3.BodyId {
+	return scene_physics_create_prop_body_with_type(scene, position, linalg.QUATERNIONF32_IDENTITY, prop_asset_index, ordinal, .dynamicBody)
+}
+
+scene_physics_create_prop_proxy_body :: proc(scene: ^Scene, position: Vec3, rotation: linalg.Quaternionf32, prop_asset_index: u16) -> b3.BodyId {
+	return scene_physics_create_prop_body_with_type(scene, position, rotation, prop_asset_index, 0, .kinematicBody)
+}
+
+scene_physics_create_prop_body_with_type :: proc(scene: ^Scene, position: Vec3, rotation: linalg.Quaternionf32, prop_asset_index: u16, ordinal: int, body_type: b3.BodyType) -> b3.BodyId {
 	body_def := b3.DefaultBodyDef()
-	body_def.type = .dynamicBody
+	body_def.type = body_type
 	body_def.position = {position.x, position.y, position.z}
-	body_def.angularVelocity = scene_physics_prop_angular_velocity(ordinal)
+	body_def.rotation = b3.Quat(rotation)
+	if body_type == .dynamicBody {
+		body_def.angularVelocity = scene_physics_prop_angular_velocity(ordinal)
+	}
 	body := b3.CreateBody(scene.physics.id, body_def)
 
 	shape_def := b3.DefaultShapeDef()

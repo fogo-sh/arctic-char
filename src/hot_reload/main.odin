@@ -24,7 +24,7 @@ Hot_Game_API :: struct {
 	init: proc(renderer: ^engine.Renderer, fs: ^engine.GameFS, config: rawptr) -> rawptr,
 	destroy: proc(game: rawptr),
 	update: proc(game: rawptr, input: engine.InputState, delta_time: f32),
-	render: proc(game: rawptr, render_items: ^[dynamic]engine.RenderItem, win_size: [2]i32) -> engine.RenderFrame,
+	render: proc(game: rawptr, render_items: ^[dynamic]engine.RenderItem, debug_lines: ^[dynamic]engine.DebugLine, win_size: [2]i32) -> engine.RenderFrame,
 	memory: proc() -> rawptr,
 	memory_size: proc() -> int,
 	before_hot_reload: proc(game: rawptr),
