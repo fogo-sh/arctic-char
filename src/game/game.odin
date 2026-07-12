@@ -50,6 +50,11 @@ GameLaunchOptions :: struct {
 	port:    u16    `usage:"Server UDP port for client networking."`,
 	content_id: u32 `usage:"Map/content identifier for network handshake."`,
 	fullscreen: bool `usage:"Engine fullscreen flag consumed by engine code."`,
+	window_title: string `usage:"Engine window title flag consumed by engine code."`,
+	window_width:  i32    `usage:"Engine window width flag consumed by engine code."`,
+	window_height: i32    `usage:"Engine window height flag consumed by engine code."`,
+	window_x:      i32    `usage:"Engine window x flag consumed by engine code."`,
+	window_y:      i32    `usage:"Engine window y flag consumed by engine code."`,
 }
 
 game_api :: proc() -> engine.Game_API {

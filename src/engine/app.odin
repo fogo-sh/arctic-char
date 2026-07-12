@@ -88,8 +88,24 @@ app_create :: proc(config: LaunchConfig) -> App {
 	if config.fullscreen {
 		window_flags += sdl.WindowFlags{.FULLSCREEN}
 	}
-	app.window = sdl.CreateWindow("arctic char*", 1024, 768, window_flags)
+	window_title := config.window_title
+	if window_title == "" {
+		window_title = "arctic char*"
+	}
+	window_width := config.window_width
+	if window_width <= 0 {
+		window_width = 1024
+	}
+	window_height := config.window_height
+	if window_height <= 0 {
+		window_height = 768
+	}
+	app.window = sdl.CreateWindow(strings.clone_to_cstring(window_title, context.temp_allocator), window_width, window_height, window_flags)
 	assert(app.window != nil)
+	if config.window_position_set {
+		ok = sdl.SetWindowPosition(app.window, c.int(config.window_x), c.int(config.window_y))
+		assert(ok)
+	}
 	ok = sdl.SetWindowRelativeMouseMode(app.window, true)
 	assert(ok)
 

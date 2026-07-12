@@ -87,6 +87,7 @@ def main() -> int:
     mp_test_parser.add_argument("--map", default=DEFAULT_NET_MAP)
     mp_test_parser.add_argument("--content-id", default=DEFAULT_NET_CONTENT_ID)
     mp_test_parser.add_argument("--no-build", action="store_true")
+    mp_test_parser.add_argument("--no-tile-windows", action="store_true", help="Do not tile the two client windows on macOS")
     sub.add_parser("hot-game", help="Build hot-reload game dynamic library")
     sub.add_parser("hot-host", help="Build hot-reload host")
     sub.add_parser("hot-build", help="Build hot-reload game and host, then copy assets")
@@ -98,6 +99,8 @@ def main() -> int:
     sub.add_parser("check-shaders", help="Verify generated shaders are in sync")
     sub.add_parser("trenchbroom-profile", help="Generate TrenchBroom GameConfig and FGD")
     sub.add_parser("trenchbroom-install", help="Install generated TrenchBroom profile")
+    map_recolor_parser = sub.add_parser("map-recolor", help="Rewrite a .map with normal-based face color materials")
+    map_recolor_parser.add_argument("path")
     smoke_parser = sub.add_parser("smoke", help="Run a short smoke test")
     smoke_parser.add_argument("--seconds", type=float, default=5.0)
 
@@ -114,7 +117,7 @@ def main() -> int:
         "server-run": lambda: cmd_server_run(args.args),
         "server-smoke": lambda: cmd_server_smoke(args.seconds),
         "net-smoke": lambda: cmd_net_smoke(args.seconds, args.port, args.map, args.content_id),
-        "mp-test": lambda: cmd_mp_test(args.seconds, args.port, args.map, args.content_id, args.no_build),
+        "mp-test": lambda: cmd_mp_test(args.seconds, args.port, args.map, args.content_id, args.no_build, not args.no_tile_windows),
         "hot-game": cmd_hot_game,
         "hot-host": cmd_hot_host,
         "hot-build": cmd_hot_build,
@@ -125,6 +128,7 @@ def main() -> int:
         "check-shaders": cmd_check_shaders,
         "trenchbroom-profile": cmd_trenchbroom_profile,
         "trenchbroom-install": cmd_trenchbroom_install,
+        "map-recolor": lambda: cmd_map_recolor(args.path),
         "smoke": lambda: cmd_smoke(args.seconds),
     }
     commands[args.command]()
@@ -354,11 +358,12 @@ def cmd_net_smoke(seconds: float, port: int, map_name: str, content_id: int) -> 
     reject_output_marker(server_output + client_output, "Trigger teleport fired")
 
 
-def cmd_mp_test(seconds: float, port: str, map_name: str, content_id: str, no_build: bool) -> None:
+def cmd_mp_test(seconds: float, port: str, map_name: str, content_id: str, no_build: bool, tile_windows: bool) -> None:
     if not no_build:
         cmd_build()
 
     common = ["--connect", "127.0.0.1", "--port", port, "--map", map_name, "--content-id", content_id]
+    client_a_window_args, client_b_window_args = mp_test_window_args(tile_windows)
     processes: list[subprocess.Popen] = []
     capture_output = seconds > 0
 
@@ -372,11 +377,11 @@ def cmd_mp_test(seconds: float, port: str, map_name: str, content_id: str, no_bu
         processes.append(server)
         time.sleep(0.35)
 
-        client_a = spawn_process([app_path(), *common], capture_output=capture_output)
+        client_a = spawn_process([app_path(), *common, *client_a_window_args], capture_output=capture_output)
         processes.append(client_a)
         time.sleep(0.5)
 
-        client_b = spawn_process([app_path(), *common], capture_output=capture_output)
+        client_b = spawn_process([app_path(), *common, *client_b_window_args], capture_output=capture_output)
         processes.append(client_b)
 
         print("mp-test running: one server and two clients. Press Ctrl-C to stop.")
@@ -417,6 +422,58 @@ def spawn_process(cmd: list[str | Path], *, capture_output: bool = False) -> sub
     if capture_output:
         return subprocess.Popen([str(part) for part in cmd], cwd=ROOT, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
     return subprocess.Popen([str(part) for part in cmd], cwd=ROOT)
+
+
+def mp_test_window_args(tile_windows: bool) -> tuple[list[str], list[str]]:
+    if not tile_windows or platform.system() != "Darwin":
+        return [], []
+
+    bounds = macos_desktop_bounds()
+    if bounds is None:
+        return [], []
+
+    left, top, right, bottom = bounds
+    width = right - left
+    height = bottom - top
+    if width <= 0 or height <= 0:
+        return [], []
+    half_width = width // 2
+    return (
+        [
+            "--window-title", "Arctic Char P1",
+            "--window-x", str(left),
+            "--window-y", str(top),
+            "--window-width", str(half_width),
+            "--window-height", str(height),
+        ],
+        [
+            "--window-title", "Arctic Char P2",
+            "--window-x", str(left + half_width),
+            "--window-y", str(top),
+            "--window-width", str(width - half_width),
+            "--window-height", str(height),
+        ],
+    )
+
+
+def macos_desktop_bounds() -> tuple[int, int, int, int] | None:
+    result = subprocess.run(
+        ["osascript", "-e", 'tell application "Finder" to get bounds of window of desktop'],
+        cwd=ROOT,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.DEVNULL,
+        text=True,
+    )
+    if result.returncode != 0:
+        print("Window tiling skipped. Could not read macOS desktop bounds.")
+        return None
+    parts = [part.strip() for part in result.stdout.strip().split(",")]
+    if len(parts) != 4:
+        return None
+    try:
+        return tuple(int(part) for part in parts)  # type: ignore[return-value]
+    except ValueError:
+        return None
 
 
 def terminate_process(process: subprocess.Popen) -> None:
@@ -638,6 +695,10 @@ def cmd_trenchbroom_install() -> None:
     dest = trenchbroom_install_dir()
     write_trenchbroom_profile(dest)
     print(f"Installed TrenchBroom profile to: {dest}")
+
+
+def cmd_map_recolor(path: str) -> None:
+    run(["odin", "run", "tools/map_tool", "--", "recolor", path])
 
 
 def trenchbroom_install_dir() -> Path:

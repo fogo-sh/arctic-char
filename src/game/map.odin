@@ -1,9 +1,9 @@
 package game
 
 import "base:runtime"
-import "core:log"
 import "core:math"
 import "core:math/linalg"
+import "core:log"
 import "core:strconv"
 import "core:strings"
 import engine "../engine"
@@ -27,6 +27,9 @@ MapFace :: struct {
 	normal: Vec3,
 	d:      f32,
 	material: string,
+	face_suffix: string,
+	material_start: int,
+	material_end: int,
 }
 
 QuakeMap :: struct {
@@ -125,6 +128,32 @@ quake_map_parse_origin :: proc(text: string) -> (position: Vec3, ok: bool) {
 
 quake_map_to_world :: proc(position: Vec3) -> Vec3 {
 	return Vec3{position.y, position.z, position.x} * QU_TO_M
+}
+
+quake_map_recolor_by_face_normal :: proc(qmap: ^QuakeMap) {
+	for &entity in qmap.entities {
+		for &brush in entity.brushes {
+			for &face in brush.faces {
+				face.material = quake_map_material_for_normal(face.normal)
+			}
+		}
+	}
+}
+
+quake_map_material_for_normal :: proc(normal: Vec3) -> string {
+	ax := math.abs(normal.x)
+	ay := math.abs(normal.y)
+	az := math.abs(normal.z)
+	if ay >= ax && ay >= az {
+		if normal.y >= 0 do return "green"
+		return "purple"
+	}
+	if ax >= az {
+		if normal.x >= 0 do return "red"
+		return "orange"
+	}
+	if normal.z >= 0 do return "blue"
+	return "cyan"
 }
 
 quake_map_parse_f32_token :: proc(text: string, start: int) -> (value: f32, next: int, ok: bool) {
@@ -250,10 +279,11 @@ quake_map_parse_face :: proc(source: string, start: int) -> (face: MapFace, ok: 
 	if !(ok0 && ok1 && ok2) {
 		return {}, false
 	}
-	material, _, material_ok := quake_map_parse_material_token(source, next2)
+	material, next_material, material_start, material_end, material_ok := quake_map_parse_material_token(source, next2)
 	if !material_ok {
 		return {}, false
 	}
+	face_suffix := quake_map_parse_face_suffix(source, next_material)
 
 	p0 = quake_map_to_world(p0)
 	p1 = quake_map_to_world(p1)
@@ -261,19 +291,32 @@ quake_map_parse_face :: proc(source: string, start: int) -> (face: MapFace, ok: 
 	// MAP plane triples use id/QBSP winding. The normal points out of the brush;
 	// the solid volume is the back side of every face plane.
 	normal := linalg.normalize0(linalg.cross(p0 - p1, p2 - p1))
-	return MapFace{points = {p0, p1, p2}, normal = normal, d = linalg.dot(normal, p0), material = material}, true
+	return MapFace {
+		points = {p0, p1, p2},
+		normal = normal,
+		d = linalg.dot(normal, p0),
+		material = material,
+		face_suffix = face_suffix,
+		material_start = material_start,
+		material_end = material_end,
+	}, true
 }
 
-quake_map_parse_material_token :: proc(source: string, start: int) -> (material: string, next: int, ok: bool) {
+quake_map_parse_face_suffix :: proc(source: string, start: int) -> string {
+	line_end := quake_map_skip_line(source, start)
+	return strings.trim_space(source[start:line_end])
+}
+
+quake_map_parse_material_token :: proc(source: string, start: int) -> (material: string, next, begin, end: int, ok: bool) {
 	i := quake_map_skip_inline_space(source, start)
-	begin := i
+	begin = i
 	for i < len(source) && !quake_map_is_space(source[i]) {
 		i += 1
 	}
 	if begin == i {
-		return "", i, false
+		return "", i, begin, i, false
 	}
-	return source[begin:i], i, true
+	return source[begin:i], i, begin, i, true
 }
 
 quake_map_parse_point :: proc(source: string, start: int) -> (point: Vec3, next: int, ok: bool) {
@@ -315,6 +358,26 @@ quake_map_face_color :: proc(face: ^MapFace) -> Color {
 		0.24 + math.abs(n.z) * 0.30,
 		1.0,
 	}
+}
+
+quake_map_write_recolored_source :: proc(qmap: ^QuakeMap, allocator := context.allocator) -> string {
+	source := string(qmap.source)
+	b := strings.builder_make_len_cap(0, len(source), allocator)
+	cursor := 0
+	for &entity in qmap.entities {
+		for &brush in entity.brushes {
+			for face in brush.faces {
+				if face.material_start < cursor || face.material_end < face.material_start || face.material_end > len(source) {
+					continue
+				}
+				strings.write_string(&b, source[cursor:face.material_start])
+				strings.write_string(&b, face.material)
+				cursor = face.material_end
+			}
+		}
+	}
+	strings.write_string(&b, source[cursor:])
+	return strings.to_string(b)
 }
 
 quake_map_parse_quoted :: proc(source: string, start: int) -> (value: string, next: int, ok: bool) {
