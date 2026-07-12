@@ -203,9 +203,11 @@ physics_debug_build_hull_segments :: proc(resource: ^PhysicsDebugShapeResource, 
 	if hull.pointOffset == 0 || hull.edgeOffset == 0 do return
 	points := transmute([^]Vec3)(transmute(uintptr)hull + uintptr(hull.pointOffset))
 	edges := transmute([^]b3.HullHalfEdge)(transmute(uintptr)hull + uintptr(hull.edgeOffset))
-	for i in 0..<int(hull.edgeCount / 2) {
-		a := edges[2 * i + 0].origin
-		b := edges[2 * i + 1].origin
+	for i in 0..<int(hull.edgeCount) {
+		twin := int(edges[i].twin)
+		if i >= twin do continue
+		a := edges[i].origin
+		b := edges[twin].origin
 		physics_debug_resource_add_segment(resource, points[int(a)], points[int(b)])
 	}
 }
@@ -223,7 +225,12 @@ physics_debug_resource_add_segment :: proc(resource: ^PhysicsDebugShapeResource,
 }
 
 physics_debug_transform_point :: proc(transform: b3.WorldTransform, local: Vec3) -> Vec3 {
-	return Vec3(transform.p) + b3.RotateVector(transform.q, local)
+	model := linalg.matrix4_from_trs_f32(Vec3(transform.p), transform.q, {1, 1, 1})
+	return {
+		model[0][0] * local.x + model[1][0] * local.y + model[2][0] * local.z + model[3][0],
+		model[0][1] * local.x + model[1][1] * local.y + model[2][1] * local.z + model[3][1],
+		model[0][2] * local.x + model[1][2] * local.y + model[2][2] * local.z + model[3][2],
+	}
 }
 
 physics_debug_draw_aabb :: proc(mins, maxs: Vec3, color: Color, ctx: rawptr) {

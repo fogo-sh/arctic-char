@@ -1053,7 +1053,7 @@
 {
 "classname" "spawner_prop"
 "model" "models/boxish.glb"
-"origin" "-464 200 304"
+"origin" "-288 136 304"
 "interval" "0.01"
 "count" "1"
 }
@@ -1084,5 +1084,5 @@
 "model" "models/suzanne.glb"
 "origin" "-456 -200 304"
 "interval" "0.01"
-"count" "1"
+"count" "100"
 }

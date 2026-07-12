@@ -310,7 +310,7 @@ renderer_create_line_pipeline :: proc(
 		primitive_type = .LINELIST,
 		rasterizer_state = {front_face = .COUNTER_CLOCKWISE, enable_depth_clip = true},
 		multisample_state = {sample_count = sample_count},
-		depth_stencil_state = {compare_op = .LESS_OR_EQUAL, enable_depth_test = true, enable_depth_write = false},
+		depth_stencil_state = {enable_depth_test = false, enable_depth_write = false},
 		target_info = target_info,
 	})
 	assert(pipeline != nil)
