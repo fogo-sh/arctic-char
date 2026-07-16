@@ -14,7 +14,7 @@ PhysicsWorld :: engine.PhysicsWorld
 RenderItem :: engine.RenderItem
 RenderEnvironment :: engine.RenderEnvironment
 RenderPassGlobals :: engine.RenderPassGlobals
-Renderer :: engine.Renderer
+RendererApi :: engine.RendererApi
 Vec2 :: engine.Vec2
 Vec3 :: engine.Vec3
 VertexData :: engine.VertexData

@@ -1,7 +1,8 @@
-package engine
+package engine_sdl
 
 import "core:log"
 import "core:mem"
+import engine "../engine"
 import sdl "vendor:sdl3"
 
 TextVertexUniforms :: struct {

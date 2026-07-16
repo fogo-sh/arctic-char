@@ -1,3 +1,4 @@
+#+test
 package game
 
 import "core:testing"
@@ -139,6 +140,9 @@ test_net_client_reconcile_records_prediction_error :: proc(t: ^testing.T) {
 
 @(test)
 test_net_client_reconcile_replays_unacked_command :: proc(t: ^testing.T) {
+	physics_test_lock()
+	defer physics_test_unlock()
+
 	net := GameNetClient{local_player_id = LOCAL_PLAYER_ID, command_sequence = 2}
 	net.command_history[2 % CLIENT_COMMAND_HISTORY] = test_net_user_cmd(2)
 	scene := test_net_physics_scene()

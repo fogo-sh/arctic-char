@@ -1,29 +1,14 @@
 package game
 
 import "core:log"
-import "core:os"
 import "core:strings"
 import flags "core:flags"
 import "core:time"
 import engine "../engine"
 import transport "../net"
 
-Run :: proc() {
-	context.logger = log.create_console_logger()
-	engine.default_context = context
-
-	args := os.args[1:]
-	engine_config := engine.launch_config_parse(args)
-	game_config := game_launch_config_parse(args)
-	app := engine.app_create(engine_config)
-	defer engine.app_destroy(&app)
-	engine.app_init_game(&app, game_api(), &game_config)
-
-	engine.app_run(&app)
-}
-
 Game_State :: struct {
-	renderer: ^Renderer,
+	renderer: RendererApi,
 	fs: ^GameFS,
 	map_qpath: string,
 	map_mtime: time.Time,
@@ -67,7 +52,7 @@ game_api :: proc() -> engine.Game_API {
 }
 
 @(export)
-game_init :: proc(renderer: ^Renderer, fs: ^GameFS, config: rawptr) -> rawptr {
+game_init :: proc(renderer: RendererApi, fs: ^GameFS, config: rawptr) -> rawptr {
 	state := new(Game_State)
 	g = state
 	state.renderer = renderer
@@ -77,7 +62,7 @@ game_init :: proc(renderer: ^Renderer, fs: ^GameFS, config: rawptr) -> rawptr {
 	state.map_qpath = game_launch_config_map_qpath(game_config)
 	state.map_mtime, _ = engine.game_fs_modification_time(fs, state.map_qpath)
 	assets := scene_assets_load(fs, state.map_qpath)
-	gpu_resources := scene_gpu_resources_upload(renderer, &assets)
+	gpu_resources := scene_gpu_resources_upload(state.renderer, &assets)
 	state.scene = scene_create(&assets, gpu_resources)
 	game_net_client_init(&state.net, game_config, &state.scene, &assets)
 	scene_assets_destroy(&assets)

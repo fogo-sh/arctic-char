@@ -1,4 +1,4 @@
-package engine
+package engine_sdl
 
 import "base:runtime"
 import "core:strings"

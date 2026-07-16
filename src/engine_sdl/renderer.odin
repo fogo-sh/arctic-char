@@ -1,8 +1,9 @@
-package engine
+package engine_sdl
 
 import "base:runtime"
 import "core:mem"
 import "core:log"
+import engine "../engine"
 import sdl "vendor:sdl3"
 
 Renderer :: struct {
@@ -35,33 +36,7 @@ GpuMesh :: struct {
 	index_count:   int,
 }
 
-MeshHandle :: distinct int
-
-RenderItem :: struct {
-	mesh:  MeshHandle,
-	model: matrix[4, 4]f32,
-}
-
-DebugLine :: struct {
-	from:  Vec3,
-	to:    Vec3,
-	color: Color,
-}
-
 DEBUG_LINE_CAPACITY :: 32768
-
-RenderPassGlobals :: struct {
-	view:        matrix[4, 4]f32,
-	proj:        matrix[4, 4]f32,
-	environment: RenderEnvironment,
-}
-
-RenderEnvironment :: struct {
-	fog_color:         [4]f32,
-	sky_top_color:     [4]f32,
-	sky_horizon_color: [4]f32,
-	fog_distances:     [4]f32,
-}
 
 WorldVertexUniforms :: struct {
 	mvp:        matrix[4, 4]f32,
@@ -73,13 +48,6 @@ FragmentUniforms :: struct {
 	sky_top_color:     [4]f32,
 	sky_horizon_color: [4]f32,
 	fog_distances:     [4]f32,
-}
-
-RendererStats :: struct {
-	draw_count:     int,
-	triangle_count: int,
-	mesh_count:     int,
-	pipeline_count: int,
 }
 
 RendererUpload :: struct {
@@ -331,6 +299,41 @@ renderer_replace_mesh :: proc(renderer: ^Renderer, handle: MeshHandle, mesh: ^Cp
 	renderer_end_upload(&upload)
 	renderer_destroy_mesh(renderer, &renderer.meshes[index])
 	renderer.meshes[index] = new_mesh
+}
+
+renderer_sdlgpu_api :: proc(renderer: ^Renderer) -> RendererApi {
+	return {
+		data = renderer,
+		begin_upload = renderer_sdlgpu_api_begin_upload,
+		upload_mesh = renderer_sdlgpu_api_upload_mesh,
+		end_upload = renderer_sdlgpu_api_end_upload,
+		replace_mesh = renderer_sdlgpu_api_replace_mesh,
+	}
+}
+
+renderer_sdlgpu_api_begin_upload :: proc(data: rawptr) -> rawptr {
+	renderer := cast(^Renderer)data
+	upload := new(RendererUpload, renderer.allocator)
+	upload^ = renderer_begin_upload(renderer)
+	return upload
+}
+
+renderer_sdlgpu_api_upload_mesh :: proc(data: rawptr, upload_data: rawptr, mesh: ^CpuMesh) -> MeshHandle {
+	_ = data
+	upload := cast(^RendererUpload)upload_data
+	return renderer_upload_mesh(upload, mesh)
+}
+
+renderer_sdlgpu_api_end_upload :: proc(data: rawptr, upload_data: rawptr) {
+	renderer := cast(^Renderer)data
+	upload := cast(^RendererUpload)upload_data
+	renderer_end_upload(upload)
+	free(upload, renderer.allocator)
+}
+
+renderer_sdlgpu_api_replace_mesh :: proc(data: rawptr, handle: MeshHandle, mesh: ^CpuMesh) {
+	renderer := cast(^Renderer)data
+	renderer_replace_mesh(renderer, handle, mesh)
 }
 
 renderer_begin_upload :: proc(renderer: ^Renderer) -> RendererUpload {

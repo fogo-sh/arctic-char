@@ -4,7 +4,6 @@ import "core:math"
 import "core:math/linalg"
 import engine "../engine"
 import b3 "vendor:box3d"
-import sdl "vendor:sdl3"
 
 PlayerMoveConfig :: struct {
 	gravity:            f32,
@@ -95,11 +94,11 @@ player_create :: proc(position := PLAYER_SPEC.spawn_position, yaw: f32 = 0) -> P
 }
 
 player_input_from_engine :: proc(input: InputState) -> (move: PlayerMoveInput, look: PlayerLookInput) {
-	if engine.input_key_down(input, sdl.Scancode.W) do move.move_forward += 1
-	if engine.input_key_down(input, sdl.Scancode.S) do move.move_forward -= 1
-	if engine.input_key_down(input, sdl.Scancode.D) do move.move_right += 1
-	if engine.input_key_down(input, sdl.Scancode.A) do move.move_right -= 1
-	move.jump_held = engine.input_key_down(input, sdl.Scancode.SPACE)
+	if engine.input_key_down(input, .W) do move.move_forward += 1
+	if engine.input_key_down(input, .S) do move.move_forward -= 1
+	if engine.input_key_down(input, .D) do move.move_right += 1
+	if engine.input_key_down(input, .A) do move.move_right -= 1
+	move.jump_held = engine.input_key_down(input, .Space)
 	if input.mouse_captured {
 		look.look_delta = input.mouse_delta
 	}

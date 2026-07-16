@@ -22,6 +22,7 @@ BUILD = ROOT / "build"
 BASE = ROOT / "base"
 APP_NAME = "arctic-char"
 SERVER_NAME = "arctic-char-server"
+SOKOL_GAME_NAME = "arctic-char-sokol"
 MACOS_BUNDLE_NAME = "ArcticChar"
 HOT_DIR = BUILD / "hot_reload"
 ODIN_TEST_PACKAGES = ["src/engine", "src/game", "src/protocol", "src/server"]
@@ -64,11 +65,14 @@ def main() -> int:
 
     sub.add_parser("clean", help="Remove build outputs")
     sub.add_parser("build", help="Debug build and copy base assets")
+    sub.add_parser("sdl-build", help="Debug build of the SDL3 GPU game and server")
     sub.add_parser("build-release", help="Release build and copy base assets")
     sub.add_parser("test", help="Run Odin unit tests")
     sub.add_parser("macos-app", help="Build a macOS .app bundle for Xcode Metal capture")
     run_parser = sub.add_parser("run", help="Run the normal executable")
     run_parser.add_argument("args", nargs=argparse.REMAINDER)
+    sdl_run_parser = sub.add_parser("sdl-run", help="Run the SDL3 GPU executable")
+    sdl_run_parser.add_argument("args", nargs=argparse.REMAINDER)
     build_run_parser = sub.add_parser("build-and-run", help="Build then run the app")
     build_run_parser.add_argument("args", nargs=argparse.REMAINDER)
     sub.add_parser("server-build", help="Build the dedicated server")
@@ -93,6 +97,10 @@ def main() -> int:
     sub.add_parser("hot-build", help="Build hot-reload game and host, then copy assets")
     hot_run_parser = sub.add_parser("hot-run", help="Build and run hot-reload host")
     hot_run_parser.add_argument("args", nargs=argparse.REMAINDER)
+    sub.add_parser("sokol-clibs", help="Build vendored Sokol C libraries")
+    sokol_run_parser = sub.add_parser("sokol-run", help="Build and run the native Sokol game entrypoint")
+    sokol_run_parser.add_argument("args", nargs=argparse.REMAINDER)
+    sub.add_parser("sokol-build", help="Build the native Sokol game entrypoint")
     sub.add_parser("collision-mesh", help="Regenerate Suzanne collision mesh with Blender")
     sub.add_parser("clay-lib", help="Build vendored Clay static library for Odin")
     sub.add_parser("shaders", help="Regenerate checked-in shaders")
@@ -108,10 +116,12 @@ def main() -> int:
     commands = {
         "clean": cmd_clean,
         "build": cmd_build,
+        "sdl-build": cmd_build,
         "build-release": cmd_build_release,
         "test": cmd_test,
         "macos-app": cmd_macos_app,
         "run": lambda: cmd_run(args.args),
+        "sdl-run": lambda: cmd_run(args.args),
         "build-and-run": lambda: cmd_build_and_run(args.args),
         "server-build": cmd_server_build,
         "server-run": lambda: cmd_server_run(args.args),
@@ -122,6 +132,9 @@ def main() -> int:
         "hot-host": cmd_hot_host,
         "hot-build": cmd_hot_build,
         "hot-run": lambda: (cmd_hot_build(), cmd_hot_run(args.args)),
+        "sokol-clibs": cmd_sokol_clibs,
+        "sokol-build": cmd_sokol_build,
+        "sokol-run": lambda: (cmd_sokol_build(), cmd_sokol_run(args.args)),
         "collision-mesh": cmd_collision_mesh,
         "clay-lib": cmd_clay_lib,
         "shaders": cmd_shaders,
@@ -159,6 +172,10 @@ def app_path() -> Path:
 
 def server_path() -> Path:
     return BUILD / f"{SERVER_NAME}{exe_suffix()}"
+
+
+def sokol_game_path() -> Path:
+    return BUILD / f"{SOKOL_GAME_NAME}{exe_suffix()}"
 
 
 def macos_app_path() -> Path:
@@ -562,6 +579,51 @@ def cmd_hot_run(extra_args: list[str]) -> None:
     if extra_args[:1] == ["--"]:
         extra_args = extra_args[1:]
     run([hot_host_path(), *extra_args])
+
+
+def cmd_sokol_build() -> None:
+    cmd_clay_lib()
+    cmd_sokol_clibs()
+    BUILD.mkdir(parents=True, exist_ok=True)
+    run(["odin", "build", "src/engine_sokol_game", "-debug", f"-out:{sokol_game_path()}"])
+
+
+def cmd_sokol_run(extra_args: list[str]) -> None:
+    if extra_args[:1] == ["--"]:
+        extra_args = extra_args[1:]
+    run([sokol_game_path(), *extra_args])
+
+
+def cmd_sokol_clibs() -> None:
+    marker = sokol_clib_marker()
+    if marker.exists():
+        return
+
+    sokol_dir = ROOT / "vendor" / "sokol"
+    system = platform.system()
+    if system == "Darwin":
+        run(["bash", "build_clibs_macos.sh"], cwd=sokol_dir)
+    elif system == "Linux":
+        run(["bash", "build_clibs_linux.sh"], cwd=sokol_dir)
+    elif system == "Windows":
+        run(["cmd", "/c", "build_clibs_windows.cmd"], cwd=sokol_dir)
+    else:
+        raise SystemExit(f"Unsupported Sokol platform: {system}")
+
+
+def sokol_clib_marker() -> Path:
+    sokol_dir = ROOT / "vendor" / "sokol"
+    system = platform.system()
+    machine = platform.machine().lower()
+    debug_suffix = "debug"
+    if system == "Darwin":
+        arch = "arm64" if machine == "arm64" else "x64"
+        return sokol_dir / "app" / f"sokol_app_macos_{arch}_metal_{debug_suffix}.a"
+    if system == "Linux":
+        return sokol_dir / "app" / f"sokol_app_linux_x64_gl_{debug_suffix}.a"
+    if system == "Windows":
+        return sokol_dir / "app" / f"sokol_app_windows_x64_d3d11_{debug_suffix}.lib"
+    return sokol_dir / "missing-sokol-clib"
 
 
 def cmd_collision_mesh() -> None:

@@ -1,6 +1,7 @@
-package engine
+package engine_sdl
 
 import "core:math/linalg"
+import engine "../engine"
 import sdl "vendor:sdl3"
 
 SkyVertexUniforms :: struct {

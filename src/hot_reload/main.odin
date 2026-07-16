@@ -7,6 +7,7 @@ import "core:log"
 import "core:os"
 import "core:time"
 import engine "../engine"
+import engine_sdl "../engine_sdl"
 
 when ODIN_OS == .Windows {
 	DLL_EXT :: ".dll"
@@ -21,7 +22,7 @@ GAME_DLL_PATH :: GAME_DLL_DIR + "game" + DLL_EXT
 
 Hot_Game_API :: struct {
 	lib: dynlib.Library,
-	init: proc(renderer: ^engine.Renderer, fs: ^engine.GameFS, config: rawptr) -> rawptr,
+	init: proc(renderer: engine.RendererApi, fs: ^engine.GameFS, config: rawptr) -> rawptr,
 	destroy: proc(game: rawptr),
 	update: proc(game: rawptr, input: engine.InputState, delta_time: f32),
 	render: proc(game: rawptr, render_items: ^[dynamic]engine.RenderItem, debug_lines: ^[dynamic]engine.DebugLine, win_size: [2]i32) -> engine.RenderFrame,
@@ -37,6 +38,7 @@ Hot_Game_API :: struct {
 main :: proc() {
 	context.logger = log.create_console_logger()
 	engine.default_context = context
+	engine_sdl.default_context = context
 
 	args := os.args[1:]
 	engine_config := engine.launch_config_parse(args)
@@ -49,8 +51,8 @@ main :: proc() {
 	}
 	api_version += 1
 
-	app := engine.app_create(engine_config)
-	engine.app_init_game(&app, hot_engine_api(game_api), &game_config)
+	app := engine_sdl.app_create(engine_config)
+	engine_sdl.app_init_game(&app, hot_engine_api(game_api), &game_config)
 	old_game_apis := make([dynamic]Hot_Game_API)
 
 	defer {
@@ -60,9 +62,9 @@ main :: proc() {
 		delete(old_game_apis)
 		hot_unload_game_api(&game_api)
 	}
-	defer engine.app_destroy(&app)
+	defer engine_sdl.app_destroy(&app)
 
-	for engine.app_should_run(&app) {
+	for engine_sdl.app_should_run(&app) {
 		force_restart := game_api.force_restart != nil && game_api.force_restart()
 		reload := force_restart || hot_game_dylib_changed(game_api)
 		if reload {
@@ -72,15 +74,15 @@ main :: proc() {
 				force_restart = force_restart || game_api.memory_size() != new_api.memory_size()
 				if force_restart {
 					log.debug("Game dylib changed; full app restart required")
-					engine.app_destroy(&app)
+					engine_sdl.app_destroy(&app)
 					for &old_api in old_game_apis {
 						hot_unload_game_api(&old_api)
 					}
 					clear(&old_game_apis)
 					hot_unload_game_api(&game_api)
 					game_api = new_api
-					app = engine.app_create(engine_config)
-					engine.app_init_game(&app, hot_engine_api(game_api), &game_config)
+					app = engine_sdl.app_create(engine_config)
+					engine_sdl.app_init_game(&app, hot_engine_api(game_api), &game_config)
 				} else {
 					log.debug("Game dylib changed; preserving game state and rebuilding physics")
 					game_api.before_hot_reload(app.game)
@@ -92,7 +94,7 @@ main :: proc() {
 			}
 		}
 
-		engine.app_frame(&app)
+		engine_sdl.app_frame(&app)
 	}
 
 	log.debug("Goodbye!")

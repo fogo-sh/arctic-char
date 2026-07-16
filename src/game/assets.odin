@@ -36,14 +36,14 @@ scene_assets_load :: proc(fs: ^GameFS, map_qpath: string) -> LoadedSceneAssets {
 	return assets
 }
 
-scene_gpu_resources_upload :: proc(renderer: ^Renderer, assets: ^LoadedSceneAssets) -> SceneGpuResources {
-	upload := engine.renderer_begin_upload(renderer)
+scene_gpu_resources_upload :: proc(renderer: RendererApi, assets: ^LoadedSceneAssets) -> SceneGpuResources {
+	upload := engine.renderer_api_begin_upload(renderer)
 	gpu := SceneGpuResources{prop_count = len(assets.prop_assets)}
 	for &asset, i in assets.prop_assets {
-		gpu.prop_handles[i] = engine.renderer_upload_mesh(&upload, &asset.render_mesh)
+		gpu.prop_handles[i] = engine.renderer_api_upload_mesh(renderer, upload, &asset.render_mesh)
 	}
-	gpu.map_handle = engine.renderer_upload_mesh(&upload, &assets.level.render_mesh)
-	engine.renderer_end_upload(&upload)
+	gpu.map_handle = engine.renderer_api_upload_mesh(renderer, upload, &assets.level.render_mesh)
+	engine.renderer_api_end_upload(renderer, upload)
 	return gpu
 }
 

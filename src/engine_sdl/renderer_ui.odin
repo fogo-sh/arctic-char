@@ -1,6 +1,7 @@
-package engine
+package engine_sdl
 
 import "core:math"
+import engine "../engine"
 import sdl "vendor:sdl3"
 
 UiVertexUniforms :: struct {

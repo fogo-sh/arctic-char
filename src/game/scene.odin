@@ -7,7 +7,6 @@ import "core:log"
 import "core:math/linalg"
 import "core:strings"
 import b3 "vendor:box3d"
-import sdl "vendor:sdl3"
 
 SPAWN_INTERVAL :: f32(0.12)
 MAX_OBJECTS :: 2048
@@ -640,13 +639,11 @@ scene_profile_log_if_needed :: proc(scene: ^Scene, delta_time: f32) {
 }
 
 scene_profile_counter_now :: proc() -> u64 {
-	return sdl.GetPerformanceCounter()
+	return engine.performance_counter_now()
 }
 
 scene_profile_elapsed_ms :: proc(start_counter: u64) -> f32 {
-	end_counter := sdl.GetPerformanceCounter()
-	frequency := sdl.GetPerformanceFrequency()
-	return f32(end_counter - start_counter) * 1000.0 / f32(frequency)
+	return engine.performance_elapsed_ms(start_counter)
 }
 
 scene_collect_render_items :: proc(scene: ^Scene, items: ^[dynamic]RenderItem) -> []RenderItem {

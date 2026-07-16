@@ -29,6 +29,9 @@ test_scene_entity_angle_matches_map_yaw_convention :: proc(t: ^testing.T) {
 
 @(test)
 test_scene_touch_player_uses_box3d_trigger_shape :: proc(t: ^testing.T) {
+	physics_test_lock()
+	defer physics_test_unlock()
+
 	scene := Scene{
 		physics = engine.physics_create(),
 		objects = make([dynamic]Object, 0, 4),

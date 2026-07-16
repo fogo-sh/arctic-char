@@ -1,9 +1,10 @@
-package engine
+package engine_sdl
 
 import "base:runtime"
 import "core:c"
 import "core:log"
 import "core:strings"
+import engine "../engine"
 import sdl "vendor:sdl3"
 
 default_context: runtime.Context
@@ -34,27 +35,6 @@ App :: struct {
 	last_frame_ms: f32,
 	last_update_ms: f32,
 	last_render_ms: f32,
-}
-
-Game_API :: struct {
-	init: proc(renderer: ^Renderer, fs: ^GameFS, config: rawptr) -> rawptr,
-	destroy: proc(game: rawptr),
-	update: proc(game: rawptr, input: InputState, delta_time: f32),
-	render: proc(game: rawptr, render_items: ^[dynamic]RenderItem, debug_lines: ^[dynamic]DebugLine, win_size: [2]i32) -> RenderFrame,
-}
-
-RenderFrame :: struct {
-	globals: RenderPassGlobals,
-	items: []RenderItem,
-	debug_lines: []DebugLine,
-	ui_items: []UiCommand,
-	debug: DebugHudData,
-}
-
-FrameTimingStats :: struct {
-	frame_ms: f32,
-	update_ms: f32,
-	render_ms: f32,
 }
 
 // Creates SDL's application shell: window, GPU device, and the first renderer.
@@ -153,7 +133,7 @@ app_resolve_base_dir :: proc(config_base_dir: string) -> string {
 
 app_init_game :: proc(app: ^App, game_api: Game_API, game_config: rawptr) {
 	app.game_api = game_api
-	app.game = app.game_api.init(&app.renderer, &app.fs, game_config)
+	app.game = app.game_api.init(renderer_sdlgpu_api(&app.renderer), &app.fs, game_config)
 }
 
 app_destroy :: proc(app: ^App) {
@@ -186,13 +166,13 @@ app_should_run :: proc(app: ^App) -> bool {
 }
 
 app_frame :: proc(app: ^App) {
-	frame_start := sdl.GetPerformanceCounter()
+	frame_start := performance_counter_now()
 	input_begin_frame(&app.input)
 	app.input.mouse_captured = app.mouse_captured
 	app_handle_events(app)
 	app_tick(app)
 	app_draw(app)
-	app.last_frame_ms = app_elapsed_ms(frame_start)
+	app.last_frame_ms = performance_elapsed_ms(frame_start)
 }
 
 app_tick :: proc(app: ^App) {
@@ -201,19 +181,22 @@ app_tick :: proc(app: ^App) {
 	app.last_ticks = new_ticks
 	app.total_time += delta_time
 	app_update_input(app)
-	update_start := sdl.GetPerformanceCounter()
+	update_start := performance_counter_now()
 	app.game_api.update(app.game, app.input, delta_time)
-	app.last_update_ms = app_elapsed_ms(update_start)
+	app.last_update_ms = performance_elapsed_ms(update_start)
 	app.stats_log_time += delta_time
 }
 
 app_update_input :: proc(app: ^App) {
 	num_keys: c.int
 	keys := sdl.GetKeyboardState(&num_keys)
-	key_count := min(len(app.input.keys), int(num_keys))
-	for i in 0..<key_count {
-		app.input.keys[i] = keys[i]
-	}
+	input_set_key(&app.input, .W, int(sdl.Scancode.W) < int(num_keys) && keys[sdl.Scancode.W])
+	input_set_key(&app.input, .A, int(sdl.Scancode.A) < int(num_keys) && keys[sdl.Scancode.A])
+	input_set_key(&app.input, .S, int(sdl.Scancode.S) < int(num_keys) && keys[sdl.Scancode.S])
+	input_set_key(&app.input, .D, int(sdl.Scancode.D) < int(num_keys) && keys[sdl.Scancode.D])
+	input_set_key(&app.input, .Space, int(sdl.Scancode.SPACE) < int(num_keys) && keys[sdl.Scancode.SPACE])
+	input_set_key(&app.input, .Escape, int(sdl.Scancode.ESCAPE) < int(num_keys) && keys[sdl.Scancode.ESCAPE])
+	input_set_key(&app.input, .Q, int(sdl.Scancode.Q) < int(num_keys) && keys[sdl.Scancode.Q])
 }
 
 app_handle_events :: proc(app: ^App) {
@@ -260,7 +243,7 @@ app_handle_events :: proc(app: ^App) {
 }
 
 app_draw :: proc(app: ^App) {
-	render_start := sdl.GetPerformanceCounter()
+	render_start := performance_counter_now()
 	cmd_buf := sdl.AcquireGPUCommandBuffer(app.gpu)
 	swapchain_tex: ^sdl.GPUTexture
 	ok := sdl.WaitAndAcquireGPUSwapchainTexture(cmd_buf, app.window, &swapchain_tex, nil, nil)
@@ -284,11 +267,5 @@ app_draw :: proc(app: ^App) {
 
 	ok = sdl.SubmitGPUCommandBuffer(cmd_buf)
 	assert(ok)
-	app.last_render_ms = app_elapsed_ms(render_start)
-}
-
-app_elapsed_ms :: proc(start_counter: u64) -> f32 {
-	end_counter := sdl.GetPerformanceCounter()
-	frequency := sdl.GetPerformanceFrequency()
-	return f32(end_counter - start_counter) * 1000.0 / f32(frequency)
+	app.last_render_ms = performance_elapsed_ms(render_start)
 }

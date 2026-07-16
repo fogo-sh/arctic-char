@@ -17,3 +17,9 @@ autosave
 screenshot.png
 arctic-char
 *.AppImage
+
+vendor/sokol/**/*.a
+vendor/sokol/**/*.so
+vendor/sokol/**/*.dylib
+vendor/sokol/**/*.dll
+vendor/sokol/**/*.lib
