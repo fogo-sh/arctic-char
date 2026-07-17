@@ -39,7 +39,7 @@ Scene :: struct {
 	map_mesh:       MeshHandle,
 	next_object_id: ObjectId,
 	accumulator:    f32,
-	remote_render_tick: u32,
+	remote_render_tick: f32,
 	profile:        SceneProfile,
 	profile_log_timer: f32,
 }
@@ -505,17 +505,17 @@ scene_player_render_transform :: proc(scene: ^Scene, player: ^ScenePlayer) -> Tr
 	return scene_player_interpolated_transform(player, scene.remote_render_tick)
 }
 
-scene_player_interpolated_transform :: proc(player: ^ScenePlayer, render_tick: u32) -> Transform {
+scene_player_interpolated_transform :: proc(player: ^ScenePlayer, render_tick: f32) -> Transform {
 	if player.remote_sample_count == 0 {
 		return {position = player.controller.position, yaw = player.controller.yaw}
 	}
-	if player.remote_sample_count == 1 || render_tick <= player.remote_samples[0].server_tick {
+	if player.remote_sample_count == 1 || render_tick <= f32(player.remote_samples[0].server_tick) {
 		sample := player.remote_samples[0]
 		return {position = sample.position, yaw = sample.yaw}
 	}
 
 	last_index := player.remote_sample_count - 1
-	if render_tick >= player.remote_samples[last_index].server_tick {
+	if render_tick >= f32(player.remote_samples[last_index].server_tick) {
 		sample := player.remote_samples[last_index]
 		return {position = sample.position, yaw = sample.yaw}
 	}
@@ -523,12 +523,12 @@ scene_player_interpolated_transform :: proc(player: ^ScenePlayer, render_tick: u
 	for i in 0..<last_index {
 		from := player.remote_samples[i]
 		to := player.remote_samples[i + 1]
-		if render_tick >= from.server_tick && render_tick <= to.server_tick {
+		if render_tick >= f32(from.server_tick) && render_tick <= f32(to.server_tick) {
 			span := to.server_tick - from.server_tick
 			if span == 0 {
 				return {position = to.position, yaw = to.yaw}
 			}
-			t := f32(render_tick - from.server_tick) / f32(span)
+			t := (render_tick - f32(from.server_tick)) / f32(span)
 			return {
 				position = scene_lerp_vec3(from.position, to.position, t),
 				yaw = scene_lerp_f32(from.yaw, to.yaw, t),

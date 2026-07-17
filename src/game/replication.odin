@@ -57,17 +57,17 @@ replicated_transform_add_sample :: proc(buffer: ^ReplicatedTransformBuffer, samp
 	buffer.count += 1
 }
 
-replicated_transform_at_tick :: proc(buffer: ^ReplicatedTransformBuffer, fallback_position: Vec3, fallback_rotation: linalg.Quaternionf32, render_tick: u32) -> (position: Vec3, rotation: linalg.Quaternionf32) {
+replicated_transform_at_tick :: proc(buffer: ^ReplicatedTransformBuffer, fallback_position: Vec3, fallback_rotation: linalg.Quaternionf32, render_tick: f32) -> (position: Vec3, rotation: linalg.Quaternionf32) {
 	if buffer.count == 0 {
 		return fallback_position, fallback_rotation
 	}
-	if buffer.count == 1 || render_tick <= buffer.samples[0].server_tick {
+	if buffer.count == 1 || render_tick <= f32(buffer.samples[0].server_tick) {
 		sample := buffer.samples[0]
 		return sample.position, sample.rotation
 	}
 
 	last_index := buffer.count - 1
-	if render_tick >= buffer.samples[last_index].server_tick {
+	if render_tick >= f32(buffer.samples[last_index].server_tick) {
 		sample := buffer.samples[last_index]
 		return sample.position, sample.rotation
 	}
@@ -75,12 +75,12 @@ replicated_transform_at_tick :: proc(buffer: ^ReplicatedTransformBuffer, fallbac
 	for i in 0..<last_index {
 		from := buffer.samples[i]
 		to := buffer.samples[i + 1]
-		if render_tick >= from.server_tick && render_tick <= to.server_tick {
+		if render_tick >= f32(from.server_tick) && render_tick <= f32(to.server_tick) {
 			span := to.server_tick - from.server_tick
 			if span == 0 {
 				return to.position, to.rotation
 			}
-			t := f32(render_tick - from.server_tick) / f32(span)
+			t := (render_tick - f32(from.server_tick)) / f32(span)
 			return scene_lerp_vec3(from.position, to.position, t), linalg.quaternion_slerp(from.rotation, to.rotation, t)
 		}
 	}

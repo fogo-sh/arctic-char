@@ -666,16 +666,21 @@ def cmd_collision_mesh() -> None:
         subprocess.run([blender, "--version"], cwd=ROOT, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
     except (FileNotFoundError, subprocess.CalledProcessError):
         raise SystemExit("Blender not found. Install Blender or set BLENDER=/path/to/blender.")
-    run([
-        blender,
-        "--background",
-        "--python",
-        ROOT / "tools" / "make_collision_mesh.py",
-        "--",
-        BASE / "models" / "suzanne.glb",
-        BASE / "models" / "suzanne_collision.glb",
-        "5",
-    ])
+    model_paths = sorted(path for path in (BASE / "models").glob("*.glb") if not path.stem.endswith("_collision"))
+    if not model_paths:
+        raise SystemExit(f"No source .glb models found in {(BASE / 'models').relative_to(ROOT)}")
+    for model_path in model_paths:
+        output_path = model_path.with_name(f"{model_path.stem}_collision.glb")
+        run([
+            blender,
+            "--background",
+            "--python",
+            ROOT / "tools" / "make_collision_mesh.py",
+            "--",
+            model_path,
+            output_path,
+            "15",
+        ])
 
 
 def clay_library_path() -> Path:

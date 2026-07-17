@@ -1,6 +1,7 @@
 package engine
 
 import "base:runtime"
+import "core:math/linalg"
 import "core:strings"
 import "vendor:cgltf"
 
@@ -48,8 +49,11 @@ load_glb_mesh_path :: proc(model_path: string, allocator := context.allocator) -
 	assert(result == .success)
 	defer cgltf.free(data)
 
-	mesh := data.scene.nodes[0].mesh
+	node := data.scene.nodes[0]
+	mesh := node.mesh
 	primitive := mesh.primitives[0]
+	node_transform: [16]f32
+	cgltf.node_transform_world(node, &node_transform[0])
 
 	pos_attr: ^cgltf.attribute = nil
 	normal_attr: ^cgltf.attribute = nil
@@ -131,7 +135,7 @@ load_glb_mesh_path :: proc(model_path: string, allocator := context.allocator) -
 		}
 		normal := Vec3{0, 1, 0}
 		if normal_accessor != nil {
-			normal = Vec3{normals[normal_idx + 0], normals[normal_idx + 1], normals[normal_idx + 2]}
+			normal = mesh_transform_normal(node_transform, {normals[normal_idx + 0], normals[normal_idx + 1], normals[normal_idx + 2]})
 		}
 		uv := Vec2{0, 0}
 		if uv_accessor != nil {
@@ -139,7 +143,7 @@ load_glb_mesh_path :: proc(model_path: string, allocator := context.allocator) -
 		}
 
 		vertices[i] = VertexData {
-			pos = Vec3{positions[pos_idx + 0], positions[pos_idx + 1], positions[pos_idx + 2]},
+			pos = mesh_transform_point(node_transform, {positions[pos_idx + 0], positions[pos_idx + 1], positions[pos_idx + 2]}),
 			normal = normal,
 			uv = uv,
 			color = color,
@@ -152,4 +156,25 @@ load_glb_mesh_path :: proc(model_path: string, allocator := context.allocator) -
 	}
 
 	return CpuMesh{vertices = vertices, indices = indices, allocator = allocator}
+}
+
+mesh_transform_point :: proc(m: [16]f32, p: Vec3) -> Vec3 {
+	return {
+		m[0] * p.x + m[4] * p.y + m[8] * p.z + m[12],
+		m[1] * p.x + m[5] * p.y + m[9] * p.z + m[13],
+		m[2] * p.x + m[6] * p.y + m[10] * p.z + m[14],
+	}
+}
+
+mesh_transform_normal :: proc(m: [16]f32, n: Vec3) -> Vec3 {
+	transformed := Vec3{
+		m[0] * n.x + m[4] * n.y + m[8] * n.z,
+		m[1] * n.x + m[5] * n.y + m[9] * n.z,
+		m[2] * n.x + m[6] * n.y + m[10] * n.z,
+	}
+	length := linalg.length(transformed)
+	if length <= 0.000001 {
+		return {0, 1, 0}
+	}
+	return transformed / length
 }

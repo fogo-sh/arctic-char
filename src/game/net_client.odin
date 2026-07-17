@@ -129,6 +129,7 @@ game_net_client_update :: proc(net: ^GameNetClient, scene: ^Scene, move: PlayerM
 	case .RemoteConnecting, .RemoteAccepted:
 		game_net_client_poll(net, scene)
 		if net.state == .RemoteAccepted {
+			game_net_client_advance_remote_render_clock(net, scene, delta_time)
 			game_net_client_predict_and_send_user_cmds_for_elapsed_time(net, scene, move, look, delta_time, false)
 		}
 	}
@@ -162,6 +163,14 @@ game_net_client_update_loopback :: proc(net: ^GameNetClient, scene: ^Scene, move
 		net.local_server_accumulator -= NET_SERVER_TICK_TIME
 	}
 	game_net_client_drain_loopback_server(net, scene)
+	game_net_client_advance_remote_render_clock(net, scene, delta_time)
+}
+
+game_net_client_advance_remote_render_clock :: proc(net: ^GameNetClient, scene: ^Scene, delta_time: f32) {
+	if !net.has_snapshot {
+		return
+	}
+	scene.remote_render_tick += min(delta_time, 0.25) * f32(NET_SERVER_TICK_HZ)
 }
 
 game_net_client_poll :: proc(net: ^GameNetClient, scene: ^Scene) {
@@ -304,12 +313,12 @@ game_net_client_apply_snapshot :: proc(net: ^GameNetClient, scene: ^Scene, snaps
 	if net.has_snapshot && snapshot.sequence <= net.last_snapshot_sequence {
 		return
 	}
+	had_snapshot := net.has_snapshot
 	net.has_snapshot = true
 	net.last_snapshot_sequence = snapshot.sequence
-	if snapshot.server_tick > REMOTE_INTERPOLATION_DELAY_TICKS {
-		scene.remote_render_tick = snapshot.server_tick - REMOTE_INTERPOLATION_DELAY_TICKS
-	} else {
-		scene.remote_render_tick = 0
+	desired_render_tick := max(f32(snapshot.server_tick) - f32(REMOTE_INTERPOLATION_DELAY_TICKS), 0)
+	if !had_snapshot || abs(scene.remote_render_tick - desired_render_tick) > f32(REMOTE_INTERPOLATION_DELAY_TICKS) {
+		scene.remote_render_tick = desired_render_tick
 	}
 
 	if snapshot.last_processed_user_cmd > net.last_server_acked_command {
