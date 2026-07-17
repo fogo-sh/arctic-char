@@ -15,8 +15,16 @@ TextFragmentUniforms :: struct {
 	padding:      [3]f32,
 }
 
+TextDrawRange :: struct {
+	first_index:    u32,
+	index_count:    u32,
+	scissor_active: bool,
+	scissor_bounds: [4]f32,
+}
+
 TextRenderer :: struct {
 	ctx:             Text_Context,
+	draw_ranges:     [dynamic]TextDrawRange,
 	font_pack:       Text_Texture_Pack,
 	pipeline:        ^sdl.GPUGraphicsPipeline,
 	curve_texture:   ^sdl.GPUTexture,
@@ -38,6 +46,7 @@ renderer_create_text :: proc(
 	text.vertex_buffer = sdl.CreateGPUBuffer(gpu, {usage = {.VERTEX}, size = u32(TEXT_MAX_GLYPH_VERTICES * size_of(Text_Vertex))})
 	text.index_buffer = sdl.CreateGPUBuffer(gpu, {usage = {.INDEX}, size = u32(TEXT_MAX_GLYPH_INDICES * size_of(u32))})
 	text.transfer_buffer = sdl.CreateGPUTransferBuffer(gpu, {usage = .UPLOAD, size = u32(TEXT_MAX_GLYPH_VERTICES * size_of(Text_Vertex))})
+	text.draw_ranges = make([dynamic]TextDrawRange, 0, UI_COMMAND_CAPACITY)
 	assert(text.pipeline != nil)
 	assert(text.vertex_buffer != nil)
 	assert(text.index_buffer != nil)
@@ -70,6 +79,7 @@ renderer_destroy_text :: proc(gpu: ^sdl.GPUDevice, text: ^TextRenderer) {
 	if text.band_texture != nil do sdl.ReleaseGPUTexture(gpu, text.band_texture)
 	if text.curve_texture != nil do sdl.ReleaseGPUTexture(gpu, text.curve_texture)
 	if text.pipeline != nil do sdl.ReleaseGPUGraphicsPipeline(gpu, text.pipeline)
+	delete(text.draw_ranges)
 	text_pack_destroy(&text.font_pack)
 	text_context_destroy(&text.ctx)
 	free(text)
@@ -187,15 +197,38 @@ renderer_upload_text_static :: proc(gpu: ^sdl.GPUDevice, text: ^TextRenderer) {
 	assert(ok)
 }
 
-renderer_prepare_text :: proc(renderer: ^Renderer, cmd_buf: ^sdl.GPUCommandBuffer, commands: []UiCommand) {
+renderer_prepare_text :: proc(renderer: ^Renderer, cmd_buf: ^sdl.GPUCommandBuffer, commands: []UiCommand, ui_scale: [2]f32) {
 	if renderer.text == nil || !renderer.text.loaded do return
 	text := renderer.text
 	text_begin(&text.ctx)
+	clear(&text.draw_ranges)
 	font := &text.ctx.font
+	scissor_active := false
+	scissor_bounds: [4]f32
 	for command in commands {
-		if command.kind != .Text || command.text == "" do continue
-		baseline_y := command.bounds.y + font.ascent * command.font_size
-		text_draw(&text.ctx, command.text, command.bounds.x, baseline_y, command.font_size, command.color)
+		scaled := ui_command_scaled(command, ui_scale)
+		#partial switch command.kind {
+		case .ScissorStart:
+			scissor_active = true
+			scissor_bounds = scaled.bounds
+		case .ScissorEnd:
+			scissor_active = false
+		case .Text:
+			if command.text == "" do continue
+			start_quad := text.ctx.quad_count
+			baseline_y := scaled.bounds.y + font.ascent * scaled.font_size
+			text_draw(&text.ctx, command.text, scaled.bounds.x, baseline_y, scaled.font_size, scaled.color)
+			quad_count := text.ctx.quad_count - start_quad
+			if quad_count > 0 {
+				append(&text.draw_ranges, TextDrawRange{
+					first_index = start_quad * TEXT_INDICES_PER_QUAD,
+					index_count = quad_count * TEXT_INDICES_PER_QUAD,
+					scissor_active = scissor_active,
+					scissor_bounds = scissor_bounds,
+				})
+			}
+		case:
+		}
 	}
 	vertex_count := text_vertex_count(&text.ctx)
 	if vertex_count == 0 do return
@@ -230,9 +263,18 @@ renderer_draw_text :: proc(renderer: ^Renderer, cmd_buf: ^sdl.GPUCommandBuffer, 
 	fragment_uniforms := TextFragmentUniforms{}
 	sdl.PushGPUVertexUniformData(cmd_buf, 0, &vertex_uniforms, size_of(vertex_uniforms))
 	sdl.PushGPUFragmentUniformData(cmd_buf, 0, &fragment_uniforms, size_of(fragment_uniforms))
-	sdl.DrawGPUIndexedPrimitives(render_pass, text.ctx.quad_count * TEXT_INDICES_PER_QUAD, 1, 0, 0, 0)
-	renderer.stats.draw_count += 1
-	renderer.stats.triangle_count += int(text.ctx.quad_count) * 2
+	full_scissor := sdl.Rect{x = 0, y = 0, w = viewport.x, h = viewport.y}
+	for range in text.draw_ranges {
+		if range.scissor_active {
+			sdl.SetGPUScissor(render_pass, renderer_ui_scissor(range.scissor_bounds, viewport))
+		} else {
+			sdl.SetGPUScissor(render_pass, full_scissor)
+		}
+		sdl.DrawGPUIndexedPrimitives(render_pass, range.index_count, 1, range.first_index, 0, 0)
+		renderer.stats.draw_count += 1
+		renderer.stats.triangle_count += int(range.index_count / 3)
+	}
+	sdl.SetGPUScissor(render_pass, full_scissor)
 }
 
 renderer_text_ortho :: proc(width, height: f32) -> matrix[4, 4]f32 {

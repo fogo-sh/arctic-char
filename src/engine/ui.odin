@@ -110,10 +110,81 @@ ui_debug_hud_append_commands :: proc(ui: ^UiContext, win_size: [2]i32, debug: De
 			ui_debug_hud_row("Frame", 7, fmt.tprintf("%.1fms", timing.frame_ms))
 			ui_debug_hud_row("Phys", 8, fmt.tprintf("%d %.1fms", debug.fixed_steps, debug.physics_step_ms))
 		}
+
+		ui_debug_hud_render_samples()
 	}
 
 	commands := clay.EndLayout(1.0 / 60.0)
 	ui_append_clay_commands(&commands, out)
+}
+
+ui_debug_hud_render_samples :: proc() {
+	if clay.UI(clay.ID("RenderSamples"))({
+		layout = {
+			layoutDirection = .TopToBottom,
+			sizing = {width = clay.SizingFixed(246), height = clay.SizingFit({})},
+			padding = clay.PaddingAll(8),
+			childGap = 6,
+		},
+		backgroundColor = {18, 22, 28, 160},
+		cornerRadius = clay.CornerRadiusAll(10),
+		border = {color = {120, 170, 220, 180}, width = clay.BorderOutside(1)},
+	}) {
+		clay.TextStatic("Render Samples", {textColor = {219, 234, 254, 255}, fontSize = 14})
+		if clay.UI(clay.ID("SampleRoundedRow"))({
+			layout = {
+				layoutDirection = .LeftToRight,
+				sizing = {width = clay.SizingGrow({}), height = clay.SizingFixed(34)},
+				childGap = 6,
+			},
+		}) {
+			ui_debug_hud_sample_box("SampleR2", 2, {210, 132, 70, 220})
+			ui_debug_hud_sample_box("SampleR6", 6, {83, 160, 220, 220})
+			ui_debug_hud_sample_box("SampleR14", 14, {95, 190, 130, 220})
+		}
+
+		if clay.UI(clay.ID("SampleBorderRow"))({
+			layout = {
+				layoutDirection = .LeftToRight,
+				sizing = {width = clay.SizingGrow({}), height = clay.SizingFixed(34)},
+				childGap = 6,
+			},
+		}) {
+			ui_debug_hud_border_box("SampleB1", 1)
+			ui_debug_hud_border_box("SampleB2", 2)
+			ui_debug_hud_border_box("SampleB4", 4)
+		}
+
+		if clay.UI(clay.ID("SampleClip"))({
+			layout = {
+				sizing = {width = clay.SizingGrow({}), height = clay.SizingFixed(24)},
+				padding = {5, 5, 4, 4},
+			},
+			clip = {horizontal = true, vertical = true},
+			backgroundColor = {7, 12, 18, 210},
+			cornerRadius = clay.CornerRadiusAll(5),
+			border = {color = {240, 220, 160, 220}, width = clay.BorderOutside(1)},
+		}) {
+			clay.TextStatic("Clipped text should stop at the panel edge >>>>>>>>>>>", {textColor = {255, 238, 180, 255}, fontSize = 12})
+		}
+	}
+}
+
+ui_debug_hud_sample_box :: proc(id: string, radius: f32, color: clay.Color) {
+	if clay.UI(clay.ID(id))({
+		layout = {sizing = {width = clay.SizingFixed(40), height = clay.SizingFixed(28)}},
+		backgroundColor = color,
+		cornerRadius = clay.CornerRadiusAll(radius),
+	}) {}
+}
+
+ui_debug_hud_border_box :: proc(id: string, width: u16) {
+	if clay.UI(clay.ID(id))({
+		layout = {sizing = {width = clay.SizingFixed(40), height = clay.SizingFixed(28)}},
+		backgroundColor = {24, 30, 38, 230},
+		cornerRadius = clay.CornerRadiusAll(8),
+		border = {color = {245, 245, 245, 230}, width = clay.BorderOutside(width)},
+	}) {}
 }
 
 ui_debug_hud_row :: proc(label: string, index: u32, value: string) {

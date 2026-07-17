@@ -76,6 +76,11 @@ Current findings:
   before they reach the generic renderer. Keep Clay types out of `renderer.odin`.
 - UI drawing currently happens at the end of the main render pass, using the same
   color/depth target setup as the world pass but with depth testing disabled.
+- Window/UI high-DPI convention: world/camera rendering uses framebuffer pixel
+  dimensions, while Clay layout uses logical window dimensions. Renderer UI/text
+  upload paths scale `UiCommand` bounds, radii, borders, scissor rects, and font
+  sizes from logical units into framebuffer pixels. SDL windows request
+  `HIGH_PIXEL_DENSITY`; Sokol requests `high_dpi = true`.
 - UI text uses engine-owned Slug-style TTF/glyph packing code in `src/engine`;
   renderer-owned SDL GPU code uploads the curve/band textures and draws text from
   engine-owned `UiCommand.Text` values.

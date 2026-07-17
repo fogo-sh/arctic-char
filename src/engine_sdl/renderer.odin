@@ -17,6 +17,10 @@ Renderer :: struct {
 	sky_pipeline: ^sdl.GPUGraphicsPipeline,
 	ui_pipeline: ^sdl.GPUGraphicsPipeline,
 	text:        ^TextRenderer,
+	ui_vertex_buffer: ^sdl.GPUBuffer,
+	ui_transfer_buffer: ^sdl.GPUTransferBuffer,
+	ui_vertices: [dynamic]VertexData,
+	ui_draws: [dynamic]UiGeometryDraw,
 	debug_line_vertex_buffer: ^sdl.GPUBuffer,
 	debug_line_transfer_buffer: ^sdl.GPUTransferBuffer,
 	debug_line_vertices: [dynamic]VertexData,
@@ -37,6 +41,7 @@ GpuMesh :: struct {
 }
 
 DEBUG_LINE_CAPACITY :: 32768
+UI_VERTEX_CAPACITY :: 8192
 
 WorldVertexUniforms :: struct {
 	mvp:        matrix[4, 4]f32,
@@ -63,13 +68,14 @@ renderer_create :: proc(
 	gpu: ^sdl.GPUDevice,
 	window: ^sdl.Window,
 	width, height: i32,
+	msaa_samples: i32 = 0,
 	allocator := context.allocator,
 ) -> Renderer {
 	renderer := Renderer{
 		allocator = allocator,
 		gpu = gpu,
 		window = window,
-		sample_count = renderer_choose_sample_count(gpu, window),
+		sample_count = renderer_choose_sample_count(gpu, window, msaa_samples),
 	}
 	log.debugf("Renderer MSAA sample count: %v", renderer.sample_count)
 	renderer_create_render_targets(&renderer, width, height)
@@ -79,9 +85,15 @@ renderer_create :: proc(
 	renderer.ui_pipeline = renderer_create_ui_pipeline(gpu, window, renderer.sample_count)
 	renderer.text = renderer_create_text(gpu, window, renderer.sample_count)
 	renderer.meshes = make([dynamic]GpuMesh, 0, 16, allocator)
+	renderer.ui_vertices = make([dynamic]VertexData, 0, UI_VERTEX_CAPACITY, allocator)
+	renderer.ui_draws = make([dynamic]UiGeometryDraw, 0, UI_COMMAND_CAPACITY, allocator)
 	renderer.debug_line_vertices = make([dynamic]VertexData, 0, DEBUG_LINE_CAPACITY * 2, allocator)
+	renderer.ui_vertex_buffer = sdl.CreateGPUBuffer(gpu, {usage = {.VERTEX}, size = u32(UI_VERTEX_CAPACITY * size_of(VertexData))})
+	renderer.ui_transfer_buffer = sdl.CreateGPUTransferBuffer(gpu, {usage = .UPLOAD, size = u32(UI_VERTEX_CAPACITY * size_of(VertexData))})
 	renderer.debug_line_vertex_buffer = sdl.CreateGPUBuffer(gpu, {usage = {.VERTEX}, size = u32(DEBUG_LINE_CAPACITY * 2 * size_of(VertexData))})
 	renderer.debug_line_transfer_buffer = sdl.CreateGPUTransferBuffer(gpu, {usage = .UPLOAD, size = u32(DEBUG_LINE_CAPACITY * 2 * size_of(VertexData))})
+	assert(renderer.ui_vertex_buffer != nil)
+	assert(renderer.ui_transfer_buffer != nil)
 	assert(renderer.debug_line_vertex_buffer != nil)
 	assert(renderer.debug_line_transfer_buffer != nil)
 	renderer_update_static_stats(&renderer)
@@ -92,8 +104,12 @@ renderer_destroy :: proc(renderer: ^Renderer) {
 	for &mesh in renderer.meshes {
 		renderer_destroy_mesh(renderer, &mesh)
 	}
+	delete(renderer.ui_draws)
+	delete(renderer.ui_vertices)
 	delete(renderer.debug_line_vertices)
 	delete(renderer.meshes)
+	if renderer.ui_transfer_buffer != nil do sdl.ReleaseGPUTransferBuffer(renderer.gpu, renderer.ui_transfer_buffer)
+	if renderer.ui_vertex_buffer != nil do sdl.ReleaseGPUBuffer(renderer.gpu, renderer.ui_vertex_buffer)
 	if renderer.debug_line_transfer_buffer != nil do sdl.ReleaseGPUTransferBuffer(renderer.gpu, renderer.debug_line_transfer_buffer)
 	if renderer.debug_line_vertex_buffer != nil do sdl.ReleaseGPUBuffer(renderer.gpu, renderer.debug_line_vertex_buffer)
 	if renderer.depth_texture != nil do sdl.ReleaseGPUTexture(renderer.gpu, renderer.depth_texture)
@@ -112,11 +128,16 @@ renderer_resize :: proc(renderer: ^Renderer, width, height: i32) {
 	renderer_create_render_targets(renderer, width, height)
 }
 
-renderer_choose_sample_count :: proc(gpu: ^sdl.GPUDevice, window: ^sdl.Window) -> sdl.GPUSampleCount {
+renderer_choose_sample_count :: proc(gpu: ^sdl.GPUDevice, window: ^sdl.Window, msaa_samples: i32) -> sdl.GPUSampleCount {
+	if msaa_samples == 1 do return ._1
 	color_format := sdl.GetGPUSwapchainTextureFormat(gpu, window)
 	color_supports_4x := sdl.GPUTextureSupportsSampleCount(gpu, color_format, ._4)
 	depth_supports_4x := sdl.GPUTextureSupportsSampleCount(gpu, .D32_FLOAT, ._4)
-	if color_supports_4x && depth_supports_4x {
+	if msaa_samples == 4 || (msaa_samples == 0 && color_supports_4x && depth_supports_4x) {
+		if !(color_supports_4x && depth_supports_4x) {
+			log.warn("Requested SDL 4x MSAA, but color/depth target does not support it; using 1x")
+			return ._1
+		}
 		return ._4
 	}
 	return ._1
@@ -428,11 +449,13 @@ renderer_draw :: proc(
 	debug_lines: []DebugLine,
 	ui_commands: []UiCommand,
 	viewport: [2]i32,
+	ui_scale: [2]f32 = {1, 1},
 ) {
 	if swapchain_tex == nil do return
 	renderer.stats.draw_count = 0
 	renderer.stats.triangle_count = 0
-	renderer_prepare_text(renderer, cmd_buf, ui_commands)
+	renderer_prepare_text(renderer, cmd_buf, ui_commands, ui_scale)
+	renderer_prepare_ui(renderer, cmd_buf, ui_commands, ui_scale)
 	renderer_prepare_debug_lines(renderer, cmd_buf, debug_lines)
 
 	color_target := renderer_color_target(renderer, swapchain_tex, globals.environment)

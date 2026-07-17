@@ -22,6 +22,8 @@ Text_Texture_Pack :: engine.Text_Texture_Pack
 Text_Vertex :: engine.Text_Vertex
 UiCommand :: engine.UiCommand
 UiContext :: engine.UiContext
+UiGeometryDraw :: engine.UiGeometryDraw
+UiGeometryDrawKind :: engine.UiGeometryDrawKind
 Vec3 :: engine.Vec3
 VertexData :: engine.VertexData
 
@@ -48,5 +50,7 @@ text_pack_destroy :: engine.text_pack_destroy
 text_register_font :: engine.text_register_font
 text_vertex_count :: engine.text_vertex_count
 ui_create :: engine.ui_create
+ui_command_scaled :: engine.ui_command_scaled
+ui_geometry_append_command :: engine.ui_geometry_append_command
 ui_debug_hud_append_commands :: engine.ui_debug_hud_append_commands
 ui_destroy :: engine.ui_destroy

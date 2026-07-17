@@ -1,4 +1,5 @@
 package engine_sokol
+import "core:strings"
 import sg "../../vendor/sokol/gfx"
 /*
     #version:1# (machine generated, don't edit!)
@@ -30,6 +31,31 @@ Vs_Params :: struct #align(16) {
         mvp: matrix[4, 4]f32,
     },
 }
+
+vs_source_glsl300es := `#version 300 es
+precision highp float;
+
+uniform vec4 vs_params[4];
+layout(location = 0) in vec4 position;
+layout(location = 1) in vec4 color0;
+out vec4 color;
+
+void main() {
+    gl_Position = mat4(vs_params[0], vs_params[1], vs_params[2], vs_params[3]) * position;
+    color = color0;
+}
+`
+
+fs_source_glsl300es := `#version 300 es
+precision mediump float;
+
+in vec4 color;
+layout(location = 0) out vec4 frag_color;
+
+void main() {
+    frag_color = color;
+}
+`
 /*
     #version 430
 
@@ -354,7 +380,7 @@ fs_source_metal_macos := [315]u8 {
     0x63,0x6f,0x6c,0x6f,0x72,0x3b,0x0a,0x20,0x20,0x20,0x20,0x72,0x65,0x74,0x75,0x72,
     0x6e,0x20,0x6f,0x75,0x74,0x3b,0x0a,0x7d,0x0a,0x0a,0x00,
 }
-cube_shader_desc :: proc "c" (backend: sg.Backend) -> sg.Shader_Desc {
+cube_shader_desc :: proc(backend: sg.Backend) -> sg.Shader_Desc {
     desc: sg.Shader_Desc
     desc.label = "cube_shader"
     #partial switch backend {
@@ -362,6 +388,21 @@ cube_shader_desc :: proc "c" (backend: sg.Backend) -> sg.Shader_Desc {
         desc.vertex_func.source = transmute(cstring)&vs_source_glsl430
         desc.vertex_func.entry = "main"
         desc.fragment_func.source = transmute(cstring)&fs_source_glsl430
+        desc.fragment_func.entry = "main"
+        desc.attrs[0].base_type = .FLOAT
+        desc.attrs[0].glsl_name = "position"
+        desc.attrs[1].base_type = .FLOAT
+        desc.attrs[1].glsl_name = "color0"
+        desc.uniform_blocks[0].stage = .VERTEX
+        desc.uniform_blocks[0].layout = .STD140
+        desc.uniform_blocks[0].size = 64
+        desc.uniform_blocks[0].glsl_uniforms[0].type = .FLOAT4
+        desc.uniform_blocks[0].glsl_uniforms[0].array_count = 4
+        desc.uniform_blocks[0].glsl_uniforms[0].glsl_name = "vs_params"
+    case .GLES3:
+        desc.vertex_func.source = strings.clone_to_cstring(vs_source_glsl300es, context.temp_allocator)
+        desc.vertex_func.entry = "main"
+        desc.fragment_func.source = strings.clone_to_cstring(fs_source_glsl300es, context.temp_allocator)
         desc.fragment_func.entry = "main"
         desc.attrs[0].base_type = .FLOAT
         desc.attrs[0].glsl_name = "position"

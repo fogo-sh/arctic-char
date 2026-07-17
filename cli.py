@@ -92,6 +92,13 @@ def main() -> int:
     mp_test_parser.add_argument("--content-id", default=DEFAULT_NET_CONTENT_ID)
     mp_test_parser.add_argument("--no-build", action="store_true")
     mp_test_parser.add_argument("--no-tile-windows", action="store_true", help="Do not tile the two client windows on macOS")
+    mp_run_parser = sub.add_parser("mp-run", help="Alias for mp-test: run one local server, SDL client, and Sokol client")
+    mp_run_parser.add_argument("--seconds", type=float, default=0.0)
+    mp_run_parser.add_argument("--port", default=DEFAULT_NET_PORT)
+    mp_run_parser.add_argument("--map", default=DEFAULT_NET_MAP)
+    mp_run_parser.add_argument("--content-id", default=DEFAULT_NET_CONTENT_ID)
+    mp_run_parser.add_argument("--no-build", action="store_true")
+    mp_run_parser.add_argument("--no-tile-windows", action="store_true", help="Do not tile the two client windows on macOS")
     sub.add_parser("hot-game", help="Build hot-reload game dynamic library")
     sub.add_parser("hot-host", help="Build hot-reload host")
     sub.add_parser("hot-build", help="Build hot-reload game and host, then copy assets")
@@ -101,6 +108,7 @@ def main() -> int:
     sokol_run_parser = sub.add_parser("sokol-run", help="Build and run the native Sokol game entrypoint")
     sokol_run_parser.add_argument("args", nargs=argparse.REMAINDER)
     sub.add_parser("sokol-build", help="Build the native Sokol game entrypoint")
+    sub.add_parser("check-sokol-shaders", help="Verify Sokol shaders include web/GLES coverage")
     sub.add_parser("collision-mesh", help="Regenerate Suzanne collision mesh with Blender")
     sub.add_parser("clay-lib", help="Build vendored Clay static library for Odin")
     sub.add_parser("shaders", help="Regenerate checked-in shaders")
@@ -111,6 +119,7 @@ def main() -> int:
     map_recolor_parser.add_argument("path")
     smoke_parser = sub.add_parser("smoke", help="Run a short smoke test")
     smoke_parser.add_argument("--seconds", type=float, default=5.0)
+    smoke_parser.add_argument("--sokol", action="store_true", help="Smoke the native Sokol game entrypoint instead of SDL3_GPU")
 
     args = parser.parse_args()
     commands = {
@@ -128,12 +137,14 @@ def main() -> int:
         "server-smoke": lambda: cmd_server_smoke(args.seconds),
         "net-smoke": lambda: cmd_net_smoke(args.seconds, args.port, args.map, args.content_id),
         "mp-test": lambda: cmd_mp_test(args.seconds, args.port, args.map, args.content_id, args.no_build, not args.no_tile_windows),
+        "mp-run": lambda: cmd_mp_test(args.seconds, args.port, args.map, args.content_id, args.no_build, not args.no_tile_windows),
         "hot-game": cmd_hot_game,
         "hot-host": cmd_hot_host,
         "hot-build": cmd_hot_build,
         "hot-run": lambda: (cmd_hot_build(), cmd_hot_run(args.args)),
         "sokol-clibs": cmd_sokol_clibs,
         "sokol-build": cmd_sokol_build,
+        "check-sokol-shaders": cmd_check_sokol_shaders,
         "sokol-run": lambda: (cmd_sokol_build(), cmd_sokol_run(args.args)),
         "collision-mesh": cmd_collision_mesh,
         "clay-lib": cmd_clay_lib,
@@ -142,7 +153,7 @@ def main() -> int:
         "trenchbroom-profile": cmd_trenchbroom_profile,
         "trenchbroom-install": cmd_trenchbroom_install,
         "map-recolor": lambda: cmd_map_recolor(args.path),
-        "smoke": lambda: cmd_smoke(args.seconds),
+        "smoke": lambda: cmd_smoke(args.seconds, args.sokol),
     }
     commands[args.command]()
     return 0
@@ -378,9 +389,10 @@ def cmd_net_smoke(seconds: float, port: int, map_name: str, content_id: int) -> 
 def cmd_mp_test(seconds: float, port: str, map_name: str, content_id: str, no_build: bool, tile_windows: bool) -> None:
     if not no_build:
         cmd_build()
+        cmd_sokol_build()
 
     common = ["--connect", "127.0.0.1", "--port", port, "--map", map_name, "--content-id", content_id]
-    client_a_window_args, client_b_window_args = mp_test_window_args(tile_windows)
+    sdl_window_args, sokol_window_args = mp_test_window_args(tile_windows)
     processes: list[subprocess.Popen] = []
     capture_output = seconds > 0
 
@@ -394,14 +406,14 @@ def cmd_mp_test(seconds: float, port: str, map_name: str, content_id: str, no_bu
         processes.append(server)
         time.sleep(0.35)
 
-        client_a = spawn_process([app_path(), *common, *client_a_window_args], capture_output=capture_output)
+        client_a = spawn_process([app_path(), *common, *sdl_window_args], capture_output=capture_output)
         processes.append(client_a)
         time.sleep(0.5)
 
-        client_b = spawn_process([app_path(), *common, *client_b_window_args], capture_output=capture_output)
+        client_b = spawn_process([sokol_game_path(), *common, *sokol_window_args], capture_output=capture_output)
         processes.append(client_b)
 
-        print("mp-test running: one server and two clients. Press Ctrl-C to stop.")
+        print("mp-test running: one server, one SDL client, and one Sokol client. Press Ctrl-C to stop.")
         start = time.monotonic()
         while True:
             for process in processes:
@@ -457,21 +469,20 @@ def mp_test_window_args(tile_windows: bool) -> tuple[list[str], list[str]]:
     half_width = width // 2
     return (
         [
-            "--window-title", "Arctic Char P1",
+            "--window-title", "Arctic Char SDL P1",
             "--window-x", str(left),
             "--window-y", str(top),
             "--window-width", str(half_width),
             "--window-height", str(height),
         ],
         [
-            "--window-title", "Arctic Char P2",
+            "--window-title", "Arctic Char Sokol P2",
             "--window-x", str(left + half_width),
             "--window-y", str(top),
             "--window-width", str(width - half_width),
             "--window-height", str(height),
         ],
     )
-
 
 def macos_desktop_bounds() -> tuple[int, int, int, int] | None:
     result = subprocess.run(
@@ -611,6 +622,29 @@ def cmd_sokol_clibs() -> None:
         raise SystemExit(f"Unsupported Sokol platform: {system}")
 
 
+def cmd_check_sokol_shaders() -> None:
+    checks = [
+        (ROOT / "src" / "engine_sokol" / "shader.odin", "case .GLES3"),
+        (ROOT / "src" / "engine_sokol" / "shader.odin", "#version 300 es"),
+        (ROOT / "src" / "engine_sokol" / "renderer.odin", "case .GLES3"),
+        (ROOT / "src" / "engine_sokol" / "renderer.odin", "#version 300 es"),
+        (ROOT / "src" / "engine_sokol" / "renderer.odin", "usampler2D"),
+        (ROOT / "src" / "engine_sokol" / "renderer.odin", "texelFetch"),
+    ]
+    missing: list[str] = []
+    for path, marker in checks:
+        text = path.read_text(encoding="utf-8")
+        if marker not in text:
+            missing.append(f"{path.relative_to(ROOT)} missing {marker!r}")
+
+    renderer_text = (ROOT / "src" / "engine_sokol" / "renderer.odin").read_text(encoding="utf-8")
+    if "ODIN_OS == .Darwin" in renderer_text:
+        missing.append("src/engine_sokol/renderer.odin still gates Sokol shader code on ODIN_OS == .Darwin")
+
+    if missing:
+        raise SystemExit("Sokol shader checks failed:\n" + "\n".join(missing))
+
+
 def sokol_clib_marker() -> Path:
     sokol_dir = ROOT / "vendor" / "sokol"
     system = platform.system()
@@ -735,9 +769,15 @@ def cmd_check_shaders() -> None:
         raise SystemExit("Generated shaders are out of sync: " + ", ".join(changed))
 
 
-def cmd_smoke(seconds: float) -> None:
-    cmd_build()
-    process = subprocess.Popen([str(app_path())], cwd=ROOT, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+def cmd_smoke(seconds: float, sokol: bool) -> None:
+    if sokol:
+        cmd_sokol_build()
+        executable = sokol_game_path()
+    else:
+        cmd_build()
+        executable = app_path()
+
+    process = subprocess.Popen([str(executable)], cwd=ROOT, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
     try:
         time.sleep(seconds)
     finally:

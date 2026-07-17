@@ -25,6 +25,7 @@ App :: struct {
 	game: rawptr,
 	game_api: Game_API,
 	win_size: [2]i32,
+	draw_size: [2]i32,
 
 	running:    bool,
 	mouse_captured: bool,
@@ -66,7 +67,7 @@ app_create :: proc(config: LaunchConfig) -> App {
 
 	app := App{running = true, mouse_captured = true, ignore_next_mouse_motion = true}
 
-	window_flags := sdl.WindowFlags{.RESIZABLE}
+	window_flags := sdl.WindowFlags{.RESIZABLE, .HIGH_PIXEL_DENSITY}
 	if config.fullscreen {
 		window_flags += sdl.WindowFlags{.FULLSCREEN}
 	}
@@ -100,10 +101,12 @@ app_create :: proc(config: LaunchConfig) -> App {
 
 	ok = sdl.GetWindowSize(app.window, &app.win_size.x, &app.win_size.y)
 	assert(ok)
+	app.draw_size = app_sdl_pixel_size(app.window, app.win_size)
+	app_log_sdl_dpi(app.window, app.win_size, app.draw_size)
 
 	base_dir := app_resolve_base_dir(config.base_dir)
 	app.fs = game_fs_create(base_dir, config.game)
-	app.renderer = renderer_create(app.gpu, app.window, app.win_size.x, app.win_size.y)
+	app.renderer = renderer_create(app.gpu, app.window, app.draw_size.x, app.draw_size.y, config.sdl_msaa_samples)
 	app.ui = ui_create(app.win_size.x, app.win_size.y)
 	app.render_items = make([dynamic]RenderItem, 0, APP_RENDER_ITEM_CAPACITY)
 	app.debug_lines = make([dynamic]DebugLine, 0, 4096)
@@ -129,6 +132,26 @@ app_resolve_base_dir :: proc(config_base_dir: string) -> string {
 	}
 
 	return "."
+}
+
+app_sdl_pixel_size :: proc(window: ^sdl.Window, fallback: [2]i32) -> [2]i32 {
+	result := fallback
+	ok := sdl.GetWindowSizeInPixels(window, &result.x, &result.y)
+	if !ok || result.x <= 0 || result.y <= 0 {
+		return fallback
+	}
+	return result
+}
+
+app_log_sdl_dpi :: proc(window: ^sdl.Window, logical, pixels: [2]i32) {
+	pixel_density := sdl.GetWindowPixelDensity(window)
+	display_scale := sdl.GetWindowDisplayScale(window)
+	log.debugf("SDL window size: logical=%dx%d pixels=%dx%d pixel_density=%.2f display_scale=%.2f", logical.x, logical.y, pixels.x, pixels.y, pixel_density, display_scale)
+}
+
+app_ui_scale :: proc(app: ^App) -> [2]f32 {
+	if app.win_size.x <= 0 || app.win_size.y <= 0 do return {1, 1}
+	return {f32(app.draw_size.x) / f32(app.win_size.x), f32(app.draw_size.y) / f32(app.win_size.y)}
 }
 
 app_init_game :: proc(app: ^App, game_api: Game_API, game_config: rawptr) {
@@ -205,10 +228,12 @@ app_handle_events :: proc(app: ^App) {
 		#partial switch ev.type {
 		case .QUIT:
 			app.running = false
-		case .WINDOW_RESIZED:
+		case .WINDOW_RESIZED, .WINDOW_PIXEL_SIZE_CHANGED, .WINDOW_DISPLAY_SCALE_CHANGED:
 			ok := sdl.GetWindowSize(app.window, &app.win_size.x, &app.win_size.y)
 			assert(ok)
-			renderer_resize(&app.renderer, app.win_size.x, app.win_size.y)
+			app.draw_size = app_sdl_pixel_size(app.window, app.win_size)
+			app_log_sdl_dpi(app.window, app.win_size, app.draw_size)
+			renderer_resize(&app.renderer, app.draw_size.x, app.draw_size.y)
 		case .MOUSE_MOTION:
 			if app.mouse_captured {
 				if app.ignore_next_mouse_motion {
@@ -246,10 +271,19 @@ app_draw :: proc(app: ^App) {
 	render_start := performance_counter_now()
 	cmd_buf := sdl.AcquireGPUCommandBuffer(app.gpu)
 	swapchain_tex: ^sdl.GPUTexture
-	ok := sdl.WaitAndAcquireGPUSwapchainTexture(cmd_buf, app.window, &swapchain_tex, nil, nil)
+	swapchain_width, swapchain_height: u32
+	ok := sdl.WaitAndAcquireGPUSwapchainTexture(cmd_buf, app.window, &swapchain_tex, &swapchain_width, &swapchain_height)
 	assert(ok)
+	if swapchain_width > 0 && swapchain_height > 0 {
+		new_draw_size := [2]i32{i32(swapchain_width), i32(swapchain_height)}
+		if new_draw_size != app.draw_size {
+			log.debugf("SDL draw size changed: logical=%dx%d draw=%dx%d", app.win_size.x, app.win_size.y, new_draw_size.x, new_draw_size.y)
+			app.draw_size = new_draw_size
+			renderer_resize(&app.renderer, app.draw_size.x, app.draw_size.y)
+		}
+	}
 
-	frame := app.game_api.render(app.game, &app.render_items, &app.debug_lines, app.win_size)
+	frame := app.game_api.render(app.game, &app.render_items, &app.debug_lines, app.draw_size)
 	clear(&app.ui_commands)
 	for item in frame.ui_items {
 		append(&app.ui_commands, item)
@@ -259,7 +293,7 @@ app_draw :: proc(app: ^App) {
 		update_ms = app.last_update_ms,
 		render_ms = app.last_render_ms,
 	}, &app.ui_commands)
-	renderer_draw(&app.renderer, cmd_buf, swapchain_tex, frame.globals, frame.items, frame.debug_lines, app.ui_commands[:], app.win_size)
+	renderer_draw(&app.renderer, cmd_buf, swapchain_tex, frame.globals, frame.items, frame.debug_lines, app.ui_commands[:], app.draw_size, app_ui_scale(app))
 	if app.stats_log_time >= 2.0 {
 		renderer_log_stats(&app.renderer)
 		app.stats_log_time = 0

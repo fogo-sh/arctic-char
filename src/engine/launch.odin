@@ -13,6 +13,7 @@ LaunchConfig :: struct {
 	window_x: i32,
 	window_y: i32,
 	window_position_set: bool,
+	sdl_msaa_samples: i32,
 }
 
 LaunchOptions :: struct {
@@ -28,6 +29,7 @@ LaunchOptions :: struct {
 	window_height: i32    `usage:"Initial SDL window height."`,
 	window_x:      i32    `usage:"Initial SDL window x position."`,
 	window_y:      i32    `usage:"Initial SDL window y position."`,
+	sdl_msaa_samples: i32 `args:"name=sdl-msaa-samples" usage:"SDL renderer MSAA sample override for experiments. Use 1 or 4; 0 chooses automatically."`,
 }
 
 launch_config_parse :: proc(args: []string) -> LaunchConfig {
@@ -41,6 +43,7 @@ launch_config_parse :: proc(args: []string) -> LaunchConfig {
 		window_x = options.window_x,
 		window_y = options.window_y,
 		window_position_set = launch_arg_present(args, "--window-x") || launch_arg_present(args, "--window-y"),
+		sdl_msaa_samples = options.sdl_msaa_samples,
 	}
 	if options.basedir != "" {
 		config.base_dir = options.basedir

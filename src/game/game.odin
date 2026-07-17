@@ -40,6 +40,7 @@ GameLaunchOptions :: struct {
 	window_height: i32    `usage:"Engine window height flag consumed by engine code."`,
 	window_x:      i32    `usage:"Engine window x flag consumed by engine code."`,
 	window_y:      i32    `usage:"Engine window y flag consumed by engine code."`,
+	sdl_msaa_samples: i32 `args:"name=sdl-msaa-samples" usage:"Engine SDL renderer MSAA sample override consumed by engine code."`,
 }
 
 game_api :: proc() -> engine.Game_API {

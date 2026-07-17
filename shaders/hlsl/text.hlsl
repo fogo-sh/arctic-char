@@ -218,5 +218,5 @@ float4 TextFragmentMain(TextVertexOutput input) : SV_Target0
 
     float coverage = CalcCoverage(xcov, ycov, xwgt, ywgt);
     if (weightBoost > 0.5) coverage = sqrt(coverage);
-    return input.color * coverage;
+    return float4(input.color.rgb, input.color.a * coverage);
 }

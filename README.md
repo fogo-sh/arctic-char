@@ -57,13 +57,18 @@ qpaths under `base` by default.
 uses Odin's `vendor:ENet` binding, which requires a system ENet library. On
 macOS, install it with `brew install enet`.
 
-`python cli.py smoke` runs the app through the in-process loopback path.
+`python cli.py smoke` runs the SDL app through the in-process loopback path.
+Use `python cli.py smoke --sokol` to run the same smoke check against the native
+Sokol entrypoint.
+`python cli.py check-sokol-shaders` verifies that the Sokol shader descriptors
+keep WebGL2/GLES3 source coverage.
 `python cli.py net-smoke` builds the dedicated server and real game client, then
 runs the game client against the server over ENet for a fixed duration.
 
-`uv run cli.py mp-test` builds, starts one local dedicated server, launches two real
-clients connected to it, and keeps them running until Ctrl-C. Use `--seconds N`
-for an automated timed run or `--no-build` to reuse existing binaries.
+`python cli.py mp-run` builds, starts one local dedicated server, launches one SDL
+client and one Sokol client connected to it, and keeps them running until Ctrl-C.
+Use `--seconds N` for an automated timed run or `--no-build` to reuse existing
+binaries. `python cli.py mp-test` is the same command path.
 
 Run multiple real app clients against a manually managed dedicated server:
 
