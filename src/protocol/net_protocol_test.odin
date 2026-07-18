@@ -254,9 +254,13 @@ test_server_snapshot_round_trips :: proc(t: ^testing.T) {
 	testing.expect_value(t, parsed.snapshot.players[1].ground_normal, written.players[1].ground_normal)
 	testing.expect_value(t, parsed.snapshot.props[0].net_id, written.props[0].net_id)
 	testing.expect_value(t, parsed.snapshot.props[0].prop_asset_index, written.props[0].prop_asset_index)
-	testing.expect_value(t, parsed.snapshot.props[0].position, written.props[0].position)
+	testing.expect(t, vec3_near(parsed.snapshot.props[0].position, written.props[0].position, 0.01), "quantized prop position should preserve centimeter-scale position")
 	testing.expect(t, quat_same_orientation(parsed.snapshot.props[0].rotation, written.props[0].rotation, 0.0001), "compressed prop rotation should preserve orientation")
 	testing.expect_value(t, parsed.snapshot.removed_prop_ids[0], written.removed_prop_ids[0])
+}
+
+vec3_near :: proc(a, b: [3]f32, epsilon: f32) -> bool {
+	return math.abs(a.x - b.x) <= epsilon && math.abs(a.y - b.y) <= epsilon && math.abs(a.z - b.z) <= epsilon
 }
 
 quat_same_orientation :: proc(a, b: [4]f32, epsilon: f32) -> bool {

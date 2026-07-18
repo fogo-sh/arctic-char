@@ -1251,7 +1251,7 @@
 "classname" "spawner_prop"
 "model" "models/ballish.glb"
 "origin" "-500 -4 124"
-"interval" "0.1"
+"interval" "0.05"
 "count" "1000"
 }
 // entity 8

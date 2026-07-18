@@ -17,7 +17,7 @@ USER_CMD_PAYLOAD_SIZE :: 26
 USER_CMDS_HEADER_PAYLOAD_SIZE :: 1
 MAX_USER_CMDS_PER_PACKET :: 8
 SERVER_PLAYER_STATE_PAYLOAD_SIZE :: 49
-SERVER_PROP_STATE_PAYLOAD_SIZE :: 25
+SERVER_PROP_STATE_PAYLOAD_SIZE :: 19
 SERVER_SNAPSHOT_HEADER_PAYLOAD_SIZE :: 18
 SERVER_REMOVED_PROP_PAYLOAD_SIZE :: 4
 MAX_SNAPSHOT_PLAYERS :: 32
@@ -528,9 +528,7 @@ read_server_player_state_payload :: proc(r: ^Packet_Reader) -> (state: Server_Pl
 write_server_prop_state_payload :: proc(w: ^Packet_Writer, state: Server_Prop_State) -> bool {
 	write_u32(w, u32(state.net_id)) or_return
 	write_u16(w, state.prop_asset_index) or_return
-	write_f32(w, state.position.x) or_return
-	write_f32(w, state.position.y) or_return
-	write_f32(w, state.position.z) or_return
+	write_quantized_prop_position(w, state.position) or_return
 	write_compressed_quat(w, state.rotation) or_return
 	return true
 }
@@ -542,11 +540,7 @@ read_server_prop_state_payload :: proc(r: ^Packet_Reader) -> (state: Server_Prop
 	state.net_id = NetId(net_id)
 	state.prop_asset_index, ok = read_u16(r)
 	if !ok do return {}, false
-	state.position.x, ok = read_f32(r)
-	if !ok do return {}, false
-	state.position.y, ok = read_f32(r)
-	if !ok do return {}, false
-	state.position.z, ok = read_f32(r)
+	state.position, ok = read_quantized_prop_position(r)
 	if !ok do return {}, false
 	state.rotation, ok = read_compressed_quat(r)
 	if !ok do return {}, false
@@ -555,6 +549,38 @@ read_server_prop_state_payload :: proc(r: ^Packet_Reader) -> (state: Server_Prop
 
 QUAT_COMPRESSED_COMPONENT_LIMIT :: f32(0.7071067811865476)
 QUAT_COMPRESSED_SCALE :: f32(32767)
+PROP_POSITION_QUANTIZE_RANGE :: f32(256)
+PROP_POSITION_QUANTIZE_SCALE :: f32(32767)
+
+write_quantized_prop_position :: proc(w: ^Packet_Writer, position: [3]f32) -> bool {
+	write_i16(w, quantize_prop_position_component(position.x)) or_return
+	write_i16(w, quantize_prop_position_component(position.y)) or_return
+	write_i16(w, quantize_prop_position_component(position.z)) or_return
+	return true
+}
+
+read_quantized_prop_position :: proc(r: ^Packet_Reader) -> (position: [3]f32, ok: bool) {
+	x, y, z: i16
+	x, ok = read_i16(r)
+	if !ok do return {}, false
+	y, ok = read_i16(r)
+	if !ok do return {}, false
+	z, ok = read_i16(r)
+	if !ok do return {}, false
+	return {dequantize_prop_position_component(x), dequantize_prop_position_component(y), dequantize_prop_position_component(z)}, true
+}
+
+quantize_prop_position_component :: proc(value: f32) -> i16 {
+	scaled := clamp(value / PROP_POSITION_QUANTIZE_RANGE, -1, 1) * PROP_POSITION_QUANTIZE_SCALE
+	if scaled >= 0 {
+		return i16(scaled + 0.5)
+	}
+	return i16(scaled - 0.5)
+}
+
+dequantize_prop_position_component :: proc(value: i16) -> f32 {
+	return f32(value) / PROP_POSITION_QUANTIZE_SCALE * PROP_POSITION_QUANTIZE_RANGE
+}
 
 write_compressed_quat :: proc(w: ^Packet_Writer, q: [4]f32) -> bool {
 	n := normalize_quat(q)
