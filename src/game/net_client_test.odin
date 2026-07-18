@@ -376,6 +376,55 @@ test_net_server_prop_delta_continues_after_packet_budget_with_dirty_known_props 
 }
 
 @(test)
+test_net_server_snapshot_prop_budget_targets_mtu_sized_packets :: proc(t: ^testing.T) {
+	snapshot := protocol.Server_Snapshot{player_count = 1}
+	budget := net_server_snapshot_prop_budget(snapshot)
+	packet_bytes := protocol.HEADER_SIZE + protocol.SERVER_SNAPSHOT_HEADER_PAYLOAD_SIZE + protocol.SERVER_PLAYER_STATE_PAYLOAD_SIZE + int(budget) * protocol.SERVER_PROP_STATE_PAYLOAD_SIZE
+
+	testing.expect(t, budget > 0, "snapshot should reserve some prop budget")
+	testing.expect(t, packet_bytes <= NET_SERVER_SNAPSHOT_TARGET_BYTES, "snapshot prop budget should stay within target bytes")
+}
+
+@(test)
+test_net_server_broadcast_snapshot_splits_many_props_into_clusters :: proc(t: ^testing.T) {
+	scene := test_net_scene()
+	defer delete(scene.objects)
+	defer delete(scene.players)
+	scene.objects = make([dynamic]Object, 0, MAX_OBJECTS)
+	PROP_COUNT :: 80
+	for i in 0..<PROP_COUNT {
+		net_id := protocol.NetId(u32(i + 1))
+		append(&scene.objects, Object{id = ObjectId(u32(i + 1)), kind = .Prop, transform = {position = {f32(i), 0, 0}}, render_rotation = linalg.QUATERNIONF32_IDENTITY, replica = {net_id = net_id, kind = .Prop, authority = .ServerAuthoritative}})
+	}
+	server := new(NetServer)
+	defer free(server)
+	server^ = {scene = &scene, server_tick = 2}
+	server.sessions[0] = {peer = 1, active = true, accepted = true, player_id = 1}
+
+	net_server_broadcast_snapshot(server)
+
+	total_props := 0
+	packet_count := 0
+	for {
+		packet, ok := net_server_poll_outgoing(server)
+		if !ok {
+			break
+		}
+		parsed, err := protocol.parse_packet(packet.data[:packet.length], packet.channel)
+		testing.expect_value(t, err, protocol.Parse_Error.None)
+		testing.expect(t, int(packet.length) <= NET_SERVER_SNAPSHOT_TARGET_BYTES, "cluster should stay within target bytes")
+		total_props += int(parsed.snapshot.prop_count)
+		packet_count += 1
+	}
+
+	testing.expect(t, packet_count > 1, "many props should split across more than one snapshot cluster")
+	testing.expect_value(t, total_props, PROP_COUNT)
+	testing.expect_value(t, server.snapshot_stats.packet_count, packet_count)
+	testing.expect_value(t, server.snapshot_stats.prop_count, PROP_COUNT)
+	testing.expect_value(t, server.snapshot_stats.cluster_limit_deferred_sessions, 0)
+}
+
+@(test)
 test_scene_player_interpolates_remote_samples :: proc(t: ^testing.T) {
 	scene := test_net_scene()
 	defer delete(scene.players)

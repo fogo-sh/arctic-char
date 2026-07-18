@@ -1,5 +1,6 @@
 package protocol
 
+import "core:math"
 import "core:testing"
 
 @(test)
@@ -254,8 +255,15 @@ test_server_snapshot_round_trips :: proc(t: ^testing.T) {
 	testing.expect_value(t, parsed.snapshot.props[0].net_id, written.props[0].net_id)
 	testing.expect_value(t, parsed.snapshot.props[0].prop_asset_index, written.props[0].prop_asset_index)
 	testing.expect_value(t, parsed.snapshot.props[0].position, written.props[0].position)
-	testing.expect_value(t, parsed.snapshot.props[0].rotation, written.props[0].rotation)
+	testing.expect(t, quat_same_orientation(parsed.snapshot.props[0].rotation, written.props[0].rotation, 0.0001), "compressed prop rotation should preserve orientation")
 	testing.expect_value(t, parsed.snapshot.removed_prop_ids[0], written.removed_prop_ids[0])
+}
+
+quat_same_orientation :: proc(a, b: [4]f32, epsilon: f32) -> bool {
+	an := normalize_quat(a)
+	bn := normalize_quat(b)
+	dot := abs(an.x * bn.x + an.y * bn.y + an.z * bn.z + an.w * bn.w)
+	return math.abs(1 - dot) <= epsilon
 }
 
 @(test)

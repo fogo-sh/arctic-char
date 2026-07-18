@@ -10,6 +10,8 @@ NET_SERVER_MAX_CLIENTS :: 32
 NET_SERVER_PENDING_USER_CMDS :: 64
 NET_SERVER_OUTGOING_PACKETS :: 128
 NET_SERVER_KNOWN_PROPS :: MAX_OBJECTS
+NET_SERVER_SNAPSHOT_TARGET_BYTES :: 1200
+NET_SERVER_MAX_SNAPSHOT_CLUSTERS :: 4
 NET_SERVER_COMMAND_LOG_INTERVAL :: u32(60)
 NET_SERVER_PROP_REFRESH_TICKS :: u32(64)
 NET_SERVER_PROP_POSITION_EPSILON :: f32(0.01)
@@ -43,6 +45,15 @@ NetServerKnownProp :: struct {
 	last_sent_tick: u32,
 }
 
+NetServerSnapshotStats :: struct {
+	server_tick: u32,
+	packet_count: int,
+	byte_count: int,
+	prop_count: int,
+	removed_prop_count: int,
+	cluster_limit_deferred_sessions: int,
+}
+
 NetServerOutgoingPacket :: struct {
 	peer:    NetServerPeer,
 	channel: u8,
@@ -58,6 +69,7 @@ NetServer :: struct {
 	content_id: u32,
 	server_tick: u32,
 	snapshot_sequence: u32,
+	snapshot_stats: NetServerSnapshotStats,
 	outgoing: [NET_SERVER_OUTGOING_PACKETS]NetServerOutgoingPacket,
 	outgoing_get: u32,
 	outgoing_send: u32,
@@ -253,7 +265,8 @@ net_server_log_user_cmd_if_needed :: proc(server: ^NetServer, session_index: int
 
 net_server_broadcast_snapshot :: proc(server: ^NetServer) {
 	buffer: [protocol.MAX_PACKET_SIZE]byte
-	base_snapshot := protocol.Server_Snapshot{server_tick = server.server_tick, sequence = server.snapshot_sequence}
+	stats := NetServerSnapshotStats{server_tick = server.server_tick}
+	base_snapshot := protocol.Server_Snapshot{server_tick = server.server_tick}
 	for session in server.sessions {
 		if !session.active || !session.accepted {
 			continue
@@ -282,22 +295,58 @@ net_server_broadcast_snapshot :: proc(server: ^NetServer) {
 		if !session.active || !session.accepted {
 			continue
 		}
-		snapshot := base_snapshot
-		snapshot.last_processed_user_cmd = session.last_processed_cmd_sequence
-		net_server_add_prop_delta(server, &session, &snapshot)
-		packet, ok := protocol.write_server_snapshot(buffer[:], snapshot)
-		if !ok {
-			log.warnf("Failed to write server snapshot tick=%d players=%d", snapshot.server_tick, snapshot.player_count)
-			return
-		}
-		if !net_server_queue_packet(server, session.peer, protocol.CHANNEL_SNAPSHOTS, packet, .Unreliable) {
-			log.warnf("Failed to queue server snapshot tick=%d peer=%v", snapshot.server_tick, session.peer)
+		for cluster := 0; cluster < NET_SERVER_MAX_SNAPSHOT_CLUSTERS; cluster += 1 {
+			snapshot := protocol.Server_Snapshot{server_tick = server.server_tick, sequence = server.snapshot_sequence}
+			if cluster == 0 {
+				snapshot = base_snapshot
+				snapshot.sequence = server.snapshot_sequence
+				snapshot.last_processed_user_cmd = session.last_processed_cmd_sequence
+			}
+
+			prop_budget := net_server_snapshot_prop_budget(snapshot)
+			more_props_pending := net_server_add_prop_delta(server, &session, &snapshot, prop_budget)
+			if cluster > 0 && snapshot.prop_count == 0 && snapshot.removed_prop_count == 0 {
+				break
+			}
+
+			packet, ok := protocol.write_server_snapshot(buffer[:], snapshot)
+			if !ok {
+				log.warnf("Failed to write server snapshot tick=%d players=%d props=%d", snapshot.server_tick, snapshot.player_count, snapshot.prop_count)
+				return
+			}
+			if !net_server_queue_packet(server, session.peer, protocol.CHANNEL_SNAPSHOTS, packet, .Unreliable) {
+				log.warnf("Failed to queue server snapshot tick=%d peer=%v", snapshot.server_tick, session.peer)
+			}
+			stats.packet_count += 1
+			stats.byte_count += len(packet)
+			stats.prop_count += int(snapshot.prop_count)
+			stats.removed_prop_count += int(snapshot.removed_prop_count)
+			server.snapshot_sequence += 1
+			if !more_props_pending {
+				break
+			}
+			if cluster == NET_SERVER_MAX_SNAPSHOT_CLUSTERS - 1 {
+				stats.cluster_limit_deferred_sessions += 1
+			}
 		}
 	}
-	server.snapshot_sequence += 1
+	server.snapshot_stats = stats
 }
 
-net_server_add_prop_delta :: proc(server: ^NetServer, session: ^NetServerSession, snapshot: ^protocol.Server_Snapshot) {
+net_server_snapshot_prop_budget :: proc(snapshot: protocol.Server_Snapshot) -> u16 {
+	fixed_bytes := protocol.HEADER_SIZE + protocol.SERVER_SNAPSHOT_HEADER_PAYLOAD_SIZE + int(snapshot.player_count) * protocol.SERVER_PLAYER_STATE_PAYLOAD_SIZE + int(snapshot.removed_prop_count) * protocol.SERVER_REMOVED_PROP_PAYLOAD_SIZE
+	if fixed_bytes >= NET_SERVER_SNAPSHOT_TARGET_BYTES {
+		return 1
+	}
+	budget := (NET_SERVER_SNAPSHOT_TARGET_BYTES - fixed_bytes) / protocol.SERVER_PROP_STATE_PAYLOAD_SIZE
+	return u16(clamp(budget, 1, protocol.MAX_SNAPSHOT_PROPS))
+}
+
+net_server_add_prop_delta :: proc(server: ^NetServer, session: ^NetServerSession, snapshot: ^protocol.Server_Snapshot, max_props := u16(protocol.MAX_SNAPSHOT_PROPS)) -> (more_props_pending: bool) {
+	prop_limit := max_props
+	if max_props > protocol.MAX_SNAPSHOT_PROPS {
+		prop_limit = protocol.MAX_SNAPSHOT_PROPS
+	}
 	for &known in session.known_props {
 		if !known.active {
 			continue
@@ -313,7 +362,7 @@ net_server_add_prop_delta :: proc(server: ^NetServer, session: ^NetServerSession
 
 	object_count := len(server.scene.objects)
 	if object_count == 0 {
-		return
+		return false
 	}
 
 	start_cursor := session.prop_snapshot_cursor
@@ -327,9 +376,9 @@ net_server_add_prop_delta :: proc(server: ^NetServer, session: ^NetServerSession
 		if !net_server_object_replicates_as_prop(object) {
 			continue
 		}
-		if snapshot.prop_count >= protocol.MAX_SNAPSHOT_PROPS {
+		if snapshot.prop_count >= prop_limit {
 			session.prop_snapshot_cursor = object_index
-			return
+			return true
 		}
 		state, awake := net_server_prop_state_from_object(object)
 		known := net_server_known_prop(session, state.net_id)
@@ -345,6 +394,7 @@ net_server_add_prop_delta :: proc(server: ^NetServer, session: ^NetServerSession
 		net_server_store_known_prop(session, state, server.server_tick)
 		session.prop_snapshot_cursor = (object_index + 1) % object_count
 	}
+	return false
 }
 
 net_server_object_replicates_as_prop :: proc(object: ^Object) -> bool {

@@ -1,5 +1,7 @@
 package protocol
 
+import "core:math"
+
 PROTOCOL_MAGIC   :: u32(0x52484341) // "ACHR" in little-endian packet order.
 PROTOCOL_VERSION :: u16(1)
 
@@ -15,7 +17,7 @@ USER_CMD_PAYLOAD_SIZE :: 26
 USER_CMDS_HEADER_PAYLOAD_SIZE :: 1
 MAX_USER_CMDS_PER_PACKET :: 8
 SERVER_PLAYER_STATE_PAYLOAD_SIZE :: 49
-SERVER_PROP_STATE_PAYLOAD_SIZE :: 34
+SERVER_PROP_STATE_PAYLOAD_SIZE :: 25
 SERVER_SNAPSHOT_HEADER_PAYLOAD_SIZE :: 18
 SERVER_REMOVED_PROP_PAYLOAD_SIZE :: 4
 MAX_SNAPSHOT_PLAYERS :: 32
@@ -529,10 +531,7 @@ write_server_prop_state_payload :: proc(w: ^Packet_Writer, state: Server_Prop_St
 	write_f32(w, state.position.x) or_return
 	write_f32(w, state.position.y) or_return
 	write_f32(w, state.position.z) or_return
-	write_f32(w, state.rotation.x) or_return
-	write_f32(w, state.rotation.y) or_return
-	write_f32(w, state.rotation.z) or_return
-	write_f32(w, state.rotation.w) or_return
+	write_compressed_quat(w, state.rotation) or_return
 	return true
 }
 
@@ -549,15 +548,74 @@ read_server_prop_state_payload :: proc(r: ^Packet_Reader) -> (state: Server_Prop
 	if !ok do return {}, false
 	state.position.z, ok = read_f32(r)
 	if !ok do return {}, false
-	state.rotation.x, ok = read_f32(r)
-	if !ok do return {}, false
-	state.rotation.y, ok = read_f32(r)
-	if !ok do return {}, false
-	state.rotation.z, ok = read_f32(r)
-	if !ok do return {}, false
-	state.rotation.w, ok = read_f32(r)
+	state.rotation, ok = read_compressed_quat(r)
 	if !ok do return {}, false
 	return state, true
+}
+
+QUAT_COMPRESSED_COMPONENT_LIMIT :: f32(0.7071067811865476)
+QUAT_COMPRESSED_SCALE :: f32(32767)
+
+write_compressed_quat :: proc(w: ^Packet_Writer, q: [4]f32) -> bool {
+	n := normalize_quat(q)
+	largest := 0
+	largest_abs := abs(n[0])
+	for i in 1..<4 {
+		component_abs := abs(n[i])
+		if component_abs > largest_abs {
+			largest = i
+			largest_abs = component_abs
+		}
+	}
+	if n[largest] < 0 {
+		for &component in n {
+			component = -component
+		}
+	}
+	write_u8(w, u8(largest)) or_return
+	for i in 0..<4 {
+		if i == largest do continue
+		write_i16(w, quantize_quat_component(n[i])) or_return
+	}
+	return true
+}
+
+read_compressed_quat :: proc(r: ^Packet_Reader) -> (q: [4]f32, ok: bool) {
+	largest: u8
+	largest, ok = read_u8(r)
+	if !ok || largest >= 4 do return {}, false
+	sum_squares: f32
+	for i in 0..<4 {
+		if i == int(largest) do continue
+		value: i16
+		value, ok = read_i16(r)
+		if !ok do return {}, false
+		q[i] = dequantize_quat_component(value)
+		sum_squares += q[i] * q[i]
+	}
+	q[int(largest)] = math.sqrt(max(f32(0), 1 - sum_squares))
+	return q, true
+}
+
+normalize_quat :: proc(q: [4]f32) -> [4]f32 {
+	length_squared := q.x * q.x + q.y * q.y + q.z * q.z + q.w * q.w
+	if length_squared <= 0.000001 {
+		return {0, 0, 0, 1}
+	}
+	inv_length := 1 / math.sqrt(length_squared)
+	return {q.x * inv_length, q.y * inv_length, q.z * inv_length, q.w * inv_length}
+}
+
+quantize_quat_component :: proc(value: f32) -> i16 {
+	scaled := clamp(value / QUAT_COMPRESSED_COMPONENT_LIMIT, -1, 1) * QUAT_COMPRESSED_SCALE
+	if scaled >= 0 {
+		return i16(scaled + 0.5)
+	}
+	return i16(scaled - 0.5)
+}
+
+dequantize_quat_component :: proc(value: i16) -> f32 {
+	return f32(value) / QUAT_COMPRESSED_SCALE * QUAT_COMPRESSED_COMPONENT_LIMIT
 }
 
 map_name_from_string :: proc(value: string) -> (name: Map_Name, ok: bool) {

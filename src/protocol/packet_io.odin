@@ -50,6 +50,10 @@ write_u16 :: proc(w: ^Packet_Writer, value: u16) -> bool {
 	return true
 }
 
+write_i16 :: proc(w: ^Packet_Writer, value: i16) -> bool {
+	return write_u16(w, transmute(u16)value)
+}
+
 write_u32 :: proc(w: ^Packet_Writer, value: u32) -> bool {
 	if !writer_require(w, 4) do return false
 	w.data[w.off + 0] = byte(value & 0xff)
@@ -83,6 +87,13 @@ read_u16 :: proc(r: ^Packet_Reader) -> (value: u16, ok: bool) {
 	value = u16(r.data[r.off + 0]) | (u16(r.data[r.off + 1]) << 8)
 	r.off += 2
 	return value, true
+}
+
+read_i16 :: proc(r: ^Packet_Reader) -> (value: i16, ok: bool) {
+	bits: u16
+	bits, ok = read_u16(r)
+	if !ok do return 0, false
+	return transmute(i16)bits, true
 }
 
 read_u32 :: proc(r: ^Packet_Reader) -> (value: u32, ok: bool) {

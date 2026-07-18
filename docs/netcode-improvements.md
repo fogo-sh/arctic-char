@@ -47,27 +47,27 @@ Current packet constants:
 - `protocol.HEADER_SIZE = 9`
 - `SERVER_SNAPSHOT_HEADER_PAYLOAD_SIZE = 18`
 - `SERVER_PLAYER_STATE_PAYLOAD_SIZE = 49`
-- `SERVER_PROP_STATE_PAYLOAD_SIZE = 34`
+- `SERVER_PROP_STATE_PAYLOAD_SIZE = 25`
 - `SERVER_REMOVED_PROP_PAYLOAD_SIZE = 4`
 
 Worst-case current snapshot size:
 
 ```text
-9 + 18 + 32*49 + 64*34 + 64*4 = 4027 bytes
+9 + 18 + 32*49 + 64*25 + 64*4 = 3451 bytes
 ```
 
-With one player and no removed props, a 4096-byte packet could fit about 118 prop
+With one player and no removed props, a 4096-byte packet could fit about 160 prop
 states:
 
 ```text
-floor((4096 - 9 - 18 - 49) / 34) = 118
+floor((4096 - 9 - 18 - 49) / 25) = 160
 ```
 
 Do not treat that as the final target. Large UDP datagrams are fragile. A future
 s&box-style budget should aim for MTU-sized clusters, roughly `1200` bytes:
 
 ```text
-floor((1200 - 9 - 18 - 49) / 34) = 33 props with one player
+floor((1200 - 9 - 18 - 49) / 25) = 44 props with one player
 ```
 
 The important change is fairness and resending, not simply raising the cap.
@@ -139,6 +139,8 @@ a full visibility system too early.
 
 ## Step 3: Byte Budgeting
 
+Status: initial version complete.
+
 Goal: budget snapshots by bytes rather than entity count.
 
 Changes:
@@ -151,10 +153,25 @@ Changes:
   scheduling policy.
 - Log when state is deferred due to byte budget.
 
+Implemented notes:
+
+- `NET_SERVER_SNAPSHOT_TARGET_BYTES` currently targets `1200` byte snapshot
+  packets.
+- `net_server_snapshot_prop_budget` computes how many prop states fit after the
+  snapshot header, player states, and removed-prop ids already in that packet.
+- `protocol.MAX_SNAPSHOT_PROPS` remains the hard array safety cap, but normal prop
+  packing now uses the byte target.
+- `NetServerSnapshotStats` records per-tick snapshot packet count, byte count, prop
+  count, removed-prop count, and whether any client still had deferred props after
+  hitting the cluster limit.
+- Explicit protocol-level packet size helpers are still pending.
+
 This is the point where local stress maps should become intentionally lossy but
 fair: every important prop eventually updates, but not necessarily every snapshot.
 
 ## Step 4: Snapshot Clusters
+
+Status: initial version complete.
 
 Goal: send more than one unreliable snapshot cluster when a client has a large
 backlog, without creating huge UDP packets.
@@ -167,6 +184,22 @@ Changes:
 - Keep player state in the first/primary cluster so player movement remains high
   priority.
 - Put prop deltas in later clusters ordered by priority and round-robin fairness.
+
+Implemented notes:
+
+- `NET_SERVER_MAX_SNAPSHOT_CLUSTERS` currently allows up to four bounded snapshot
+  packets per client per snapshot tick.
+- Each cluster is still a normal `Server_Snapshot` packet with its own snapshot
+  sequence, so the client can parse it without a new fragment protocol.
+- The first cluster carries player state and the client's last processed command.
+- Later clusters carry additional prop deltas only.
+- The prop round-robin cursor continues across clusters, so large active prop sets
+  can use more per-tick bandwidth without one oversized datagram.
+- The prop scheduler now reports whether more send-worthy props remain, so the
+  server stops without an empty probe cluster when all prop work fit and records
+  when the cluster limit deferred more work.
+- Explicit cluster part metadata is still deferred until ACK/delta snapshots need
+  it.
 
 This copies the useful s&box idea: many changed objects create more bounded
 clusters, not one oversized datagram.
@@ -190,6 +223,8 @@ This is the foundation for Quake/Source/s&box-style robust snapshots.
 
 ## Step 6: Compression And Quantization
 
+Status: initial rotation compression complete.
+
 Goal: reduce bytes per prop after the protocol semantics are proven.
 
 Options:
@@ -199,6 +234,14 @@ Options:
 - Use changed-object lists instead of fixed full arrays.
 - Split awake/sleep/state flags from transform data.
 - Use bit-level writers only after explicit byte writers become the bottleneck.
+
+Implemented notes:
+
+- Prop rotations are still represented as `[4]f32` in game/protocol state, but the
+  wire payload now uses smallest-three quaternion compression.
+- This changes `SERVER_PROP_STATE_PAYLOAD_SIZE` from `34` bytes to `25` bytes.
+- Position is still sent as three `f32` values. Position quantization remains
+  pending because it needs explicit map/world bounds and acceptable error policy.
 
 Do not start here. Compression hides bugs if scheduling, ACKs, and interpolation are
 not already solid.

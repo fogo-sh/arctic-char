@@ -8,6 +8,7 @@ test_packet_writer_reader_round_trip_scalars :: proc(t: ^testing.T) {
 	w := packet_writer(buffer[:])
 	testing.expect(t, write_u8(&w, 7), "write u8")
 	testing.expect(t, write_u16(&w, 0x1234), "write u16")
+	testing.expect(t, write_i16(&w, -1234), "write i16")
 	testing.expect(t, write_u32(&w, 0x89abcdef), "write u32")
 	testing.expect(t, write_f32(&w, -1.25), "write f32")
 	testing.expect_value(t, w.err, Packet_IO_Error.None)
@@ -22,6 +23,10 @@ test_packet_writer_reader_round_trip_scalars :: proc(t: ^testing.T) {
 	u16_value, ok = read_u16(&r)
 	testing.expect(t, ok, "read u16")
 	testing.expect_value(t, u16_value, u16(0x1234))
+	i16_value: i16
+	i16_value, ok = read_i16(&r)
+	testing.expect(t, ok, "read i16")
+	testing.expect_value(t, i16_value, i16(-1234))
 	u32_value: u32
 	u32_value, ok = read_u32(&r)
 	testing.expect(t, ok, "read u32")
