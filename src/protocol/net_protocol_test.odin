@@ -224,6 +224,8 @@ test_server_snapshot_round_trips :: proc(t: ^testing.T) {
 		prop_asset_index = 2,
 		position = {8, 9, 10},
 		rotation = {0.1, 0.2, 0.3, 0.9},
+		linear_velocity = {1.5, -2.0, 0.25},
+		angular_velocity = {0.5, 0.0, -1.25},
 	}
 	written.removed_prop_ids[0] = 99
 	packet, ok := write_server_snapshot(buffer[:], written)
@@ -257,6 +259,8 @@ test_server_snapshot_round_trips :: proc(t: ^testing.T) {
 	testing.expect_value(t, parsed.snapshot.props[0].prop_asset_index, written.props[0].prop_asset_index)
 	testing.expect(t, vec3_near(parsed.snapshot.props[0].position, written.props[0].position, 0.01), "quantized prop position should preserve centimeter-scale position")
 	testing.expect(t, quat_same_orientation(parsed.snapshot.props[0].rotation, written.props[0].rotation, 0.0001), "compressed prop rotation should preserve orientation")
+	testing.expect(t, vec3_near(parsed.snapshot.props[0].linear_velocity, written.props[0].linear_velocity, 0.01), "quantized prop linear velocity should preserve centimeter-scale velocity")
+	testing.expect(t, vec3_near(parsed.snapshot.props[0].angular_velocity, written.props[0].angular_velocity, 0.01), "quantized prop angular velocity should preserve centimeter-scale velocity")
 	testing.expect_value(t, parsed.snapshot.removed_prop_ids[0], written.removed_prop_ids[0])
 }
 

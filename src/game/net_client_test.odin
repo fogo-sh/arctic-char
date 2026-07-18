@@ -299,6 +299,15 @@ test_scene_object_replicated_prop_interpolates_samples :: proc(t: ^testing.T) {
 }
 
 @(test)
+test_scene_object_replicated_prop_collision_sample_extrapolates_from_velocity :: proc(t: ^testing.T) {
+	buffer: ReplicatedTransformBuffer
+	replicated_transform_add_sample(&buffer, {server_tick = 10, position = {1, 0, 0}, rotation = linalg.QUATERNIONF32_IDENTITY, linear_velocity = {64, 0, 0}})
+
+	position, _ := replicated_collision_transform_at_tick(&buffer, {}, linalg.QUATERNIONF32_IDENTITY, 12)
+	testing.expect_value(t, position, Vec3{3, 0, 0})
+}
+
+@(test)
 test_net_server_prop_delta_skips_unchanged_sent_prop_until_refresh :: proc(t: ^testing.T) {
 	scene := test_net_scene()
 	defer delete(scene.objects)

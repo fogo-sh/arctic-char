@@ -4,9 +4,14 @@ import "core:log"
 import "core:math/linalg"
 import protocol "../protocol"
 import transport "../net"
+import b3 "vendor:box3d"
 
 CLIENT_COMMAND_HISTORY :: 64
 LOOPBACK_SERVER_PEER :: NetServerPeer(1)
+CLIENT_PREDICTION_LOG_POSITION_ERROR :: f32(0.02)
+CLIENT_PREDICTION_LOG_VELOCITY_ERROR :: f32(0.25)
+CLIENT_PREDICTION_NEAR_PROP_HORIZONTAL :: f32(PLAYER_SPEC.capsule_radius * 3)
+CLIENT_PREDICTION_NEAR_PROP_VERTICAL :: f32(2.0)
 
 GameNetClientState :: enum {
 	Disabled,
@@ -50,6 +55,17 @@ PredictedPlayerState :: struct {
 	pitch:         f32,
 	grounded:      bool,
 	ground_normal: Vec3,
+}
+
+ClientPredictionPropDiagnostics :: struct {
+	has_prop:               bool,
+	near_prop:              bool,
+	net_id:                 protocol.NetId,
+	latest_tick:            u32,
+	sample_age_ticks:       u32,
+	horizontal_distance:    f32,
+	vertical_from_feet:     f32,
+	visual_collision_error: f32,
 }
 
 game_net_client_init :: proc(net: ^GameNetClient, config: GameLaunchConfig, scene: ^Scene, assets: ^LoadedSceneAssets) {
@@ -334,19 +350,21 @@ game_net_client_apply_snapshot :: proc(net: ^GameNetClient, scene: ^Scene, snaps
 		rotation.y = state.rotation.y
 		rotation.z = state.rotation.z
 		rotation.w = state.rotation.w
-		scene_upsert_replicated_prop(
-			scene,
-			state.net_id,
-			state.prop_asset_index,
-			{state.position.x, state.position.y, state.position.z},
-			rotation,
-			snapshot.server_tick,
-		)
+			scene_upsert_replicated_prop(
+				scene,
+				state.net_id,
+				state.prop_asset_index,
+				{state.position.x, state.position.y, state.position.z},
+				rotation,
+				{state.linear_velocity.x, state.linear_velocity.y, state.linear_velocity.z},
+				{state.angular_velocity.x, state.angular_velocity.y, state.angular_velocity.z},
+				snapshot.server_tick,
+			)
 	}
 	for i in 0..<int(snapshot.player_count) {
 		state := snapshot.players[i]
 		if state.player_id == net.local_player_id {
-			game_net_client_reconcile_local_player(net, scene, state, snapshot.last_processed_user_cmd)
+			game_net_client_reconcile_local_player(net, scene, state, snapshot.last_processed_user_cmd, snapshot.server_tick)
 			continue
 		}
 		if state.player_id < len(net.seen_remote_players) && !net.seen_remote_players[state.player_id] {
@@ -383,11 +401,19 @@ game_net_client_accept_snapshot_cluster :: proc(net: ^GameNetClient, snapshot: p
 	return true
 }
 
-game_net_client_reconcile_local_player :: proc(net: ^GameNetClient, scene: ^Scene, state: protocol.Server_Player_State, ack_sequence: u32) {
+game_net_client_reconcile_local_player :: proc(net: ^GameNetClient, scene: ^Scene, state: protocol.Server_Player_State, ack_sequence, snapshot_tick: u32) {
 	authoritative := predicted_state_from_server_player_state(ack_sequence, state)
+	predicted_for_log: PredictedPlayerState
+	has_predicted_for_log := false
+	velocity_error := f32(0)
+	grounded_mismatch := false
 	if predicted, ok := game_net_client_predicted_state(net, ack_sequence); ok {
+		predicted_for_log = predicted
+		has_predicted_for_log = true
 		delta := authoritative.position - predicted.position
 		net.last_prediction_error = linalg.length(delta)
+		velocity_error = linalg.length(authoritative.velocity - predicted.velocity)
+		grounded_mismatch = authoritative.grounded != predicted.grounded
 		if net.last_prediction_error > 0.001 {
 			net.prediction_correction_count += 1
 		}
@@ -402,10 +428,112 @@ game_net_client_reconcile_local_player :: proc(net: ^GameNetClient, scene: ^Scen
 		if cmd.sequence != sequence {
 			continue
 		}
+		if player := scene_player(scene, net.local_player_id); player != nil {
+			command_tick := snapshot_tick + (sequence - ack_sequence)
+			game_net_client_set_nearby_prop_proxies_to_tick(scene, player.position, command_tick)
+		}
 		if game_net_client_predict_user_cmd(net, scene, cmd, false) {
 			net.last_prediction_replay_count += 1
 		}
 	}
+	game_net_client_restore_prop_proxies_to_latest(scene)
+	if has_predicted_for_log && (net.last_prediction_error >= CLIENT_PREDICTION_LOG_POSITION_ERROR || velocity_error >= CLIENT_PREDICTION_LOG_VELOCITY_ERROR || grounded_mismatch) {
+		prop := game_net_client_prediction_prop_diagnostics(scene, authoritative.position, snapshot_tick)
+		log.debugf(
+			"Prediction correction local=%d ack=%d latest=%d replay=%d pos_err=%.4f vel_err=%.4f grounded auth=%v pred=%v near_prop=%v prop=%d prop_age=%d prop_hdist=%.3f prop_vfeet=%.3f prop_viserr=%.3f auth_pos=(%.3f, %.3f, %.3f) pred_pos=(%.3f, %.3f, %.3f)",
+			net.local_player_id,
+			ack_sequence,
+			net.command_sequence,
+			net.last_prediction_replay_count,
+			net.last_prediction_error,
+			velocity_error,
+			authoritative.grounded,
+			predicted_for_log.grounded,
+			prop.near_prop,
+			u32(prop.net_id),
+			prop.sample_age_ticks,
+			prop.horizontal_distance,
+			prop.vertical_from_feet,
+			prop.visual_collision_error,
+			authoritative.position.x,
+			authoritative.position.y,
+			authoritative.position.z,
+			predicted_for_log.position.x,
+			predicted_for_log.position.y,
+			predicted_for_log.position.z,
+		)
+	}
+}
+
+game_net_client_set_nearby_prop_proxies_to_tick :: proc(scene: ^Scene, player_position: Vec3, server_tick: u32) {
+	for &object in scene.objects {
+		if !game_net_client_is_replicated_prop_with_proxy(&object) {
+			continue
+		}
+		position, rotation := replicated_collision_transform_at_tick(&object.replica.transform_buffer, object.transform.position, object.render_rotation, server_tick)
+		if !game_net_client_prop_near_player(position, player_position) {
+			continue
+		}
+		b3.Body_SetTransform(object.physics.body, b3.Pos(position), b3.Quat(rotation))
+	}
+}
+
+game_net_client_restore_prop_proxies_to_latest :: proc(scene: ^Scene) {
+	for &object in scene.objects {
+		if !game_net_client_is_replicated_prop_with_proxy(&object) {
+			continue
+		}
+		b3.Body_SetTransform(object.physics.body, b3.Pos(object.transform.position), b3.Quat(object.render_rotation))
+	}
+}
+
+game_net_client_is_replicated_prop_with_proxy :: proc(object: ^Object) -> bool {
+	return object.kind == .Prop &&
+		object.replica.kind == .Prop &&
+		object.replica.authority == .ServerAuthoritative &&
+		object.physics.enabled &&
+		b3.IS_NON_NULL(object.physics.body)
+}
+
+game_net_client_prop_near_player :: proc(prop_position, player_position: Vec3) -> bool {
+	feet_y := player_position.y + PLAYER_SPEC.hull_mins.y
+	horizontal_delta := Vec3{prop_position.x - player_position.x, 0, prop_position.z - player_position.z}
+	return linalg.length(horizontal_delta) <= CLIENT_PREDICTION_NEAR_PROP_HORIZONTAL && abs(prop_position.y - feet_y) <= CLIENT_PREDICTION_NEAR_PROP_VERTICAL
+}
+
+game_net_client_prediction_prop_diagnostics :: proc(scene: ^Scene, player_position: Vec3, snapshot_tick: u32) -> ClientPredictionPropDiagnostics {
+	best: ClientPredictionPropDiagnostics
+	best_score := f32(1e9)
+	feet_y := player_position.y + PLAYER_SPEC.hull_mins.y
+	for &object in scene.objects {
+		if object.kind != .Prop || object.replica.kind != .Prop || object.replica.authority != .ServerAuthoritative {
+			continue
+		}
+		position := object.transform.position
+		horizontal_delta := Vec3{position.x - player_position.x, 0, position.z - player_position.z}
+		horizontal_distance := linalg.length(horizontal_delta)
+		vertical_from_feet := position.y - feet_y
+		score := horizontal_distance + abs(vertical_from_feet) * 0.25
+		if !best.has_prop || score < best_score {
+			visual_position, _ := replicated_transform_at_tick(&object.replica.transform_buffer, object.transform.position, object.render_rotation, scene.remote_render_tick)
+			age := u32(0)
+			if snapshot_tick >= object.replica.last_replicated_tick {
+				age = snapshot_tick - object.replica.last_replicated_tick
+			}
+			best_score = score
+			best = {
+				has_prop = true,
+				near_prop = horizontal_distance <= CLIENT_PREDICTION_NEAR_PROP_HORIZONTAL && abs(vertical_from_feet) <= CLIENT_PREDICTION_NEAR_PROP_VERTICAL,
+				net_id = object.replica.net_id,
+				latest_tick = object.replica.last_replicated_tick,
+				sample_age_ticks = age,
+				horizontal_distance = horizontal_distance,
+				vertical_from_feet = vertical_from_feet,
+				visual_collision_error = linalg.length(visual_position - position),
+			}
+		}
+	}
+	return best
 }
 
 scene_upsert_local_authoritative_player :: proc(scene: ^Scene, state: protocol.Server_Player_State) {

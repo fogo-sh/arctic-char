@@ -80,7 +80,7 @@ Current findings:
   dimensions, while Clay layout uses logical window dimensions. Renderer UI/text
   upload paths scale `UiCommand` bounds, radii, borders, scissor rects, and font
   sizes from logical units into framebuffer pixels. SDL windows request
-  `HIGH_PIXEL_DENSITY`; Sokol requests `high_dpi = true`.
+  `HIGH_PIXEL_DENSITY`.
 - UI text uses engine-owned Slug-style TTF/glyph packing code in `src/engine`;
   renderer-owned SDL GPU code uploads the curve/band textures and draws text from
   engine-owned `UiCommand.Text` values.

@@ -22,6 +22,12 @@ Options :: struct {
 	map_name:   string `args:"name=map" usage:"Authoritative map name for handshake validation."`,
 	content_id: u32    `usage:"Authoritative map/content identifier for handshake validation."`,
 	seconds:    f32    `usage:"Optional run duration for smoke tests. Zero runs until interrupted."`,
+	net_down_delay_ms: f32 `usage:"Artificial downstream packet delay in milliseconds."`,
+	net_down_jitter_ms: f32 `usage:"Random downstream jitter range in milliseconds."`,
+	net_down_loss: f32 `usage:"Downstream packet loss percent, 0-100."`,
+	net_down_duplicate: f32 `usage:"Downstream packet duplicate percent, 0-100."`,
+	net_down_reorder: f32 `usage:"Downstream packet reorder percent, 0-100."`,
+	net_seed: u32 `usage:"Seed for deterministic network impairment."`,
 }
 
 main :: proc() {
@@ -44,6 +50,9 @@ main :: proc() {
 	defer game.scene_assets_destroy(&assets)
 
 	log.infof("Dedicated server listening on UDP port %d map=%s content_id=%08x", options.port, options.map_name, options.content_id)
+	if net_impairment_enabled(options) {
+		log.infof("Network impairment downstream delay=%.1fms jitter=%.1fms loss=%.2f%% duplicate=%.2f%% reorder=%.2f%% seed=%d", options.net_down_delay_ms, options.net_down_jitter_ms, options.net_down_loss, options.net_down_duplicate, options.net_down_reorder, options.net_seed)
+	}
 	scene := game.scene_create(&assets, {})
 	defer game.scene_destroy(&scene)
 
@@ -73,13 +82,16 @@ run_server :: proc(host: ^transport.Host, options: Options, scene: ^game.Scene) 
 	server := new(game.NetServer)
 	defer free(server)
 	game.net_server_init(server, scene, options.map_name, options.content_id)
+	impairment := new(NetImpairment)
+	defer free(impairment)
+	net_impairment_init(impairment, options)
 	started := time.now()
 	last_tick_time := started
 	accumulator := f32(0)
 	for {
+		now_seconds := time.duration_seconds(time.since(started))
 		if options.seconds > 0 {
-			elapsed := time.duration_seconds(time.since(started))
-			if elapsed >= f64(options.seconds) {
+			if now_seconds >= f64(options.seconds) {
 				log.info("Dedicated server smoke duration elapsed")
 				return
 			}
@@ -90,7 +102,7 @@ run_server :: proc(host: ^transport.Host, options: Options, scene: ^game.Scene) 
 			if event.kind == .None {
 				break
 			}
-			server_handle_event(server, event)
+			server_handle_event(server, impairment, event)
 		}
 
 		frame_time := f32(time.duration_seconds(time.since(last_tick_time)))
@@ -98,18 +110,20 @@ run_server :: proc(host: ^transport.Host, options: Options, scene: ^game.Scene) 
 		accumulator += min(frame_time, 0.25)
 		for accumulator >= game.NET_SERVER_TICK_TIME {
 			game.net_server_tick(server)
-			server_flush_outgoing(host, server)
+			server_flush_outgoing(host, server, impairment, now_seconds)
 			accumulator -= game.NET_SERVER_TICK_TIME
 		}
+		server_flush_impairment_due(host, impairment, now_seconds)
 	}
 }
 
-server_handle_event :: proc(server: ^game.NetServer, event: transport.Event) {
+server_handle_event :: proc(server: ^game.NetServer, impairment: ^NetImpairment, event: transport.Event) {
 	#partial switch event.kind {
 	case .Connect:
 		log.infof("ENet peer connected peer=%v rtt=%dms", event.peer, transport.peer_round_trip_ms(event.peer))
 		game.net_server_connect(server, server_peer_from_transport(event.peer))
 	case .Disconnect:
+		net_impairment_drop_peer(impairment, event.peer)
 		game.net_server_disconnect(server, server_peer_from_transport(event.peer))
 	case .Receive:
 		game.net_server_handle_packet(server, server_peer_from_transport(event.peer), event.channel, event.data, event.truncated)
@@ -117,7 +131,7 @@ server_handle_event :: proc(server: ^game.NetServer, event: transport.Event) {
 	}
 }
 
-server_flush_outgoing :: proc(host: ^transport.Host, server: ^game.NetServer) {
+server_flush_outgoing :: proc(host: ^transport.Host, server: ^game.NetServer, impairment: ^NetImpairment, now_seconds: f64) {
 	flushed := false
 	for {
 		packet, ok := game.net_server_poll_outgoing(server)
@@ -125,8 +139,30 @@ server_flush_outgoing :: proc(host: ^transport.Host, server: ^game.NetServer) {
 			break
 		}
 		peer := transport_peer_from_server(packet.peer)
+		if packet.channel == protocol.CHANNEL_SNAPSHOTS && net_impairment_queue_packet(impairment, peer, packet.channel, packet.data[:packet.length], packet.mode, now_seconds) {
+			flushed = true
+			continue
+		}
 		if !transport.send(peer, packet.channel, packet.data[:packet.length], packet.mode) {
 			log.warnf("Failed to send server packet channel=%d to peer=%v", packet.channel, peer)
+			continue
+		}
+		flushed = true
+	}
+	if flushed {
+		transport.flush(host)
+	}
+}
+
+server_flush_impairment_due :: proc(host: ^transport.Host, impairment: ^NetImpairment, now_seconds: f64) {
+	flushed := false
+	for {
+		packet, ok := net_impairment_pop_due(impairment, now_seconds)
+		if !ok {
+			break
+		}
+		if !transport.send(packet.peer, packet.channel, packet.data[:packet.length], packet.mode) {
+			log.warnf("Failed to send impaired server packet channel=%d to peer=%v", packet.channel, packet.peer)
 			continue
 		}
 		flushed = true

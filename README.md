@@ -1,6 +1,6 @@
 # arctic char*
 
-Small Odin + SDL3 GPU sandbox
+Small Odin + SDL3 GPU multiplayer-first engine sandbox
 
 Current features:
 
@@ -13,7 +13,8 @@ Current features:
 - Box3D world with fixed-timestep stepping
 - directory-first game filesystem with `--game` search path overrides
 - Valve 220 `.map` brush rendering and static map collision
-- Quake-style player movement and 100 falling Suzanne bodies spawned over time
+- server-authoritative local loopback and ENet multiplayer paths
+- Quake-style player movement and server-replicated physics props
 
 The project is pinned to Odin `dev-2026-07` via `mise.toml`.
 
@@ -58,17 +59,13 @@ uses Odin's `vendor:ENet` binding, which requires a system ENet library. On
 macOS, install it with `brew install enet`.
 
 `python cli.py smoke` runs the SDL app through the in-process loopback path.
-Use `python cli.py smoke --sokol` to run the same smoke check against the native
-Sokol entrypoint.
-`python cli.py check-sokol-shaders` verifies that the Sokol shader descriptors
-keep WebGL2/GLES3 source coverage.
 `python cli.py net-smoke` builds the dedicated server and real game client, then
 runs the game client against the server over ENet for a fixed duration.
 
-`python cli.py mp-run` builds, starts one local dedicated server, launches one SDL
-client and one Sokol client connected to it, and keeps them running until Ctrl-C.
-Use `--seconds N` for an automated timed run or `--no-build` to reuse existing
-binaries. `python cli.py mp-test` is the same command path.
+`python cli.py mp-run` builds, starts one local dedicated server, launches two SDL
+clients connected to it, and keeps them running until Ctrl-C. Use `--seconds N`
+for an automated timed run or `--no-build` to reuse existing binaries.
+`python cli.py mp-test` is the same command path.
 
 Run multiple real app clients against a manually managed dedicated server:
 
@@ -77,9 +74,9 @@ python cli.py server-run -- --map test --port 29001
 python cli.py run -- --connect 127.0.0.1 --port 29001 --map test
 ```
 
-The real client currently handshakes, sends `User_Cmd` input packets, receives
-lightweight player-state snapshots, and renders other connected players as
-Suzanne placeholders. Full authoritative scene physics is not wired yet.
+The real client handshakes, sends `User_Cmd` input packets, receives server
+snapshots, predicts the local player, interpolates remote players and props, and
+reconciles against the authoritative server scene.
 
 `python cli.py test` runs Odin unit tests for pure package logic. The smoke test
 is separate: it launches the real app for a fixed duration and catches startup or

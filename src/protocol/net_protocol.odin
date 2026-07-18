@@ -17,7 +17,7 @@ USER_CMD_PAYLOAD_SIZE :: 26
 USER_CMDS_HEADER_PAYLOAD_SIZE :: 1
 MAX_USER_CMDS_PER_PACKET :: 8
 SERVER_PLAYER_STATE_PAYLOAD_SIZE :: 49
-SERVER_PROP_STATE_PAYLOAD_SIZE :: 19
+SERVER_PROP_STATE_PAYLOAD_SIZE :: 31
 SERVER_SNAPSHOT_HEADER_PAYLOAD_SIZE :: 19
 SERVER_REMOVED_PROP_PAYLOAD_SIZE :: 4
 MAX_SNAPSHOT_PLAYERS :: 32
@@ -100,6 +100,8 @@ Server_Prop_State :: struct {
 	prop_asset_index: u16,
 	position:         [3]f32,
 	rotation:         [4]f32,
+	linear_velocity:  [3]f32,
+	angular_velocity: [3]f32,
 }
 
 Server_Snapshot :: struct {
@@ -556,6 +558,8 @@ write_server_prop_state_payload :: proc(w: ^Packet_Writer, state: Server_Prop_St
 	write_u16(w, state.prop_asset_index) or_return
 	write_quantized_prop_position(w, state.position) or_return
 	write_compressed_quat(w, state.rotation) or_return
+	write_quantized_prop_velocity(w, state.linear_velocity) or_return
+	write_quantized_prop_velocity(w, state.angular_velocity) or_return
 	return true
 }
 
@@ -570,6 +574,10 @@ read_server_prop_state_payload :: proc(r: ^Packet_Reader) -> (state: Server_Prop
 	if !ok do return {}, false
 	state.rotation, ok = read_compressed_quat(r)
 	if !ok do return {}, false
+	state.linear_velocity, ok = read_quantized_prop_velocity(r)
+	if !ok do return {}, false
+	state.angular_velocity, ok = read_quantized_prop_velocity(r)
+	if !ok do return {}, false
 	return state, true
 }
 
@@ -577,6 +585,8 @@ QUAT_COMPRESSED_COMPONENT_LIMIT :: f32(0.7071067811865476)
 QUAT_COMPRESSED_SCALE :: f32(32767)
 PROP_POSITION_QUANTIZE_RANGE :: f32(256)
 PROP_POSITION_QUANTIZE_SCALE :: f32(32767)
+PROP_VELOCITY_QUANTIZE_RANGE :: f32(64)
+PROP_VELOCITY_QUANTIZE_SCALE :: f32(32767)
 
 write_quantized_prop_position :: proc(w: ^Packet_Writer, position: [3]f32) -> bool {
 	write_i16(w, quantize_prop_position_component(position.x)) or_return
@@ -606,6 +616,36 @@ quantize_prop_position_component :: proc(value: f32) -> i16 {
 
 dequantize_prop_position_component :: proc(value: i16) -> f32 {
 	return f32(value) / PROP_POSITION_QUANTIZE_SCALE * PROP_POSITION_QUANTIZE_RANGE
+}
+
+write_quantized_prop_velocity :: proc(w: ^Packet_Writer, velocity: [3]f32) -> bool {
+	write_i16(w, quantize_prop_velocity_component(velocity.x)) or_return
+	write_i16(w, quantize_prop_velocity_component(velocity.y)) or_return
+	write_i16(w, quantize_prop_velocity_component(velocity.z)) or_return
+	return true
+}
+
+read_quantized_prop_velocity :: proc(r: ^Packet_Reader) -> (velocity: [3]f32, ok: bool) {
+	x, y, z: i16
+	x, ok = read_i16(r)
+	if !ok do return {}, false
+	y, ok = read_i16(r)
+	if !ok do return {}, false
+	z, ok = read_i16(r)
+	if !ok do return {}, false
+	return {dequantize_prop_velocity_component(x), dequantize_prop_velocity_component(y), dequantize_prop_velocity_component(z)}, true
+}
+
+quantize_prop_velocity_component :: proc(value: f32) -> i16 {
+	scaled := clamp(value / PROP_VELOCITY_QUANTIZE_RANGE, -1, 1) * PROP_VELOCITY_QUANTIZE_SCALE
+	if scaled >= 0 {
+		return i16(scaled + 0.5)
+	}
+	return i16(scaled - 0.5)
+}
+
+dequantize_prop_velocity_component :: proc(value: i16) -> f32 {
+	return f32(value) / PROP_VELOCITY_QUANTIZE_SCALE * PROP_VELOCITY_QUANTIZE_RANGE
 }
 
 write_compressed_quat :: proc(w: ^Packet_Writer, q: [4]f32) -> bool {

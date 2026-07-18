@@ -5,6 +5,7 @@ import protocol "../protocol"
 import b3 "vendor:box3d"
 
 REPLICATED_TRANSFORM_SAMPLE_CAPACITY :: 8
+REPLICATED_COLLISION_EXTRAPOLATE_MAX_TICKS :: u32(6)
 
 ReplicatedKind :: enum {
 	None,
@@ -20,6 +21,8 @@ ReplicatedTransformSample :: struct {
 	server_tick: u32,
 	position:    Vec3,
 	rotation:    linalg.Quaternionf32,
+	linear_velocity: Vec3,
+	angular_velocity: Vec3,
 }
 
 ReplicatedTransformBuffer :: struct {
@@ -89,7 +92,39 @@ replicated_transform_at_tick :: proc(buffer: ^ReplicatedTransformBuffer, fallbac
 	return sample.position, sample.rotation
 }
 
-scene_upsert_replicated_prop :: proc(scene: ^Scene, net_id: protocol.NetId, prop_asset_index: u16, position: Vec3, rotation: linalg.Quaternionf32, server_tick: u32) {
+replicated_collision_transform_at_tick :: proc(buffer: ^ReplicatedTransformBuffer, fallback_position: Vec3, fallback_rotation: linalg.Quaternionf32, tick: u32) -> (position: Vec3, rotation: linalg.Quaternionf32) {
+	if buffer.count == 0 {
+		return fallback_position, fallback_rotation
+	}
+	if tick <= buffer.samples[0].server_tick {
+		sample := buffer.samples[0]
+		return sample.position, sample.rotation
+	}
+
+	last_index := buffer.count - 1
+	last := buffer.samples[last_index]
+	if tick >= last.server_tick {
+		ticks_ahead := min(tick - last.server_tick, REPLICATED_COLLISION_EXTRAPOLATE_MAX_TICKS)
+		return last.position + last.linear_velocity * (f32(ticks_ahead) / f32(NET_SERVER_TICK_HZ)), last.rotation
+	}
+
+	for i in 0..<last_index {
+		from := buffer.samples[i]
+		to := buffer.samples[i + 1]
+		if tick >= from.server_tick && tick <= to.server_tick {
+			span := to.server_tick - from.server_tick
+			if span == 0 {
+				return to.position, to.rotation
+			}
+			t := f32(tick - from.server_tick) / f32(span)
+			return scene_lerp_vec3(from.position, to.position, t), linalg.quaternion_slerp(from.rotation, to.rotation, t)
+		}
+	}
+
+	return last.position, last.rotation
+}
+
+scene_upsert_replicated_prop :: proc(scene: ^Scene, net_id: protocol.NetId, prop_asset_index: u16, position: Vec3, rotation: linalg.Quaternionf32, linear_velocity, angular_velocity: Vec3, server_tick: u32) {
 	mesh := scene_prop_mesh(scene, prop_asset_index)
 	if object := scene_object_by_net_id(scene, net_id); object != nil {
 		object.kind = .Prop
@@ -102,7 +137,7 @@ scene_upsert_replicated_prop :: proc(scene: ^Scene, net_id: protocol.NetId, prop
 		object.replica.last_replicated_tick = server_tick
 		object.prop_asset_index = prop_asset_index
 		scene_update_replicated_prop_collision_proxy(scene, object, position, rotation)
-		replicated_transform_add_sample(&object.replica.transform_buffer, {server_tick = server_tick, position = position, rotation = rotation})
+		replicated_transform_add_sample(&object.replica.transform_buffer, {server_tick = server_tick, position = position, rotation = rotation, linear_velocity = linear_velocity, angular_velocity = angular_velocity})
 		return
 	}
 
@@ -124,7 +159,7 @@ scene_upsert_replicated_prop :: proc(scene: ^Scene, net_id: protocol.NetId, prop
 		prop_asset_index = prop_asset_index,
 	}
 	scene_update_replicated_prop_collision_proxy(scene, &object, position, rotation)
-	replicated_transform_add_sample(&object.replica.transform_buffer, {server_tick = server_tick, position = position, rotation = rotation})
+	replicated_transform_add_sample(&object.replica.transform_buffer, {server_tick = server_tick, position = position, rotation = rotation, linear_velocity = linear_velocity, angular_velocity = angular_velocity})
 	scene_add_object(scene, object)
 }
 

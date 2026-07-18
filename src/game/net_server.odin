@@ -415,10 +415,14 @@ net_server_scene_has_replicated_prop :: proc(scene: ^Scene, net_id: protocol.Net
 net_server_prop_state_from_object :: proc(object: ^Object) -> (state: protocol.Server_Prop_State, awake: bool) {
 	position := object.transform.position
 	rotation := [4]f32{object.render_rotation.x, object.render_rotation.y, object.render_rotation.z, object.render_rotation.w}
+	linear_velocity: Vec3
+	angular_velocity: Vec3
 	if object.physics.sync_transform && b3.IS_NON_NULL(object.physics.body) {
 		transform := b3.Body_GetTransform(object.physics.body)
 		position = Vec3(transform.p)
 		rotation = {transform.q.x, transform.q.y, transform.q.z, transform.q.w}
+		linear_velocity = Vec3(b3.Body_GetLinearVelocity(object.physics.body))
+		angular_velocity = Vec3(b3.Body_GetAngularVelocity(object.physics.body))
 		awake = b3.Body_IsAwake(object.physics.body)
 	}
 	return {
@@ -426,6 +430,8 @@ net_server_prop_state_from_object :: proc(object: ^Object) -> (state: protocol.S
 		prop_asset_index = object.prop_asset_index,
 		position = position,
 		rotation = rotation,
+		linear_velocity = linear_velocity,
+		angular_velocity = angular_velocity,
 	}, awake
 }
 
@@ -438,7 +444,12 @@ net_server_prop_state_changed :: proc(a, b: protocol.Server_Prop_State) -> bool 
 		return true
 	}
 	rotation_delta := abs(a.rotation.x - b.rotation.x) + abs(a.rotation.y - b.rotation.y) + abs(a.rotation.z - b.rotation.z) + abs(a.rotation.w - b.rotation.w)
-	return rotation_delta > NET_SERVER_PROP_ROTATION_EPSILON
+	if rotation_delta > NET_SERVER_PROP_ROTATION_EPSILON {
+		return true
+	}
+	linear_velocity_delta := Vec3{a.linear_velocity.x - b.linear_velocity.x, a.linear_velocity.y - b.linear_velocity.y, a.linear_velocity.z - b.linear_velocity.z}
+	angular_velocity_delta := Vec3{a.angular_velocity.x - b.angular_velocity.x, a.angular_velocity.y - b.angular_velocity.y, a.angular_velocity.z - b.angular_velocity.z}
+	return linalg.length(linear_velocity_delta) > NET_SERVER_PROP_POSITION_EPSILON || linalg.length(angular_velocity_delta) > NET_SERVER_PROP_ROTATION_EPSILON
 }
 
 net_server_sent_prop :: proc(session: ^NetServerSession, net_id: protocol.NetId) -> ^NetServerSentProp {

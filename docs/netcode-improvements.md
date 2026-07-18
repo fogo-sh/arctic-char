@@ -47,27 +47,27 @@ Current packet constants:
 - `protocol.HEADER_SIZE = 9`
 - `SERVER_SNAPSHOT_HEADER_PAYLOAD_SIZE = 19`
 - `SERVER_PLAYER_STATE_PAYLOAD_SIZE = 49`
-- `SERVER_PROP_STATE_PAYLOAD_SIZE = 19`
+- `SERVER_PROP_STATE_PAYLOAD_SIZE = 31`
 - `SERVER_REMOVED_PROP_PAYLOAD_SIZE = 4`
 
 Worst-case current snapshot size:
 
 ```text
-9 + 19 + 32*49 + 64*19 + 64*4 = 3068 bytes
+9 + 19 + 32*49 + 64*31 + 64*4 = 3836 bytes
 ```
 
-With one player and no removed props, a 4096-byte packet could fit about 206 prop
+With one player and no removed props, a 4096-byte packet could fit about 129 prop
 states:
 
 ```text
-floor((4096 - 9 - 19 - 49) / 19) = 206
+floor((4096 - 9 - 19 - 49) / 31) = 129
 ```
 
 Do not treat that as the final target. Large UDP datagrams are fragile. A future
 s&box-style budget should aim for MTU-sized clusters, roughly `1200` bytes:
 
 ```text
-floor((1200 - 9 - 19 - 49) / 19) = 59 props with one player
+floor((1200 - 9 - 19 - 49) / 31) = 36 props with one player
 ```
 
 The important change is fairness and resending, not simply raising the cap.
@@ -248,8 +248,9 @@ Implemented notes:
 - Prop positions are still represented as `[3]f32` in game/protocol state, but the
   wire payload now quantizes each component to signed 16-bit in a fixed
   `+/-256m` range.
-- This changes `SERVER_PROP_STATE_PAYLOAD_SIZE` from the original `34` bytes to
-  `19` bytes.
+- Linear and angular prop velocities are quantized to signed 16-bit components in
+  a fixed `+/-64m/s` or radians/s range. This changes
+  `SERVER_PROP_STATE_PAYLOAD_SIZE` from the original `34` bytes to `31` bytes.
 - The fixed position range matches the current map scale assumptions. If larger
   maps need dynamic bounds later, make the quantization range part of map/session
   metadata before shipping those maps.
