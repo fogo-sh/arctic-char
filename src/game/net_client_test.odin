@@ -84,6 +84,47 @@ test_net_client_apply_snapshot_rejects_stale_sequence :: proc(t: ^testing.T) {
 }
 
 @(test)
+test_net_client_apply_snapshot_accepts_out_of_order_clusters_from_same_sequence :: proc(t: ^testing.T) {
+	net := GameNetClient{local_player_id = LOCAL_PLAYER_ID}
+	scene := test_net_scene()
+	defer delete(scene.players)
+	defer delete(scene.objects)
+	scene.objects = make([dynamic]Object, 0, MAX_OBJECTS)
+
+	prop_cluster := protocol.Server_Snapshot{sequence = 3, cluster_index = 1, server_tick = 20, prop_count = 1}
+	prop_cluster.props[0] = {net_id = 55, prop_asset_index = 0, position = {5, 0, 0}, rotation = {0, 0, 0, 1}}
+	game_net_client_apply_snapshot(&net, &scene, prop_cluster)
+
+	player_cluster := protocol.Server_Snapshot{sequence = 3, cluster_index = 0, server_tick = 20, player_count = 1, last_processed_user_cmd = 7}
+	player_cluster.players[0] = {player_id = 2, position = {2, 0, 0}, ground_normal = {0, 1, 0}}
+	game_net_client_apply_snapshot(&net, &scene, player_cluster)
+
+	testing.expect(t, scene_object_by_net_id(&scene, 55) != nil, "out-of-order prop cluster should apply")
+	player := scene_player_record(&scene, 2)
+	testing.expect(t, player != nil, "later-arriving player cluster from same sequence should not be dropped as stale")
+	testing.expect_value(t, net.last_server_acked_command, u32(7))
+}
+
+@(test)
+test_net_client_apply_snapshot_rejects_duplicate_cluster :: proc(t: ^testing.T) {
+	net := GameNetClient{local_player_id = LOCAL_PLAYER_ID}
+	scene := test_net_scene()
+	defer delete(scene.players)
+
+	first := protocol.Server_Snapshot{sequence = 4, cluster_index = 0, server_tick = 10, player_count = 1}
+	first.players[0] = {player_id = 2, position = {1, 0, 0}}
+	game_net_client_apply_snapshot(&net, &scene, first)
+
+	duplicate := protocol.Server_Snapshot{sequence = 4, cluster_index = 0, server_tick = 10, player_count = 1}
+	duplicate.players[0] = {player_id = 2, position = {9, 0, 0}}
+	game_net_client_apply_snapshot(&net, &scene, duplicate)
+
+	player := scene_player_record(&scene, 2)
+	testing.expect(t, player != nil, "first cluster should create remote player")
+	testing.expect_value(t, player.remote_samples[0].position, Vec3{1, 0, 0})
+}
+
+@(test)
 test_net_client_loopback_applies_local_authoritative_snapshot :: proc(t: ^testing.T) {
 	local_server := new(NetServer)
 	defer free(local_server)
@@ -258,7 +299,7 @@ test_scene_object_replicated_prop_interpolates_samples :: proc(t: ^testing.T) {
 }
 
 @(test)
-test_net_server_prop_delta_skips_unchanged_known_prop_until_refresh :: proc(t: ^testing.T) {
+test_net_server_prop_delta_skips_unchanged_sent_prop_until_refresh :: proc(t: ^testing.T) {
 	scene := test_net_scene()
 	defer delete(scene.objects)
 	defer delete(scene.players)
@@ -283,7 +324,7 @@ test_net_server_prop_delta_skips_unchanged_known_prop_until_refresh :: proc(t: ^
 }
 
 @(test)
-test_net_server_prop_delta_sends_removed_known_prop :: proc(t: ^testing.T) {
+test_net_server_prop_delta_sends_removed_sent_prop :: proc(t: ^testing.T) {
 	scene := test_net_scene()
 	defer delete(scene.objects)
 	defer delete(scene.players)
@@ -292,13 +333,36 @@ test_net_server_prop_delta_sends_removed_known_prop :: proc(t: ^testing.T) {
 	defer free(server)
 	server^ = {scene = &scene, server_tick = 1}
 	session: NetServerSession
-	session.known_props[0] = {active = true, net_id = 44}
+	session.sent_props[0] = {active = true, net_id = 44}
 	snapshot: protocol.Server_Snapshot
 
 	net_server_add_prop_delta(server, &session, &snapshot)
 	testing.expect_value(t, snapshot.removed_prop_count, u16(1))
 	testing.expect_value(t, snapshot.removed_prop_ids[0], protocol.NetId(44))
-	testing.expect(t, !session.known_props[0].active, "removed prop should clear known state")
+	testing.expect(t, session.sent_props[0].active, "removed prop should keep sent state as a tombstone")
+	testing.expect(t, session.sent_props[0].pending_removal, "removed prop should remain a pending tombstone")
+}
+
+@(test)
+test_net_server_prop_delta_keeps_removed_tombstones_when_packet_budget_fills :: proc(t: ^testing.T) {
+	scene := test_net_scene()
+	defer delete(scene.objects)
+	defer delete(scene.players)
+	scene.objects = make([dynamic]Object, 0, MAX_OBJECTS)
+	server := new(NetServer)
+	defer free(server)
+	server^ = {scene = &scene, server_tick = 1}
+	session: NetServerSession
+	for i in 0..<protocol.MAX_REMOVED_PROPS + 1 {
+		session.sent_props[i] = {active = true, net_id = protocol.NetId(u32(i + 1))}
+	}
+	snapshot: protocol.Server_Snapshot
+
+	more_pending := net_server_add_prop_delta(server, &session, &snapshot)
+
+	testing.expect(t, more_pending, "one removal should remain pending after the per-packet removal array fills")
+	testing.expect_value(t, snapshot.removed_prop_count, u16(protocol.MAX_REMOVED_PROPS))
+	testing.expect(t, session.sent_props[protocol.MAX_REMOVED_PROPS].pending_removal, "overflow removal should stay pending for a later cluster")
 }
 
 @(test)
@@ -342,11 +406,11 @@ test_net_server_prop_delta_round_robins_more_than_one_snapshot_of_props :: proc(
 	testing.expect_value(t, first_snapshot.prop_count, u16(protocol.MAX_SNAPSHOT_PROPS))
 	testing.expect_value(t, second_snapshot.prop_count, u16(16))
 	testing.expect_value(t, second_snapshot.props[0].net_id, protocol.NetId(protocol.MAX_SNAPSHOT_PROPS + 1))
-	testing.expect(t, net_server_known_prop(&session, protocol.NetId(PROP_COUNT)) != nil, "known prop table should store props beyond one packet budget")
+	testing.expect(t, net_server_sent_prop(&session, protocol.NetId(PROP_COUNT)) != nil, "sent prop table should store props beyond one packet budget")
 }
 
 @(test)
-test_net_server_prop_delta_continues_after_packet_budget_with_dirty_known_props :: proc(t: ^testing.T) {
+test_net_server_prop_delta_continues_after_packet_budget_with_dirty_sent_props :: proc(t: ^testing.T) {
 	scene := test_net_scene()
 	defer delete(scene.objects)
 	defer delete(scene.players)
@@ -378,8 +442,12 @@ test_net_server_prop_delta_continues_after_packet_budget_with_dirty_known_props 
 @(test)
 test_net_server_snapshot_prop_budget_targets_mtu_sized_packets :: proc(t: ^testing.T) {
 	snapshot := protocol.Server_Snapshot{player_count = 1}
-	budget := net_server_snapshot_prop_budget(snapshot)
-	packet_bytes := protocol.HEADER_SIZE + protocol.SERVER_SNAPSHOT_HEADER_PAYLOAD_SIZE + protocol.SERVER_PLAYER_STATE_PAYLOAD_SIZE + int(budget) * protocol.SERVER_PROP_STATE_PAYLOAD_SIZE
+	budget := 0
+	for protocol.server_snapshot_can_add_prop(snapshot, NET_SERVER_SNAPSHOT_TARGET_BYTES) {
+		snapshot.prop_count += 1
+		budget += 1
+	}
+	packet_bytes := protocol.server_snapshot_packet_size(snapshot)
 
 	testing.expect(t, budget > 0, "snapshot should reserve some prop budget")
 	testing.expect(t, packet_bytes <= NET_SERVER_SNAPSHOT_TARGET_BYTES, "snapshot prop budget should stay within target bytes")

@@ -18,7 +18,7 @@ USER_CMDS_HEADER_PAYLOAD_SIZE :: 1
 MAX_USER_CMDS_PER_PACKET :: 8
 SERVER_PLAYER_STATE_PAYLOAD_SIZE :: 49
 SERVER_PROP_STATE_PAYLOAD_SIZE :: 19
-SERVER_SNAPSHOT_HEADER_PAYLOAD_SIZE :: 18
+SERVER_SNAPSHOT_HEADER_PAYLOAD_SIZE :: 19
 SERVER_REMOVED_PROP_PAYLOAD_SIZE :: 4
 MAX_SNAPSHOT_PLAYERS :: 32
 MAX_SNAPSHOT_PROPS :: 64
@@ -105,6 +105,7 @@ Server_Prop_State :: struct {
 Server_Snapshot :: struct {
 	server_tick: u32,
 	sequence:    u32,
+	cluster_index: u8,
 	last_processed_user_cmd: u32,
 	player_count: u16,
 	prop_count:   u16,
@@ -262,7 +263,7 @@ write_server_snapshot :: proc(buffer: []byte, snapshot: Server_Snapshot) -> (pac
 	if snapshot.player_count > MAX_SNAPSHOT_PLAYERS || snapshot.prop_count > MAX_SNAPSHOT_PROPS || snapshot.removed_prop_count > MAX_REMOVED_PROPS {
 		return nil, false
 	}
-	payload_length := SERVER_SNAPSHOT_HEADER_PAYLOAD_SIZE + int(snapshot.player_count) * SERVER_PLAYER_STATE_PAYLOAD_SIZE + int(snapshot.prop_count) * SERVER_PROP_STATE_PAYLOAD_SIZE + int(snapshot.removed_prop_count) * SERVER_REMOVED_PROP_PAYLOAD_SIZE
+	payload_length := server_snapshot_payload_size(snapshot)
 	total_length := HEADER_SIZE + payload_length
 	if len(buffer) < total_length {
 		return nil, false
@@ -277,6 +278,7 @@ write_server_snapshot :: proc(buffer: []byte, snapshot: Server_Snapshot) -> (pac
 	}) or_return
 	write_u32(&w, snapshot.server_tick) or_return
 	write_u32(&w, snapshot.sequence) or_return
+	write_u8(&w, snapshot.cluster_index) or_return
 	write_u32(&w, snapshot.last_processed_user_cmd) or_return
 	write_u16(&w, snapshot.player_count) or_return
 	write_u16(&w, snapshot.prop_count) or_return
@@ -291,6 +293,28 @@ write_server_snapshot :: proc(buffer: []byte, snapshot: Server_Snapshot) -> (pac
 		write_u32(&w, u32(snapshot.removed_prop_ids[i])) or_return
 	}
 	return writer_bytes(&w), w.err == .None
+}
+
+server_snapshot_payload_size :: proc(snapshot: Server_Snapshot) -> int {
+	return SERVER_SNAPSHOT_HEADER_PAYLOAD_SIZE + int(snapshot.player_count) * SERVER_PLAYER_STATE_PAYLOAD_SIZE + int(snapshot.prop_count) * SERVER_PROP_STATE_PAYLOAD_SIZE + int(snapshot.removed_prop_count) * SERVER_REMOVED_PROP_PAYLOAD_SIZE
+}
+
+server_snapshot_packet_size :: proc(snapshot: Server_Snapshot) -> int {
+	return HEADER_SIZE + server_snapshot_payload_size(snapshot)
+}
+
+server_snapshot_can_add_removed_prop :: proc(snapshot: Server_Snapshot, target_bytes: int) -> bool {
+	if snapshot.removed_prop_count >= MAX_REMOVED_PROPS {
+		return false
+	}
+	return server_snapshot_packet_size(snapshot) + SERVER_REMOVED_PROP_PAYLOAD_SIZE <= target_bytes
+}
+
+server_snapshot_can_add_prop :: proc(snapshot: Server_Snapshot, target_bytes: int) -> bool {
+	if snapshot.prop_count >= MAX_SNAPSHOT_PROPS {
+		return false
+	}
+	return server_snapshot_packet_size(snapshot) + SERVER_PROP_STATE_PAYLOAD_SIZE <= target_bytes
 }
 
 parse_header :: proc(packet: []byte) -> (header: Header, err: Parse_Error) {
@@ -416,6 +440,8 @@ parse_server_snapshot_payload :: proc(packet: []byte, header: Header) -> (snapsh
 	snapshot.server_tick, ok = read_u32(&r)
 	if !ok do return {}, .Bad_Payload
 	snapshot.sequence, ok = read_u32(&r)
+	if !ok do return {}, .Bad_Payload
+	snapshot.cluster_index, ok = read_u8(&r)
 	if !ok do return {}, .Bad_Payload
 	snapshot.last_processed_user_cmd, ok = read_u32(&r)
 	if !ok do return {}, .Bad_Payload

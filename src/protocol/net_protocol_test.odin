@@ -200,7 +200,7 @@ test_user_cmds_reject_payload_length_mismatch :: proc(t: ^testing.T) {
 @(test)
 test_server_snapshot_round_trips :: proc(t: ^testing.T) {
 	buffer: [MAX_PACKET_SIZE]byte
-	written := Server_Snapshot{server_tick = 120, sequence = 4, last_processed_user_cmd = 43, player_count = 2, prop_count = 1, removed_prop_count = 1}
+	written := Server_Snapshot{server_tick = 120, sequence = 4, cluster_index = 2, last_processed_user_cmd = 43, player_count = 2, prop_count = 1, removed_prop_count = 1}
 	written.players[0] = Server_Player_State{
 		player_id = 3,
 		position = {1, 2, 3},
@@ -234,6 +234,7 @@ test_server_snapshot_round_trips :: proc(t: ^testing.T) {
 	testing.expect_value(t, parsed.header.kind, Packet_Kind.Server_Snapshot)
 	testing.expect_value(t, parsed.snapshot.server_tick, written.server_tick)
 	testing.expect_value(t, parsed.snapshot.sequence, written.sequence)
+	testing.expect_value(t, parsed.snapshot.cluster_index, written.cluster_index)
 	testing.expect_value(t, parsed.snapshot.last_processed_user_cmd, written.last_processed_user_cmd)
 	testing.expect_value(t, parsed.snapshot.player_count, written.player_count)
 	testing.expect_value(t, parsed.snapshot.prop_count, written.prop_count)
@@ -281,6 +282,7 @@ test_server_snapshot_rejects_invalid_player_count :: proc(t: ^testing.T) {
 	testing.expect(t, write_header(&w, Header{magic = PROTOCOL_MAGIC, version = PROTOCOL_VERSION, kind = .Server_Snapshot, payload_length = SERVER_SNAPSHOT_HEADER_PAYLOAD_SIZE}))
 	testing.expect(t, write_u32(&w, 1))
 	testing.expect(t, write_u32(&w, 2))
+	testing.expect(t, write_u8(&w, 0))
 	testing.expect(t, write_u32(&w, 3))
 	testing.expect(t, write_u16(&w, MAX_SNAPSHOT_PLAYERS + 1))
 	testing.expect(t, write_u16(&w, 0))
@@ -302,6 +304,7 @@ test_server_snapshot_rejects_invalid_prop_count :: proc(t: ^testing.T) {
 	testing.expect(t, write_header(&w, Header{magic = PROTOCOL_MAGIC, version = PROTOCOL_VERSION, kind = .Server_Snapshot, payload_length = SERVER_SNAPSHOT_HEADER_PAYLOAD_SIZE}))
 	testing.expect(t, write_u32(&w, 1))
 	testing.expect(t, write_u32(&w, 2))
+	testing.expect(t, write_u8(&w, 0))
 	testing.expect(t, write_u32(&w, 3))
 	testing.expect(t, write_u16(&w, 0))
 	testing.expect(t, write_u16(&w, MAX_SNAPSHOT_PROPS + 1))
@@ -323,6 +326,7 @@ test_server_snapshot_rejects_invalid_removed_prop_count :: proc(t: ^testing.T) {
 	testing.expect(t, write_header(&w, Header{magic = PROTOCOL_MAGIC, version = PROTOCOL_VERSION, kind = .Server_Snapshot, payload_length = SERVER_SNAPSHOT_HEADER_PAYLOAD_SIZE}))
 	testing.expect(t, write_u32(&w, 1))
 	testing.expect(t, write_u32(&w, 2))
+	testing.expect(t, write_u8(&w, 0))
 	testing.expect(t, write_u32(&w, 3))
 	testing.expect(t, write_u16(&w, 0))
 	testing.expect(t, write_u16(&w, 0))

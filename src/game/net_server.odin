@@ -34,15 +34,17 @@ NetServerSession :: struct {
 	has_last_input_cmd: bool,
 	last_processed_cmd_sequence: u32,
 	last_logged_command: u32,
-	known_props: [NET_SERVER_KNOWN_PROPS]NetServerKnownProp,
+	sent_props: [NET_SERVER_KNOWN_PROPS]NetServerSentProp,
 	prop_snapshot_cursor: int,
 }
 
-NetServerKnownProp :: struct {
+NetServerSentProp :: struct {
 	active: bool,
 	net_id: protocol.NetId,
 	state: protocol.Server_Prop_State,
 	last_sent_tick: u32,
+	pending_removal: bool,
+	last_removal_sent_tick: u32,
 }
 
 NetServerSnapshotStats :: struct {
@@ -75,8 +77,8 @@ NetServer :: struct {
 	outgoing_send: u32,
 }
 
-net_server_create :: proc(scene: ^Scene, map_name: string, content_id: u32) -> NetServer {
-	return {scene = scene, map_name = map_name, content_id = content_id}
+net_server_init :: proc(server: ^NetServer, scene: ^Scene, map_name: string, content_id: u32) {
+	server^ = {scene = scene, map_name = map_name, content_id = content_id}
 }
 
 net_server_connect :: proc(server: ^NetServer, peer: NetServerPeer) {
@@ -205,23 +207,25 @@ net_server_queue_packet :: proc(server: ^NetServer, peer: NetServerPeer, channel
 
 net_server_add_session :: proc(server: ^NetServer, peer: NetServerPeer) {
 	if index := net_server_find_session(server, peer); index >= 0 {
-		server.sessions[index].accepted = false
-		server.sessions[index].active = true
-		server.sessions[index].peer = peer
-		server.sessions[index].player_id = u32(index + 1)
+		net_server_reset_session(&server.sessions[index], peer, u32(index + 1), false)
 		return
 	}
 	for i in 0..<len(server.sessions) {
 		if !server.sessions[i].active {
-			server.sessions[i] = NetServerSession{
-				peer = peer,
-				active = true,
-				player_id = u32(i + 1),
-			}
+			net_server_reset_session(&server.sessions[i], peer, u32(i + 1), false)
 			return
 		}
 	}
 	log.warnf("No free server session slot for peer=%v", peer)
+}
+
+net_server_reset_session :: proc(session: ^NetServerSession, peer: NetServerPeer, player_id: u32, accepted: bool) {
+	session^ = {
+		peer = peer,
+		active = true,
+		accepted = accepted,
+		player_id = player_id,
+	}
 }
 
 net_server_remove_session :: proc(server: ^NetServer, peer: NetServerPeer) {
@@ -233,8 +237,8 @@ net_server_remove_session :: proc(server: ^NetServer, peer: NetServerPeer) {
 net_server_accept_session :: proc(server: ^NetServer, peer: NetServerPeer) -> (player_id: u32, ok: bool) {
 	if index := net_server_find_session(server, peer); index >= 0 {
 		session := &server.sessions[index]
+		net_server_reset_session(session, peer, session.player_id, true)
 		scene_reset_player_to_spawn(server.scene, session.player_id)
-		session.accepted = true
 		return session.player_id, true
 	}
 	return 0, false
@@ -295,16 +299,17 @@ net_server_broadcast_snapshot :: proc(server: ^NetServer) {
 		if !session.active || !session.accepted {
 			continue
 		}
+		snapshot_sequence := server.snapshot_sequence
 		for cluster := 0; cluster < NET_SERVER_MAX_SNAPSHOT_CLUSTERS; cluster += 1 {
-			snapshot := protocol.Server_Snapshot{server_tick = server.server_tick, sequence = server.snapshot_sequence}
+			snapshot := protocol.Server_Snapshot{server_tick = server.server_tick, sequence = snapshot_sequence, cluster_index = u8(cluster)}
 			if cluster == 0 {
 				snapshot = base_snapshot
-				snapshot.sequence = server.snapshot_sequence
+				snapshot.sequence = snapshot_sequence
+				snapshot.cluster_index = u8(cluster)
 				snapshot.last_processed_user_cmd = session.last_processed_cmd_sequence
 			}
 
-			prop_budget := net_server_snapshot_prop_budget(snapshot)
-			more_props_pending := net_server_add_prop_delta(server, &session, &snapshot, prop_budget)
+			more_props_pending := net_server_add_prop_delta(server, &session, &snapshot, NET_SERVER_SNAPSHOT_TARGET_BYTES)
 			if cluster > 0 && snapshot.prop_count == 0 && snapshot.removed_prop_count == 0 {
 				break
 			}
@@ -321,7 +326,6 @@ net_server_broadcast_snapshot :: proc(server: ^NetServer) {
 			stats.byte_count += len(packet)
 			stats.prop_count += int(snapshot.prop_count)
 			stats.removed_prop_count += int(snapshot.removed_prop_count)
-			server.snapshot_sequence += 1
 			if !more_props_pending {
 				break
 			}
@@ -329,35 +333,33 @@ net_server_broadcast_snapshot :: proc(server: ^NetServer) {
 				stats.cluster_limit_deferred_sessions += 1
 			}
 		}
+		server.snapshot_sequence += 1
 	}
 	server.snapshot_stats = stats
 }
 
-net_server_snapshot_prop_budget :: proc(snapshot: protocol.Server_Snapshot) -> u16 {
-	fixed_bytes := protocol.HEADER_SIZE + protocol.SERVER_SNAPSHOT_HEADER_PAYLOAD_SIZE + int(snapshot.player_count) * protocol.SERVER_PLAYER_STATE_PAYLOAD_SIZE + int(snapshot.removed_prop_count) * protocol.SERVER_REMOVED_PROP_PAYLOAD_SIZE
-	if fixed_bytes >= NET_SERVER_SNAPSHOT_TARGET_BYTES {
-		return 1
-	}
-	budget := (NET_SERVER_SNAPSHOT_TARGET_BYTES - fixed_bytes) / protocol.SERVER_PROP_STATE_PAYLOAD_SIZE
-	return u16(clamp(budget, 1, protocol.MAX_SNAPSHOT_PROPS))
-}
-
-net_server_add_prop_delta :: proc(server: ^NetServer, session: ^NetServerSession, snapshot: ^protocol.Server_Snapshot, max_props := u16(protocol.MAX_SNAPSHOT_PROPS)) -> (more_props_pending: bool) {
-	prop_limit := max_props
-	if max_props > protocol.MAX_SNAPSHOT_PROPS {
-		prop_limit = protocol.MAX_SNAPSHOT_PROPS
-	}
-	for &known in session.known_props {
-		if !known.active {
+net_server_add_prop_delta :: proc(server: ^NetServer, session: ^NetServerSession, snapshot: ^protocol.Server_Snapshot, target_bytes := protocol.MAX_PACKET_SIZE) -> (more_props_pending: bool) {
+	for &sent in session.sent_props {
+		if !sent.active {
 			continue
 		}
-		if !net_server_scene_has_replicated_prop(server.scene, known.net_id) {
-			if snapshot.removed_prop_count < protocol.MAX_REMOVED_PROPS {
-				snapshot.removed_prop_ids[snapshot.removed_prop_count] = known.net_id
-				snapshot.removed_prop_count += 1
-			}
-			known = {}
+		if !net_server_scene_has_replicated_prop(server.scene, sent.net_id) {
+			sent.pending_removal = true
 		}
+	}
+	for &sent in session.sent_props {
+		if !sent.active || !sent.pending_removal {
+			continue
+		}
+		if sent.last_removal_sent_tick == server.server_tick {
+			continue
+		}
+		if !protocol.server_snapshot_can_add_removed_prop(snapshot^, target_bytes) {
+			return true
+		}
+		snapshot.removed_prop_ids[snapshot.removed_prop_count] = sent.net_id
+		snapshot.removed_prop_count += 1
+		sent.last_removal_sent_tick = server.server_tick
 	}
 
 	object_count := len(server.scene.objects)
@@ -376,22 +378,22 @@ net_server_add_prop_delta :: proc(server: ^NetServer, session: ^NetServerSession
 		if !net_server_object_replicates_as_prop(object) {
 			continue
 		}
-		if snapshot.prop_count >= prop_limit {
+		if !protocol.server_snapshot_can_add_prop(snapshot^, target_bytes) {
 			session.prop_snapshot_cursor = object_index
 			return true
 		}
 		state, awake := net_server_prop_state_from_object(object)
-		known := net_server_known_prop(session, state.net_id)
-		should_send := known == nil || awake || server.server_tick - known.last_sent_tick >= NET_SERVER_PROP_REFRESH_TICKS
-		if known != nil && !should_send {
-			should_send = net_server_prop_state_changed(known.state, state)
+		sent := net_server_sent_prop(session, state.net_id)
+		should_send := sent == nil || awake || server.server_tick - sent.last_sent_tick >= NET_SERVER_PROP_REFRESH_TICKS
+		if sent != nil && !should_send {
+			should_send = net_server_prop_state_changed(sent.state, state)
 		}
 		if !should_send {
 			continue
 		}
 		snapshot.props[snapshot.prop_count] = state
 		snapshot.prop_count += 1
-		net_server_store_known_prop(session, state, server.server_tick)
+		net_server_store_sent_prop(session, state, server.server_tick)
 		session.prop_snapshot_cursor = (object_index + 1) % object_count
 	}
 	return false
@@ -439,24 +441,26 @@ net_server_prop_state_changed :: proc(a, b: protocol.Server_Prop_State) -> bool 
 	return rotation_delta > NET_SERVER_PROP_ROTATION_EPSILON
 }
 
-net_server_known_prop :: proc(session: ^NetServerSession, net_id: protocol.NetId) -> ^NetServerKnownProp {
-	for &known in session.known_props {
-		if known.active && known.net_id == net_id {
-			return &known
+net_server_sent_prop :: proc(session: ^NetServerSession, net_id: protocol.NetId) -> ^NetServerSentProp {
+	for &sent in session.sent_props {
+		if sent.active && sent.net_id == net_id {
+			return &sent
 		}
 	}
 	return nil
 }
 
-net_server_store_known_prop :: proc(session: ^NetServerSession, state: protocol.Server_Prop_State, server_tick: u32) {
-	if known := net_server_known_prop(session, state.net_id); known != nil {
-		known.state = state
-		known.last_sent_tick = server_tick
+net_server_store_sent_prop :: proc(session: ^NetServerSession, state: protocol.Server_Prop_State, server_tick: u32) {
+	if sent := net_server_sent_prop(session, state.net_id); sent != nil {
+		sent.state = state
+		sent.last_sent_tick = server_tick
+		sent.pending_removal = false
+		sent.last_removal_sent_tick = 0
 		return
 	}
-	for &known in session.known_props {
-		if !known.active {
-			known = {active = true, net_id = state.net_id, state = state, last_sent_tick = server_tick}
+	for &sent in session.sent_props {
+		if !sent.active {
+			sent = {active = true, net_id = state.net_id, state = state, last_sent_tick = server_tick}
 			return
 		}
 	}

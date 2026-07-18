@@ -27,6 +27,7 @@ GameNetClient :: struct {
 	command_accumulator: f32,
 	last_server_acked_command: u32,
 	last_snapshot_sequence: u32,
+	last_snapshot_cluster_mask: u64,
 	has_snapshot:    bool,
 	command_history: [CLIENT_COMMAND_HISTORY]protocol.User_Cmd,
 	prediction_history: [CLIENT_COMMAND_HISTORY]PredictedPlayerState,
@@ -56,7 +57,7 @@ game_net_client_init :: proc(net: ^GameNetClient, config: GameLaunchConfig, scen
 		local_server_scene := new(Scene)
 		local_server_scene^ = scene_create(assets, {})
 		local_server := new(NetServer)
-		local_server^ = net_server_create(local_server_scene, config.map_name, config.content_id)
+		net_server_init(local_server, local_server_scene, config.map_name, config.content_id)
 		net^ = GameNetClient{
 			state = .Disabled,
 			map_name = config.map_name,
@@ -310,12 +311,11 @@ game_net_client_predict_user_cmd :: proc(net: ^GameNetClient, scene: ^Scene, cmd
 }
 
 game_net_client_apply_snapshot :: proc(net: ^GameNetClient, scene: ^Scene, snapshot: protocol.Server_Snapshot) {
-	if net.has_snapshot && snapshot.sequence <= net.last_snapshot_sequence {
+	if !game_net_client_accept_snapshot_cluster(net, snapshot) {
 		return
 	}
 	had_snapshot := net.has_snapshot
 	net.has_snapshot = true
-	net.last_snapshot_sequence = snapshot.sequence
 	desired_render_tick := max(f32(snapshot.server_tick) - f32(REMOTE_INTERPOLATION_DELAY_TICKS), 0)
 	if !had_snapshot || abs(scene.remote_render_tick - desired_render_tick) > f32(REMOTE_INTERPOLATION_DELAY_TICKS) {
 		scene.remote_render_tick = desired_render_tick
@@ -323,24 +323,6 @@ game_net_client_apply_snapshot :: proc(net: ^GameNetClient, scene: ^Scene, snaps
 
 	if snapshot.last_processed_user_cmd > net.last_server_acked_command {
 		net.last_server_acked_command = snapshot.last_processed_user_cmd
-	}
-	for i in 0..<int(snapshot.player_count) {
-		state := snapshot.players[i]
-		if state.player_id == net.local_player_id {
-			game_net_client_reconcile_local_player(net, scene, state, snapshot.last_processed_user_cmd)
-			continue
-		}
-		if state.player_id < len(net.seen_remote_players) && !net.seen_remote_players[state.player_id] {
-			net.seen_remote_players[state.player_id] = true
-			log.infof("Remote player visible local=%d remote=%d", net.local_player_id, state.player_id)
-		}
-		scene_upsert_remote_player_sample(
-			scene,
-			state.player_id,
-			{state.position.x, state.position.y, state.position.z},
-			state.yaw,
-			snapshot.server_tick,
-		)
 	}
 	for i in 0..<int(snapshot.removed_prop_count) {
 		scene_remove_replicated_prop(scene, snapshot.removed_prop_ids[i])
@@ -361,6 +343,44 @@ game_net_client_apply_snapshot :: proc(net: ^GameNetClient, scene: ^Scene, snaps
 			snapshot.server_tick,
 		)
 	}
+	for i in 0..<int(snapshot.player_count) {
+		state := snapshot.players[i]
+		if state.player_id == net.local_player_id {
+			game_net_client_reconcile_local_player(net, scene, state, snapshot.last_processed_user_cmd)
+			continue
+		}
+		if state.player_id < len(net.seen_remote_players) && !net.seen_remote_players[state.player_id] {
+			net.seen_remote_players[state.player_id] = true
+			log.infof("Remote player visible local=%d remote=%d", net.local_player_id, state.player_id)
+		}
+		scene_upsert_remote_player_sample(
+			scene,
+			state.player_id,
+			{state.position.x, state.position.y, state.position.z},
+			state.yaw,
+			snapshot.server_tick,
+		)
+	}
+}
+
+game_net_client_accept_snapshot_cluster :: proc(net: ^GameNetClient, snapshot: protocol.Server_Snapshot) -> bool {
+	if !net.has_snapshot || snapshot.sequence > net.last_snapshot_sequence {
+		net.last_snapshot_sequence = snapshot.sequence
+		net.last_snapshot_cluster_mask = 0
+	} else if snapshot.sequence < net.last_snapshot_sequence {
+		return false
+	}
+
+	cluster_index := int(snapshot.cluster_index)
+	if cluster_index >= 64 {
+		return true
+	}
+	cluster_bit := u64(1) << uint(cluster_index)
+	if (net.last_snapshot_cluster_mask & cluster_bit) != 0 {
+		return false
+	}
+	net.last_snapshot_cluster_mask |= cluster_bit
+	return true
 }
 
 game_net_client_reconcile_local_player :: proc(net: ^GameNetClient, scene: ^Scene, state: protocol.Server_Player_State, ack_sequence: u32) {

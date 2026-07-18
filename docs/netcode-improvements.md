@@ -5,17 +5,17 @@ more robust Source/s&box-style replication model. Keep the implementation small
 and measurable at each step; do not jump straight to a generic networking
 framework.
 
-## Current Problem
+## Original Problem
 
 The plinko map can create many awake dynamic props at once. Around 80 props,
 player updates still arrive, but some prop updates appear to freeze.
 
-The current limits make that expected:
+The original limits made that expected:
 
 - `protocol.MAX_SNAPSHOT_PROPS` is `64`, so one snapshot can carry at most 64 prop
   states.
-- `NetServerSession.known_props` is also sized to `MAX_SNAPSHOT_PROPS`, so each
-  client can only remember 64 known props total.
+- `NetServerSession.known_props` was also sized to `MAX_SNAPSHOT_PROPS`, so each
+  client could only remember 64 attempted prop sends total.
 - `net_server_add_prop_delta` scans `scene.objects` from the beginning every
   snapshot. If the first 64 props remain awake or dirty, later props are skipped
   every time.
@@ -45,7 +45,7 @@ Current packet constants:
 
 - `protocol.MAX_PACKET_SIZE = 4096`
 - `protocol.HEADER_SIZE = 9`
-- `SERVER_SNAPSHOT_HEADER_PAYLOAD_SIZE = 18`
+- `SERVER_SNAPSHOT_HEADER_PAYLOAD_SIZE = 19`
 - `SERVER_PLAYER_STATE_PAYLOAD_SIZE = 49`
 - `SERVER_PROP_STATE_PAYLOAD_SIZE = 19`
 - `SERVER_REMOVED_PROP_PAYLOAD_SIZE = 4`
@@ -53,21 +53,21 @@ Current packet constants:
 Worst-case current snapshot size:
 
 ```text
-9 + 18 + 32*49 + 64*19 + 64*4 = 3067 bytes
+9 + 19 + 32*49 + 64*19 + 64*4 = 3068 bytes
 ```
 
 With one player and no removed props, a 4096-byte packet could fit about 206 prop
 states:
 
 ```text
-floor((4096 - 9 - 18 - 49) / 19) = 206
+floor((4096 - 9 - 19 - 49) / 19) = 206
 ```
 
 Do not treat that as the final target. Large UDP datagrams are fragile. A future
 s&box-style budget should aim for MTU-sized clusters, roughly `1200` bytes:
 
 ```text
-floor((1200 - 9 - 18 - 49) / 19) = 59 props with one player
+floor((1200 - 9 - 19 - 49) / 19) = 59 props with one player
 ```
 
 The important change is fairness and resending, not simply raising the cap.
@@ -81,11 +81,11 @@ props eventually update.
 
 Changes:
 
-- Add a server-side known-prop capacity independent from per-packet prop budget,
+- Add a server-side sent-prop capacity independent from per-packet prop budget,
   for example `NET_SERVER_KNOWN_PROPS :: MAX_OBJECTS` or an explicit smaller cap.
-- Change `NetServerSession.known_props` from
-  `[protocol.MAX_SNAPSHOT_PROPS]NetServerKnownProp` to
-  `[NET_SERVER_KNOWN_PROPS]NetServerKnownProp`.
+- Change the original `NetServerSession.known_props` shape from
+  `[protocol.MAX_SNAPSHOT_PROPS]NetServerKnownProp` to a larger per-session sent
+  prop table.
 - Add `NetServerSession.prop_snapshot_cursor: int`.
 - Change `net_server_add_prop_delta` to walk replicated props round-robin from the
   session cursor instead of always starting at object index 0.
@@ -95,7 +95,7 @@ Changes:
 
 Implemented notes:
 
-- `NET_SERVER_KNOWN_PROPS` now separates per-client known prop storage from the
+- `NET_SERVER_KNOWN_PROPS` now separates per-client sent prop storage from the
   per-packet `protocol.MAX_SNAPSHOT_PROPS` budget.
 - `NetServerSession.prop_snapshot_cursor` now tracks where each client should
   resume prop consideration.
@@ -118,7 +118,7 @@ Tests:
 - Force them to be send-worthy.
 - Call `net_server_add_prop_delta` across several snapshots.
 - Assert net ids beyond the first 64 eventually appear.
-- Assert known prop state can store more than 64 distinct props.
+- Assert sent prop state can store more than 64 distinct props.
 
 ## Step 2: Visibility And Sleep Discipline
 
@@ -128,9 +128,9 @@ Changes:
 
 - Treat Box3D sleep/awake state as a first-class replication signal.
 - Continue skipping unchanged sleeping props.
-- Add periodic refresh for sleeping known props at a low rate.
+- Add periodic refresh for sleeping sent props at a low rate.
 - Add debug counters for total replicated props, awake props, sent props, deferred
-  props, known prop slots used, and snapshot bytes.
+  props, sent prop slots used, and snapshot bytes.
 - Later, add simple distance or camera/PVS filtering per client before generic
   interest management.
 
@@ -157,14 +157,18 @@ Implemented notes:
 
 - `NET_SERVER_SNAPSHOT_TARGET_BYTES` currently targets `1200` byte snapshot
   packets.
-- `net_server_snapshot_prop_budget` computes how many prop states fit after the
-  snapshot header, player states, and removed-prop ids already in that packet.
+- Protocol-owned helpers compute snapshot payload/packet sizes and whether adding
+  a prop/removal would fit a target byte budget.
+- `net_server_add_prop_delta` uses those helpers while appending removals and live
+  props, so removals and props share the same packet target.
 - `protocol.MAX_SNAPSHOT_PROPS` remains the hard array safety cap, but normal prop
   packing now uses the byte target.
 - `NetServerSnapshotStats` records per-tick snapshot packet count, byte count, prop
   count, removed-prop count, and whether any client still had deferred props after
   hitting the cluster limit.
-- Explicit protocol-level packet size helpers are still pending.
+- Removed-prop tombstones are kept per session and retried on later snapshot ticks;
+  within one tick, tombstone scheduling skips removals already sent so overflow can
+  spill into later clusters.
 
 This is the point where local stress maps should become intentionally lossy but
 fair: every important prop eventually updates, but not necessarily every snapshot.
@@ -189,17 +193,19 @@ Implemented notes:
 
 - `NET_SERVER_MAX_SNAPSHOT_CLUSTERS` currently allows up to four bounded snapshot
   packets per client per snapshot tick.
-- Each cluster is still a normal `Server_Snapshot` packet with its own snapshot
-  sequence, so the client can parse it without a new fragment protocol.
+- Each cluster is still a normal `Server_Snapshot` packet, but clusters from the
+  same server snapshot share `sequence` and carry a `cluster_index`.
 - The first cluster carries player state and the client's last processed command.
 - Later clusters carry additional prop deltas only.
+- The client tracks which clusters of the latest sequence were already applied, so
+  out-of-order clusters from the same snapshot no longer cause cluster 0 player
+  state/input ACKs to be dropped as stale.
 - The prop round-robin cursor continues across clusters, so large active prop sets
   can use more per-tick bandwidth without one oversized datagram.
 - The prop scheduler now reports whether more send-worthy props remain, so the
   server stops without an empty probe cluster when all prop work fit and records
   when the cluster limit deferred more work.
-- Explicit cluster part metadata is still deferred until ACK/delta snapshots need
-  it.
+- Full ACK-backed baseline semantics are still deferred to Step 5.
 
 This copies the useful s&box idea: many changed objects create more bounded
 clusters, not one oversized datagram.

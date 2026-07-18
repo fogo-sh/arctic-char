@@ -72,7 +72,7 @@ run_server :: proc(host: ^transport.Host, options: Options, scene: ^game.Scene) 
 	receive_buffer: [protocol.MAX_PACKET_SIZE]byte
 	server := new(game.NetServer)
 	defer free(server)
-	server^ = game.net_server_create(scene, options.map_name, options.content_id)
+	game.net_server_init(server, scene, options.map_name, options.content_id)
 	started := time.now()
 	last_tick_time := started
 	accumulator := f32(0)
