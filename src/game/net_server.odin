@@ -9,6 +9,7 @@ import b3 "vendor:box3d"
 NET_SERVER_MAX_CLIENTS :: 32
 NET_SERVER_PENDING_USER_CMDS :: 64
 NET_SERVER_OUTGOING_PACKETS :: 128
+NET_SERVER_KNOWN_PROPS :: MAX_OBJECTS
 NET_SERVER_COMMAND_LOG_INTERVAL :: u32(60)
 NET_SERVER_PROP_REFRESH_TICKS :: u32(64)
 NET_SERVER_PROP_POSITION_EPSILON :: f32(0.01)
@@ -31,7 +32,8 @@ NetServerSession :: struct {
 	has_last_input_cmd: bool,
 	last_processed_cmd_sequence: u32,
 	last_logged_command: u32,
-	known_props: [protocol.MAX_SNAPSHOT_PROPS]NetServerKnownProp,
+	known_props: [NET_SERVER_KNOWN_PROPS]NetServerKnownProp,
+	prop_snapshot_cursor: int,
 }
 
 NetServerKnownProp :: struct {
@@ -309,11 +311,27 @@ net_server_add_prop_delta :: proc(server: ^NetServer, session: ^NetServerSession
 		}
 	}
 
-	for &object in server.scene.objects {
-		if !net_server_object_replicates_as_prop(&object) || snapshot.prop_count >= protocol.MAX_SNAPSHOT_PROPS {
+	object_count := len(server.scene.objects)
+	if object_count == 0 {
+		return
+	}
+
+	start_cursor := session.prop_snapshot_cursor
+	if start_cursor < 0 || start_cursor >= object_count {
+		start_cursor = 0
+	}
+	session.prop_snapshot_cursor = start_cursor
+	for offset in 0..<object_count {
+		object_index := (start_cursor + offset) % object_count
+		object := &server.scene.objects[object_index]
+		if !net_server_object_replicates_as_prop(object) {
 			continue
 		}
-		state, awake := net_server_prop_state_from_object(&object)
+		if snapshot.prop_count >= protocol.MAX_SNAPSHOT_PROPS {
+			session.prop_snapshot_cursor = object_index
+			return
+		}
+		state, awake := net_server_prop_state_from_object(object)
 		known := net_server_known_prop(session, state.net_id)
 		should_send := known == nil || awake || server.server_tick - known.last_sent_tick >= NET_SERVER_PROP_REFRESH_TICKS
 		if known != nil && !should_send {
@@ -325,6 +343,7 @@ net_server_add_prop_delta :: proc(server: ^NetServer, session: ^NetServerSession
 		snapshot.props[snapshot.prop_count] = state
 		snapshot.prop_count += 1
 		net_server_store_known_prop(session, state, server.server_tick)
+		session.prop_snapshot_cursor = (object_index + 1) % object_count
 	}
 }
 

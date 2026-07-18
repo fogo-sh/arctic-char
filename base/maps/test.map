@@ -1244,15 +1244,15 @@
 "model" "models/suzanne.glb"
 "origin" "-456 -200 304"
 "interval" "0.01"
-"count" "1"
+"count" "100"
 }
 // entity 7
 {
 "classname" "spawner_prop"
 "model" "models/ballish.glb"
 "origin" "-500 -4 124"
-"interval" "0.5"
-"count" "100"
+"interval" "0.25"
+"count" "1000"
 }
 // entity 8
 {

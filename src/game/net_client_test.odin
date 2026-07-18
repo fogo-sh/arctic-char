@@ -319,6 +319,63 @@ test_net_server_prop_delta_skips_client_only_prop :: proc(t: ^testing.T) {
 }
 
 @(test)
+test_net_server_prop_delta_round_robins_more_than_one_snapshot_of_props :: proc(t: ^testing.T) {
+	scene := test_net_scene()
+	defer delete(scene.objects)
+	defer delete(scene.players)
+	scene.objects = make([dynamic]Object, 0, MAX_OBJECTS)
+	PROP_COUNT :: protocol.MAX_SNAPSHOT_PROPS + 16
+	for i in 0..<PROP_COUNT {
+		net_id := protocol.NetId(u32(i + 1))
+		append(&scene.objects, Object{id = ObjectId(u32(i + 1)), kind = .Prop, transform = {position = {f32(i), 0, 0}}, render_rotation = linalg.QUATERNIONF32_IDENTITY, replica = {net_id = net_id, kind = .Prop, authority = .ServerAuthoritative}})
+	}
+	server := new(NetServer)
+	defer free(server)
+	server^ = {scene = &scene, server_tick = 1}
+	session: NetServerSession
+	first_snapshot: protocol.Server_Snapshot
+	second_snapshot: protocol.Server_Snapshot
+
+	net_server_add_prop_delta(server, &session, &first_snapshot)
+	net_server_add_prop_delta(server, &session, &second_snapshot)
+
+	testing.expect_value(t, first_snapshot.prop_count, u16(protocol.MAX_SNAPSHOT_PROPS))
+	testing.expect_value(t, second_snapshot.prop_count, u16(16))
+	testing.expect_value(t, second_snapshot.props[0].net_id, protocol.NetId(protocol.MAX_SNAPSHOT_PROPS + 1))
+	testing.expect(t, net_server_known_prop(&session, protocol.NetId(PROP_COUNT)) != nil, "known prop table should store props beyond one packet budget")
+}
+
+@(test)
+test_net_server_prop_delta_continues_after_packet_budget_with_dirty_known_props :: proc(t: ^testing.T) {
+	scene := test_net_scene()
+	defer delete(scene.objects)
+	defer delete(scene.players)
+	scene.objects = make([dynamic]Object, 0, MAX_OBJECTS)
+	PROP_COUNT :: protocol.MAX_SNAPSHOT_PROPS + 8
+	for i in 0..<PROP_COUNT {
+		net_id := protocol.NetId(u32(i + 1))
+		append(&scene.objects, Object{id = ObjectId(u32(i + 1)), kind = .Prop, transform = {position = {f32(i), 0, 0}}, render_rotation = linalg.QUATERNIONF32_IDENTITY, replica = {net_id = net_id, kind = .Prop, authority = .ServerAuthoritative}})
+	}
+	server := new(NetServer)
+	defer free(server)
+	server^ = {scene = &scene, server_tick = 1}
+	session: NetServerSession
+	snapshot: protocol.Server_Snapshot
+
+	net_server_add_prop_delta(server, &session, &snapshot)
+	for &object in scene.objects[:protocol.MAX_SNAPSHOT_PROPS] {
+		object.transform.position.x += 1
+	}
+	server.server_tick += 1
+	snapshot = {}
+	net_server_add_prop_delta(server, &session, &snapshot)
+
+	testing.expect_value(t, snapshot.prop_count, u16(protocol.MAX_SNAPSHOT_PROPS))
+	testing.expect_value(t, snapshot.props[0].net_id, protocol.NetId(protocol.MAX_SNAPSHOT_PROPS + 1))
+	testing.expect_value(t, snapshot.props[7].net_id, protocol.NetId(PROP_COUNT))
+}
+
+@(test)
 test_scene_player_interpolates_remote_samples :: proc(t: ^testing.T) {
 	scene := test_net_scene()
 	defer delete(scene.players)
