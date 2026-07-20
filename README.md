@@ -42,6 +42,7 @@ Other useful commands:
 python cli.py build
 python cli.py build-release
 python cli.py test
+python cli.py odin-doc
 python cli.py macos-app
 python cli.py run
 python cli.py server-build
@@ -81,6 +82,10 @@ reconciles against the authoritative server scene.
 `python cli.py test` runs Odin unit tests for pure package logic. The smoke test
 is separate: it launches the real app for a fixed duration and catches startup or
 runtime crashes, but it does not assert gameplay state by itself.
+
+`python cli.py odin-doc` builds the canonical local HTML docs site at
+`build/docs/index.html`. It uses Odin's `.odin-doc` output, converts that data to
+`docs.json`, and renders it with a small vanilla JS viewer.
 
 Run a different game directory before falling back to `base`:
 

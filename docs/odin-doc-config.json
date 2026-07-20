@@ -1,0 +1,9 @@
+{
+  "collections": {
+    "arctic-char": {
+      "source_url": "https://github.com/jackharrhy/arctic-char/blob/main",
+      "root_path": "../..",
+      "include_prefixes": ["src/"]
+    }
+  }
+}

@@ -13,6 +13,7 @@ import platform
 import signal
 import shutil
 import subprocess
+import sys
 import time
 from pathlib import Path
 
@@ -117,6 +118,7 @@ def main() -> int:
     sub.add_parser("sdl-build", help="Debug build of the SDL3 GPU game and server")
     sub.add_parser("build-release", help="Release build and copy base assets")
     sub.add_parser("test", help="Run Odin unit tests")
+    sub.add_parser("odin-doc", help="Generate canonical HTML docs under build/docs")
     sub.add_parser("macos-app", help="Build a macOS .app bundle for Xcode Metal capture")
     run_parser = sub.add_parser("run", help="Run the normal executable")
     run_parser.add_argument("args", nargs=argparse.REMAINDER)
@@ -173,6 +175,7 @@ def main() -> int:
         "sdl-build": cmd_build,
         "build-release": cmd_build_release,
         "test": cmd_test,
+        "odin-doc": cmd_odin_doc,
         "macos-app": cmd_macos_app,
         "run": lambda: cmd_run(args.args),
         "sdl-run": lambda: cmd_run(args.args),
@@ -285,6 +288,10 @@ def cmd_build_and_run(extra_args: list[str]) -> None:
 def cmd_test() -> None:
     for package in ODIN_TEST_PACKAGES:
         run(["odin", "test", package, "-debug"])
+
+
+def cmd_odin_doc() -> None:
+    run([sys.executable, ROOT / "tools" / "docs_build.py"])
 
 
 def cmd_macos_app() -> None:
